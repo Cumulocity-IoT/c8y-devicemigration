@@ -4,6 +4,11 @@ TESTS_DIR := tests
 VENDOR    := $(TESTS_DIR)/vendor
 COMMANDS  := commands/export commands/import
 
+# Pinned so local and CI agree. Older shellcheck (e.g. Ubuntu's 0.9.0) has a
+# cruder reachability analysis and floods the generated docopt parser with
+# SC2317; newer versions understand its indirect dispatch.
+SHELLCHECK_VERSION   := 0.11.0
+
 BATS_VERSION         := v1.11.1
 BATS_SUPPORT_VERSION := v0.3.0
 BATS_ASSERT_VERSION  := v2.1.0
@@ -36,8 +41,12 @@ test-bash3: bootstrap
 
 lint:
 	@if command -v shellcheck >/dev/null 2>&1; then \
+		have=$$(shellcheck --version | sed -n 's/^version: //p'); \
+		if [ "$$have" != "$(SHELLCHECK_VERSION)" ]; then \
+			echo "note: shellcheck $$have, CI pins $(SHELLCHECK_VERSION); results may differ"; \
+		fi; \
 		shellcheck $(COMMANDS) $(TESTS_DIR)/fake/c8y $(TESTS_DIR)/helpers/load.bash \
-			&& echo "shellcheck: clean"; \
+			&& echo "shellcheck $$have: clean"; \
 	else \
 		echo "shellcheck not installed, skipping (CI enforces this)"; \
 	fi
