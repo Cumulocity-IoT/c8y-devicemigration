@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: shellcheck
+        run: make lint
+
+      # The argument parsers are generated from each command's DOC string. A
+      # stale DOC is caught at runtime (exit 70), but a hand-edited parser with
+      # an untouched DOC is not, so compare against a freshly generated parser.
+      - name: Install docopt-sh
+        run: pipx install docopt-sh==2.0.3
+
+      - name: Parser freshness
+        run: make parser-freshness
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu gives bash 5, macOS gives bash 3.2 - the oldest shell these
+        # commands must run on, and where arrays and local scoping can bite.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show shell versions
+        run: |
+          echo "PATH bash:  $(bash --version | head -1)"
+          echo "/bin/bash:  $(/bin/bash --version | head -1)"
+
+      - name: Run tests
+        run: make test
+
+  # Runs the suite through /bin/bash explicitly rather than trusting the
+  # shebang, so bash 3.2 coverage cannot be lost if a newer bash appears
+  # earlier on PATH in the runner image.
+  test-bash32:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert /bin/bash really is 3.2
+        run: |
+          version=$(/bin/bash -c 'echo $BASH_VERSION')
+          echo "/bin/bash is $version"
+          case "$version" in
+            3.2*) echo "bash 3.2 coverage confirmed" ;;
+            *) echo "expected bash 3.2 at /bin/bash, got $version" >&2; exit 1 ;;
+          esac
+
+      - name: Run tests on bash 3.2
+        run: make test-bash3

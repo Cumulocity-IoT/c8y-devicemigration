@@ -1,0 +1,123 @@
+{
+  "self": "https://example.cumulocity.com/inventory/managedObjects/37216802",
+  "id": "37216802",
+  "type": "OEECalculationProfile",
+  "name": "Simulator Normal #1 - 1[OEE calculation profile]",
+  "lastUpdated": "2022-04-21T04:36:33.424Z",
+  "creationTime": "2022-02-14T08:33:31.175Z",
+  "owner": "service_test",
+  "childDevices": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/37216802/childDevices",
+    "references": []
+  },
+  "childAssets": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/37216802/childAssets",
+    "references": []
+  },
+  "childAdditions": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/37216802/childAdditions",
+    "references": []
+  },
+  "deviceParents": {
+    "references": []
+  },
+  "assetParents": {
+    "references": []
+  },
+  "additionParents": {
+    "references": []
+  },
+  "@com_adamos_oee_datamodel_MachineOEEConfiguration": {
+    "subscriptions": [
+      {
+        "pollingIntervalSeconds": 10,
+        "name": "Piece_Ok",
+        "type": "event",
+        "deviceId": null,
+        "key": "event.Piece_Ok"
+      },
+      {
+        "pollingIntervalSeconds": 10,
+        "name": "Piece_Produced",
+        "type": "event",
+        "deviceId": null,
+        "key": "event.Piece_Produced"
+      },
+      {
+        "pollingIntervalSeconds": 10,
+        "name": "Availability",
+        "type": "event",
+        "deviceId": null,
+        "key": "event.Availability"
+      }
+    ],
+    "timeframes": null,
+    "testConfiguration": false,
+    "oeeTargets": {
+      "performance": 95,
+      "overall": 65,
+      "availability": 90,
+      "quality": 80
+    },
+    "inputs": {
+      "ActualQualityAmount": [
+        {
+          "type": "TRANSFORMATION_RULE",
+          "value": "countEvents(\"37218800\",\"Piece_Ok\")"
+        }
+      ],
+      "ActualProductionAmount": [
+        {
+          "type": "TRANSFORMATION_RULE",
+          "value": "countEvents(\"37218800\",\"Piece_Produced\")"
+        }
+      ],
+      "ActualProductionTime": [
+        {
+          "type": "MACHINE_EVENT",
+          "value": ""
+        }
+      ]
+    },
+    "alarms": [],
+    "type": "MACHINE",
+    "deviceId": "37218800",
+    "shortShutdowns": null,
+    "version": "2.0.0",
+    "amountUnit": "",
+    "uid": "t00000000/",
+    "intervals": [
+      600.0,
+      1800.0,
+      3600.0
+    ],
+    "external": false,
+    "ui": {
+      "shortStoppages": "Not Tracked",
+      "correlationSectionVisited": true,
+      "computation": "PPQ",
+      "shortStoppagesAmount": null
+    },
+    "idealCycleAmount": "",
+    "machineEvents": {
+      "MACHINE_STATUS": [
+        {
+          "value": "evt(\"37218800\",\"Availability\",\"status\",false) = \"up\""
+        }
+      ],
+      "QUALITY_STATUS": []
+    },
+    "locationId": "Matrix",
+    "workpiece": {
+      "amount": "25",
+      "unit": "pcs",
+      "name": "Pieces",
+      "isActive": true,
+      "timeunit": 2
+    },
+    "name": "Simulator Normal #1 - 1",
+    "tenantId": "t00000000",
+    "id": "37216802",
+    "status": "ACTIVE"
+  }
+}

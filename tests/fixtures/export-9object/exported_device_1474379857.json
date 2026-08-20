@@ -1,0 +1,45 @@
+{
+  "self": "https://example.cumulocity.com/inventory/managedObjects/1474379857",
+  "id": "1474379857",
+  "type": "line",
+  "name": "L1",
+  "lastUpdated": "2024-09-19T08:51:24.502Z",
+  "creationTime": "2024-09-19T08:51:24.289Z",
+  "owner": "service_test",
+  "childDevices": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/1474379857/childDevices",
+    "references": []
+  },
+  "childAssets": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/1474379857/childAssets",
+    "references": [
+      {
+        "self": "https://example.cumulocity.com/inventory/managedObjects/1474379857/childAssets/5874376876",
+        "managedObject": {
+          "self": "https://example.cumulocity.com/inventory/managedObjects/5874376876",
+          "id": "5874376876",
+          "name": "Chamber 1"
+        }
+      }
+    ]
+  },
+  "childAdditions": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/1474379857/childAdditions",
+    "references": []
+  },
+  "deviceParents": {
+    "references": []
+  },
+  "assetParents": {
+    "references": []
+  },
+  "additionParents": {
+    "references": []
+  },
+  "c8y_IsDeviceGroup": {},
+  "c8y_IsAsset": {},
+  "icon": {
+    "name": "robot",
+    "category": "devicesAndSensors"
+  }
+}

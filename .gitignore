@@ -30,3 +30,24 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# macOS
+.DS_Store
+
+# Local migration output. Exports contain real tenant data, so keep them out of
+# the repository even when they are written into the working directory.
+exported_device_*.json
+*_child_*.json
+id_mapping.json
+
+# Compressed exports written by `export --output-compressed`. The file name is
+# chosen by the caller, so this covers the usual gzipped tar extensions.
+*.tgz
+*.tar.gz
+
+# Test fixtures use the same file names as real export output on purpose, so
+# they must be exempted from the rules above.
+!tests/fixtures/**
+
+# bats helpers cloned by `make bootstrap`
+tests/vendor/

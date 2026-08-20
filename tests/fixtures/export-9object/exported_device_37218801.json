@@ -1,0 +1,48 @@
+{
+  "self": "https://example.cumulocity.com/inventory/managedObjects/37218801",
+  "id": "37218801",
+  "type": "c8y_EventBasedSimulator",
+  "name": "Normal #2",
+  "lastUpdated": "2024-11-19T08:06:37.279Z",
+  "creationTime": "2022-02-14T08:33:30.490Z",
+  "owner": "service_test",
+  "childDevices": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/37218801/childDevices",
+    "references": [
+      {
+        "self": "https://example.cumulocity.com/inventory/managedObjects/37218801/childDevices/37217806",
+        "managedObject": {
+          "self": "https://example.cumulocity.com/inventory/managedObjects/37217806",
+          "id": "37217806",
+          "name": "Simulator Normal #2 - 1[OEE calculation profile]"
+        }
+      }
+    ]
+  },
+  "childAssets": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/37218801/childAssets",
+    "references": []
+  },
+  "childAdditions": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/37218801/childAdditions",
+    "references": [
+      {
+        "self": "https://example.cumulocity.com/inventory/managedObjects/37218801/childAdditions/5774708524",
+        "managedObject": {
+          "self": "https://example.cumulocity.com/inventory/managedObjects/5774708524",
+          "id": "5774708524"
+        }
+      }
+    ]
+  },
+  "deviceParents": {
+    "references": []
+  },
+  "assetParents": {
+    "references": []
+  },
+  "additionParents": {
+    "references": []
+  },
+  "c8y_IsDevice": {}
+}

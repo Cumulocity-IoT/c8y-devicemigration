@@ -1,0 +1,53 @@
+{
+  "self": "https://example.cumulocity.com/inventory/managedObjects/7874377868",
+  "id": "7874377868",
+  "type": "factory",
+  "name": "F1",
+  "lastUpdated": "2024-11-19T08:06:37.229Z",
+  "creationTime": "2024-09-19T08:51:24.087Z",
+  "owner": "service_test",
+  "childDevices": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/7874377868/childDevices",
+    "references": []
+  },
+  "childAssets": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/7874377868/childAssets",
+    "references": [
+      {
+        "self": "https://example.cumulocity.com/inventory/managedObjects/7874377868/childAssets/37218801",
+        "managedObject": {
+          "self": "https://example.cumulocity.com/inventory/managedObjects/37218801",
+          "id": "37218801",
+          "name": "Normal #2"
+        }
+      },
+      {
+        "self": "https://example.cumulocity.com/inventory/managedObjects/7874377868/childAssets/37218800",
+        "managedObject": {
+          "self": "https://example.cumulocity.com/inventory/managedObjects/37218800",
+          "id": "37218800",
+          "name": "Normal #1"
+        }
+      }
+    ]
+  },
+  "childAdditions": {
+    "self": "https://example.cumulocity.com/inventory/managedObjects/7874377868/childAdditions",
+    "references": []
+  },
+  "deviceParents": {
+    "references": []
+  },
+  "assetParents": {
+    "references": []
+  },
+  "additionParents": {
+    "references": []
+  },
+  "c8y_IsDeviceGroup": {},
+  "c8y_IsAsset": {},
+  "icon": {
+    "name": "warehouse",
+    "category": "city"
+  }
+}

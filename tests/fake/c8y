@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+#
+# Fake go-c8y-cli, used so the test suite never touches a real tenant.
+#
+# ASSUMPTIONS THIS FAKE ENCODES about real c8y behaviour. If one of these is
+# wrong, the suite is green and the code is still broken, so each is noted with
+# how far it has actually been verified:
+#
+#   1. Commands that accept pipeline input READ STDIN when stdin is not a TTY
+#      and --nullInput/-n was not passed. VERIFIED indirectly, and painfully:
+#      in production `inventory children assign` drained the pipe feeding a
+#      while-read loop, so only the first child of each parent was assigned.
+#      This is modelled below and is the single most important line in here.
+#   2. `inventory children list --select id` emits newline-delimited
+#      {"id":"..."} objects, not a JSON array. VERIFIED against a live tenant.
+#   3. `inventory create --select id` emits {"id":"<new id>"}. NOT verified
+#      against a live tenant.
+#   4. A plain-JSON file passed to --template is used as the request body
+#      verbatim (JSON being a subset of jsonnet). NOT verified against a live
+#      tenant.
+#
+# Required env:
+#   FAKE_C8Y_HIERARCHY  path to a hierarchy.json describing the fake tenant
+#   FAKE_C8Y_REC        directory to record calls into
+#
+# Optional env:
+#   FAKE_C8Y_FAIL_CREATE  when set, `inventory create` emits no id, to exercise
+#                         the caller's error path
+#
+# Recorded into $FAKE_C8Y_REC:
+#   calls.log     one line per invocation: <subcommand>\t<stdin drained?>\t<argv>
+#   links.log     "<parentId> <childType> <childId>" per children assign
+#   payloads/     the --template body of each create, named by the new id
+#   counter       last allocated id
+
+set -e
+
+: "${FAKE_C8Y_REC:?FAKE_C8Y_REC must be set}"
+mkdir -p "$FAKE_C8Y_REC/payloads"
+
+argv=("$@")
+
+# --- assumption 1: pipeline input consumption -------------------------------
+# Real c8y reads stdin unless told not to. If the caller forgot --nullInput and
+# stdin happens to be the pipe driving its own loop, that loop dies after one
+# iteration. Model it exactly, and record whether it happened.
+nullInput=no
+for a in "${argv[@]}"; do
+    if [[ "$a" == "--nullInput" || "$a" == "-n" ]]; then
+        nullInput=yes
+    fi
+done
+
+drained=no
+if [[ "$nullInput" == "no" ]] && [[ ! -t 0 ]]; then
+    cat > /dev/null
+    drained=yes
+fi
+# ---------------------------------------------------------------------------
+
+subcommand="$1 $2 $3"
+id=""; child=""; childType=""; outputFileRaw=""; template=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --id) id="$2"; shift 2 ;;
+        --child) child="$2"; shift 2 ;;
+        --childType) childType="$2"; shift 2 ;;
+        --outputFileRaw) outputFileRaw="$2"; shift 2 ;;
+        --template) template="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+printf '%s\t%s\t%s\n' "$subcommand" "$drained" "${argv[*]}" >> "$FAKE_C8Y_REC/calls.log"
+
+hierarchy() {
+    : "${FAKE_C8Y_HIERARCHY:?FAKE_C8Y_HIERARCHY must be set}"
+    jq "$@" --arg id "$id" --arg childType "$childType" "$FAKE_C8Y_HIERARCHY"
+}
+
+case "$subcommand" in
+    "inventory get "*)
+        # Emit a managed object shaped like a real one: the caller's data plus
+        # the server managed properties that import is expected to strip.
+        # $id below is a jq variable bound with --arg, not a shell variable.
+        # shellcheck disable=SC2016
+        hierarchy '
+            .[$id] as $o
+            | {
+                id: $id,
+                self: ("https://example.cumulocity.com/inventory/managedObjects/" + $id),
+                lastUpdated: "2026-01-01T00:00:00.000Z",
+                creationTime: "2025-01-01T00:00:00.000Z",
+                owner: "service_test",
+                type: $o.type,
+                childDevices: { self: "x", references: [] },
+                childAssets: { self: "x", references: [] },
+                childAdditions: { self: "x", references: [] },
+                deviceParents: { references: [] },
+                assetParents: { references: [] },
+                additionParents: { references: [] },
+                c8y_Availability: { status: "AVAILABLE" },
+                c8y_ActiveAlarmsStatus: { critical: 1 },
+                c8y_IsDevice: {},
+                "my_Custom-Fragment": { nested: { keep: true } }
+              }
+            + (if $o.name then { name: $o.name } else {} end)
+        ' > "$outputFileRaw"
+        ;;
+
+    "inventory children list")
+        # assumption 2: newline delimited objects, one per child.
+        # $id and $childType are jq variables bound with --arg.
+        # shellcheck disable=SC2016
+        hierarchy -r '(.[$id].children[$childType] // [])[] | {id: .} | tojson'
+        ;;
+
+    "inventory create"*)
+        if [[ -n "${FAKE_C8Y_FAIL_CREATE:-}" ]]; then
+            exit 0
+        fi
+        counter=$(cat "$FAKE_C8Y_REC/counter" 2>/dev/null || echo 1000)
+        counter=$((counter + 1))
+        echo "$counter" > "$FAKE_C8Y_REC/counter"
+        if [[ -n "$template" ]]; then
+            cp "$template" "$FAKE_C8Y_REC/payloads/$counter.json"
+        fi
+        # assumption 3
+        printf '{"id":"%s"}\n' "$counter"
+        ;;
+
+    "inventory children assign")
+        printf '%s %s %s\n' "$id" "$childType" "$child" >> "$FAKE_C8Y_REC/links.log"
+        printf '{"id":"%s"}\n' "$id"
+        ;;
+
+    *)
+        echo "fake c8y: unhandled subcommand: $subcommand" >&2
+        exit 1
+        ;;
+esac

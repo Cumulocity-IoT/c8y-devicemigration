@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Synthetic tenant used by the export tests. Shaped deliberately:",
+    "  - 1, 2 and 3 each have TWO children of the same type. A parent with only",
+    "    one child cannot expose the stdin-consumption bug, where c8y drains the",
+    "    pipe feeding a while-read loop and only the first child is processed.",
+    "  - 5 -> 2 closes a cycle (1 -> 2 -> 5 -> 2).",
+    "  - 4 is a child of both 2 and 3, so it must still be exported only once.",
+    "  - 8 and 9 are reachable only through an addition, so the default",
+    "    --childTypes must not reach them.",
+    "  - 8 has no name; others carry quotes, #, [, a tab and non-ASCII."
+  ],
+  "1":  { "name": "Plant Berlin",      "type": "c8y_Site",   "children": { "asset": ["2", "3"], "device": ["10"], "addition": ["8"] } },
+  "2":  { "name": "Line A",            "type": "c8y_Line",   "children": { "asset": ["4", "5"] } },
+  "3":  { "name": "Line B",            "type": "c8y_Line",   "children": { "device": ["6", "7"], "asset": ["4"] } },
+  "4":  { "name": "Pump \"West\"",     "type": "c8y_Pump",   "children": {} },
+  "5":  { "name": "Ünit Köln ✓",       "type": "c8y_Pump",   "children": { "asset": ["2"] } },
+  "6":  { "name": "Sensor #1 [raw]",   "type": "c8y_Sensor", "children": {} },
+  "7":  { "name": "Sensor\tTabbed",    "type": "c8y_Sensor", "children": {} },
+  "8":  {                              "type": "c8y_Addition", "children": { "device": ["9"] } },
+  "9":  { "name": "Deep Device",       "type": "c8y_Device", "children": {} },
+  "10": { "name": "Gateway",           "type": "c8y_Device", "children": { "device": ["11"] } },
+  "11": { "name": "Edge Node",         "type": "c8y_Device", "children": {} }
+}

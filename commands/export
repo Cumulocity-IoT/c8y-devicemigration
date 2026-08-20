@@ -5,14 +5,19 @@ set -e
 DOC="Export devices and their data from Cumulocity
 
 Usage:
-  export (--rootId <id>) (--output-compressed <filename> | --output-directory <directory>)
+  export (--rootId <id>) (--output-compressed <filename> | --output-directory <directory>) [--childTypes <types> | --no-children]
 
 Options:
     --rootId ID         ID of the root device to export (required)
     --output-compressed filename
                         Output file name for the compressed export
     --output-directory directory
-                        Output directory for the uncompressed export  
+                        Output directory for the uncompressed export
+    --childTypes types  Comma separated list of child relationship types to
+                        follow, one or more of asset, device and addition
+                        [default: asset,device]
+    --no-children       Export only the root device without following any
+                        child relationships
   "
 # docopt parser below, refresh this parser with `docopt.sh export`
 # shellcheck disable=2016,2086,2329,1075
@@ -62,66 +67,139 @@ $((testdepth++));for node_idx in "$@"; do if "node_$node_idx"; then if [[ -z \
 $unmatched_count || ${#params[@]} -lt $unmatched_count ]]; then
 best_match_idx=$node_idx;unmatched_count=${#params[@]};fi;fi
 params=("${initial_params[@]}");done;: $((testdepth--));if [[ -n \
-$best_match_idx ]]; then "node_$best_match_idx";return 0;fi;return 1;};value() {
-local i param;for i in "${!params[@]}"; do local param=${params[$i]};if [[ \
-$param = "$2":* ]]; then params=("${params[@]:0:$i}" "${params[@]:((i+1))}")
-[[ $testdepth -gt 0 ]] && return 0;local value;value=$(printf -- "%q" \
-"${param#*:}");if [[ $3 = true ]]; then eval "var_$1+=($value)";else eval \
-"var_$1=$value";fi;return 0;fi;done;return 1;};stdout() { printf -- "cat <<'EO'\
-'M'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat <<'EOM' >&2\n%s\nEOM\n" "$1";}
-error() { [[ -n $1 ]] && stderr "$1";stderr "$usage";_return 1;};_return() {
-printf -- "exit %d\n" "$1";exit "$1";};set -e;trimmed_doc=${DOC:0:423}
-usage=${DOC:47:97};digest=5f525;options=(' --rootId 1' ' --output-compressed 1'\
- ' --output-directory 1');node_0(){ value __rootId 0;};node_1(){ value \
-__output_compressed 1;};node_2(){ value __output_directory 2;};node_3(){
-choice 1 2;};node_4(){ sequence 0 3;};cat <<<' docopt_exit() { [[ -n $1 ]] && \
-printf "%s\n" "$1" >&2;printf "%s\n" "${DOC:47:97}" >&2;exit 1;}';local \
-varnames=(__rootId __output_compressed __output_directory) varname;for varname \
-in "${varnames[@]}"; do unset "var_$varname";done;parse 4 "$@";local \
-p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset "$p$varname"
-done;eval $p'__rootId=${var___rootId:-};'$p'__output_compressed=${var___output'\
-'_compressed:-};'$p'__output_directory=${var___output_directory:-};';local \
-docopt_i=1;[[ $BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for \
-((;docopt_i>0;docopt_i--)); do for varname in "${varnames[@]}"; do declare -p \
-"$p$varname";done;done;}
+$best_match_idx ]]; then "node_$best_match_idx";return 0;fi;return 1;}
+optional() { local node_idx;for node_idx in "$@"; do "node_$node_idx";done
+return 0;};switch() { local i param;for i in "${!params[@]}"; do local \
+param=${params[$i]};if [[ $param = "$2" || $param = "$2":* ]]; then
+params=("${params[@]:0:$i}" "${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && \
+return 0;if [[ $3 = true ]]; then eval "((var_$1++))" || true;else eval \
+"var_$1=true";fi;return 0;elif [[ $param = a:* && $2 = a:* ]]; then return 1;fi
+done;return 1;};value() { local i param;for i in "${!params[@]}"; do local \
+param=${params[$i]};if [[ $param = "$2":* ]]; then params=("${params[@]:0:$i}" \
+"${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && return 0;local value
+value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
+"var_$1+=($value)";else eval "var_$1=$value";fi;return 0;fi;done;return 1;}
+stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
+<<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
+"$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
+trimmed_doc=${DOC:0:778};usage=${DOC:47:136};digest=10457;options=(' --rootId '\
+'1' ' --output-compressed 1' ' --output-directory 1' ' --childTypes 1' ' --no-'\
+'children 0');node_0(){ value __rootId 0;};node_1(){ value __output_compressed 1
+};node_2(){ value __output_directory 2;};node_3(){ value __childTypes 3;}
+node_4(){ switch __no_children 4;};node_5(){ choice 1 2;};node_6(){ optional 7;}
+node_7(){ choice 3 4;};node_8(){ sequence 0 5 6;};cat <<<' docopt_exit() { [[ \
+-n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" "${DOC:47:136}" >&2;exit 1;}'
+local varnames=(__rootId __output_compressed __output_directory __childTypes \
+__no_children) varname;for varname in "${varnames[@]}"; do unset "var_$varname"
+done;parse 8 "$@";local p=${DOCOPT_PREFIX:-''};for varname in \
+"${varnames[@]}"; do unset "$p$varname";done;eval $p'__rootId=${var___rootId:-'\
+'};'$p'__output_compressed=${var___output_compressed:-};'$p'__output_directory'\
+'=${var___output_directory:-};'$p'__childTypes=${var___childTypes:-asset,devic'\
+'e};'$p'__no_children=${var___no_children:-false};';local docopt_i=1;[[ \
+$BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for \
+varname in "${varnames[@]}"; do declare -p "$p$varname";done;done;}
 # docopt parser above, complete command for generating this parser is `docopt.sh export`
+
+
+# IDs already written to the export, used to break cycles in the hierarchy and
+# to avoid exporting a device twice when several parents reference it
+exported_ids=" "
+
+# Child relationship types to follow, set from --childTypes
+childTypes=""
+
+# The __* variables are set by the generated parser through eval, which
+# this linter cannot follow.
+# shellcheck disable=SC2154
+resolve_child_types() {
+    local requested childType
+
+    # --no-children exports the root on its own, so nothing is traversed. An
+    # empty childTypes makes the loop over child types below iterate zero times.
+    if [[ "$__no_children" == "true" ]]; then
+        childTypes=""
+        return 0
+    fi
+
+    requested="${__childTypes:-asset,device}"
+    childTypes=$(printf '%s' "$requested" | tr ',' ' ')
+
+    # shellcheck disable=2086
+    for childType in $childTypes; do
+        case "$childType" in
+            asset|device|addition) ;;
+            *)
+                echo "Unsupported child type '$childType', expected asset, device or addition" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ -z "${childTypes// /}" ]]; then
+        echo "No child types given, expected a comma separated list of asset, device or addition" >&2
+        exit 1
+    fi
+}
 
 export_device_recursive() {
     local deviceId="$1"
     local outputDirectory="$2"
-    
-    # Export the current device
-    c8y inventory get --id "$deviceId" --outputFileRaw "${outputDirectory}/exported_device_$deviceId.json"
-    
-    # Get children of all types and process them recursively
-    local allChildren=""
-    for childType in asset device addition; do
-        local children
-        children=$(c8y inventory children list --childType "$childType" --id "$deviceId" --select id)
 
-        if [[ -n "$children" ]]; then
-            allChildren+="$children"$'\n'
-            # Save child IDs to separate file per child type
-            echo "$children" | jq -r '.id' >> "${outputDirectory}/${deviceId}_child_${childType}.json"
+    if [[ "$exported_ids" == *" $deviceId "* ]]; then
+        return 0
+    fi
+    exported_ids+="$deviceId "
+
+    # Export the current device
+    c8y inventory get --id "$deviceId" --outputFileRaw "${outputDirectory}/exported_device_$deviceId.json" --nullInput
+
+    # Get children of all types and process them recursively
+    local childType children childId
+    # shellcheck disable=2086
+    for childType in $childTypes; do
+        # --nullInput so c8y never consumes the child ID list driving the loop
+        # below, which would cut the traversal short after the first child
+        children=$(c8y inventory children list --childType "$childType" --id "$deviceId" --select id --nullInput)
+
+        if [[ -z "$children" ]]; then
+            continue
         fi
-    done
-    
-    if [[ -n "$allChildren" ]]; then
+
+        # Save child IDs to separate file per child type, as a JSON array so the
+        # file matches its extension and a rerun replaces it instead of appending
+        printf '%s\n' "$children" | jq -s 'map(.id)' > "${outputDirectory}/${deviceId}_child_${childType}.json"
+
         # Process each child recursively
-        while IFS= read -r childJson; do
-            if [[ -n "$childJson" ]]; then
-                local childId
-                childId=$(echo "$childJson" | jq -r '.id')
+        while IFS= read -r childId; do
+            if [[ -n "$childId" ]]; then
                 export_device_recursive "$childId" "$outputDirectory" < /dev/null
             fi
-        done <<< "$allChildren"
-    fi
+        done < <(printf '%s\n' "$children" | jq -r '.id')
+    done
 }
 
-export() {
+# The __* variables are set by the generated parser through eval, which
+# this linter cannot follow.
+# shellcheck disable=SC2154
+run_export() {
     eval "$(docopt "$@")"
-    mkdir -p "$__output_directory"
-    export_device_recursive "$__rootId" "$__output_directory"
+
+    resolve_child_types
+
+    if [[ -n "$__output_directory" ]]; then
+        mkdir -p "$__output_directory"
+        export_device_recursive "$__rootId" "$__output_directory"
+        return 0
+    fi
+
+    # --output-compressed: collect the export in a staging directory, then archive it
+    local stagingDirectory
+    stagingDirectory=$(mktemp -d)
+    # shellcheck disable=2064
+    trap "rm -rf '$stagingDirectory'" EXIT
+
+    export_device_recursive "$__rootId" "$stagingDirectory"
+    tar -czf "$__output_compressed" -C "$stagingDirectory" .
 }
 
-export "$@"
+run_export "$@"
