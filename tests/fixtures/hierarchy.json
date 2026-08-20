@@ -16,7 +16,10 @@
     "    truncated batch or loop is visible. Its event e2 has an attachment",
     "    (c8y_IsBinary) and its alarms are one CLEARED then one ACTIVE, which",
     "    is the order import has to preserve for alarm de-duplication.",
-    "  - 4 carries measurements only, to prove per-type selection."
+    "  - 4 carries measurements only, to prove per-type selection.",
+    "  - alarm a3's text holds escaped JSON with quotes and newlines. jq's @tsv",
+    "    doubles those backslashes, which silently corrupted the record before",
+    "    it reached c8y and broke the whole import. Keep it."
   ],
   "1": {
     "name": "Plant Berlin",
@@ -184,6 +187,22 @@
         "text": "Too hot",
         "severity": "CRITICAL",
         "status": "ACTIVE"
+      },
+      {
+        "id": "a3",
+        "self": "x",
+        "source": {
+          "id": "2",
+          "self": "x",
+          "name": "Line A"
+        },
+        "time": "2026-01-01T01:00:00.000Z",
+        "creationTime": "2026-01-01T01:00:01.000Z",
+        "count": 2,
+        "type": "c8y_RuleFailed",
+        "text": "Failed to fetch token: {\"msgParams\":[\"POST\",\"/oauth/token\",406,{\"data\":\"<!DOCTYPE html>\n<html dir=\\\"ltr\\\" lang=\\\"en\\\">\n</html>\"}],\"msgId\":\"api_call_failed\"}",
+        "severity": "MINOR",
+        "status": "CLEARED"
       }
     ]
   },

@@ -370,12 +370,25 @@ setup() { setup_common; }
     assert_flag_on_all_calls "--dateTo" "measurements list"
 }
 
-@test "export: data lists page through everything" {
+@test "export: data fetches page through everything, count queries do not" {
     run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
     assert_success
-    assert_flag_on_all_calls "--includeAll" "measurements list"
-    assert_flag_on_all_calls "--includeAll" "events list"
-    assert_flag_on_all_calls "--includeAll" "alarms list"
+
+    # A list call is either a pre-flight count (--withTotalElements, one page)
+    # or a fetch (--includeAll, every page). Neither may be the other.
+    local unpagedFetch pagedCount
+    unpagedFetch=$(awk -F'\t' \
+        '$1 ~ /^(measurements|events|alarms) list/ && $3 !~ /--withTotalElements/ \
+         && $3 !~ /--includeAll/ { print $3 }' "$REC/calls.log")
+    assert_equal "$unpagedFetch" ""
+
+    pagedCount=$(awk -F'\t' \
+        '$3 ~ /--withTotalElements/ && $3 ~ /--includeAll/ { print $3 }' "$REC/calls.log")
+    assert_equal "$pagedCount" ""
+
+    # and both kinds actually happened
+    assert [ "$(grep -c -- '--withTotalElements' "$REC/calls.log")" -gt 0 ]
+    assert [ "$(grep -c -- '--includeAll' "$REC/calls.log")" -gt 0 ]
 }
 
 @test "export: operations are rejected with the reason" {
@@ -428,4 +441,150 @@ setup() { setup_common; }
     assert_success
     run tar -tzf "$WORK/mig.tgz"
     assert_output --partial "data/2/measurements.jsonl"
+}
+
+# --- limits ------------------------------------------------------------------
+#
+# Counted before anything is written, so a refusal leaves nothing behind. The
+# during-export check is the backstop for data that grew in between.
+
+@test "export: the hierarchy child limit is enforced" {
+    FAKE_C8Y_HIERARCHY="$TESTS_DIR/fixtures/hierarchy-wide.json" \
+        run_export --rootId 1 --output-directory "$OUT"
+    assert_failure
+    assert_output --partial "the hierarchy has 30 child objects, more than the limit of 25"
+    assert_output --partial "Nothing was exported"
+    refute [ -d "$OUT" ]
+}
+
+@test "export: a hierarchy inside the limit is fine" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    refute_output --partial "limits exceeded"
+}
+
+@test "export: the per-device measurement limit is enforced" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_failure
+    assert_output --partial "has 2000000 measurements, more than the limit of 1000000"
+    refute [ -d "$OUT" ]
+}
+
+@test "export: the per-device event limit is enforced" {
+    FAKE_C8Y_TOTAL_EVENTS=5000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes events
+    assert_failure
+    assert_output --partial "has 5000 events, more than the limit of 1000"
+    refute [ -d "$OUT" ]
+}
+
+@test "export: the per-device alarm limit is enforced" {
+    FAKE_C8Y_TOTAL_ALARMS=5000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
+    assert_failure
+    assert_output --partial "has 5000 alarms, more than the limit of 1000"
+    refute [ -d "$OUT" ]
+}
+
+@test "export: every violation is reported, not just the first" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_failure
+    # one line per offending device, not a single early exit
+    assert [ "$(printf '%s\n' "$output" | grep -c 'more than the limit')" -gt 1 ]
+}
+
+@test "export: limits are counted before anything is written" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_failure
+    # no object was even fetched, only counted
+    assert_equal "$(count_calls "inventory get")" "0"
+}
+
+@test "export: --ignoreLimits exports anyway" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements --ignoreLimits
+    assert_success
+    assert [ -d "$OUT" ]
+    assert_output --partial "Exporting anyway because --ignoreLimits was given"
+}
+
+@test "export: --ignoreLimits warns even when no limit is exceeded" {
+    run_export --rootId 1 --output-directory "$OUT" --ignoreLimits
+    assert_success
+    assert_output --partial "WARNING: --ignoreLimits is set"
+    assert_output --partial "put avoidable load on the source tenant"
+}
+
+@test "export: no warning when limits are enforced" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    refute_output --partial "WARNING"
+}
+
+@test "export: measurements default to the last 14 days" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_success
+    assert_flag_on_all_calls "--dateFrom" "measurements list"
+    run grep '^measurements list' "$REC/calls.log"
+    assert_output --partial "--dateFrom -14d"
+}
+
+@test "export: events and alarms default to the whole history" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes events,alarms
+    assert_success
+    assert_flag_on_no_calls "--dateFrom" "events list"
+    assert_flag_on_no_calls "--dateFrom" "alarms list"
+}
+
+@test "export: an explicit --dateFrom overrides the measurement default" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events --dateFrom "-90d"
+    assert_success
+    run grep '^measurements list' "$REC/calls.log"
+    refute_output --partial "--dateFrom -14d"
+    assert_output --partial "--dateFrom -90d"
+    # and now applies to events too
+    assert_flag_on_all_calls "--dateFrom" "events list"
+}
+
+@test "export: a limit breached during the export removes the partial result" {
+    # the count query reports nothing, so the pre-flight passes, but the fetch
+    # returns more alarms than a limit of one allows
+    FAKE_C8Y_TOTAL_ALARMS=0 MAX_ALARMS_OVERRIDE=1 run bash -c "
+        sed 's/^MAX_ALARMS_PER_DEVICE=1000\$/MAX_ALARMS_PER_DEVICE=1/' '$REPO_DIR/commands/export' > '$WORK/export-tight'
+        FAKE_C8Y_TOTAL_ALARMS=0 bash '$WORK/export-tight' --rootId 1 --output-directory '$OUT' --dataTypes alarms 2>&1"
+    assert_failure
+    assert_output --partial "more than the limit of 1"
+    assert_output --partial "The partial export was removed"
+    refute [ -d "$OUT" ]
+}
+
+@test "export: reverting a partial export leaves a pre-existing directory alone" {
+    mkdir -p "$OUT/other"
+    echo "keep me" > "$OUT/important.txt"
+    touch "$OUT/other/keep"
+
+    run bash -c "
+        sed 's/^MAX_ALARMS_PER_DEVICE=1000\$/MAX_ALARMS_PER_DEVICE=1/' '$REPO_DIR/commands/export' > '$WORK/export-tight'
+        FAKE_C8Y_TOTAL_ALARMS=0 bash '$WORK/export-tight' --rootId 1 --output-directory '$OUT' --dataTypes alarms 2>&1"
+    assert_failure
+    assert_output --partial "The partial export was removed"
+
+    # the caller's own files are not ours to delete
+    assert [ -f "$OUT/important.txt" ]
+    assert_equal "$(cat "$OUT/important.txt")" "keep me"
+    assert [ -f "$OUT/other/keep" ]
+    # but nothing of ours is left
+    assert_equal "$(ls "$OUT" | grep -cE 'exported_device_|_child_|_identities|^data$' || true)" "0"
+}
+
+@test "export: --help documents the limits" {
+    run_export --help
+    assert_success
+    assert_output --partial "at most 25 child objects in the hierarchy"
+    assert_output --partial "at most 1000000 measurements per device"
+    assert_output --partial "at most 1000 events per device"
+    assert_output --partial "at most 1000 alarms per device"
 }

@@ -5,7 +5,7 @@ set -e
 DOC="Export devices and their data from Cumulocity
 
 Usage:
-  export (--rootId <id>) (--output-compressed <filename> | --output-directory <directory>) [--childTypes <types> | --no-children] [--dataTypes <types>] [--dateFrom <date>] [--dateTo <date>]
+  export (--rootId <id>) (--output-compressed <filename> | --output-directory <directory>) [--childTypes <types> | --no-children] [--dataTypes <types>] [--dateFrom <date>] [--dateTo <date>] [--ignoreLimits]
 
 Options:
     --rootId ID         ID of the root device to export (required)
@@ -22,8 +22,21 @@ Options:
                         more of measurements, events and alarms. Defaults to
                         none, so no data is exported unless asked for
     --dateFrom date     Only export data at or after this time, absolute or
-                        relative, e.g. 2026-01-01T00:00:00Z or -30d
+                        relative, e.g. 2026-01-01T00:00:00Z or -30d.
+                        Measurements default to the last 14 days; events and
+                        alarms default to the whole history
     --dateTo date       Only export data at or before this time
+    --ignoreLimits      Export even if a limit below is exceeded. Not the
+                        default, and it warns when used
+
+Limits:
+  Checked before anything is written, and the export stops without leaving a
+  partial result behind if one is exceeded:
+
+    at most 25 child objects in the hierarchy
+    at most 1000000 measurements per device
+    at most 1000 events per device
+    at most 1000 alarms per device
   "
 # docopt parser below, refresh this parser with `docopt.sh export`
 # shellcheck disable=2016,2086,2329,1075
@@ -88,25 +101,27 @@ value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
 stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
 <<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
 "$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
-trimmed_doc=${DOC:0:1272};usage=${DOC:47:196};digest=edf22;options=(' --rootId'\
+trimmed_doc=${DOC:0:1848};usage=${DOC:47:213};digest=b57fe;options=(' --rootId'\
 ' 1' ' --output-compressed 1' ' --output-directory 1' ' --childTypes 1' ' --no'\
-'-children 0' ' --dataTypes 1' ' --dateFrom 1' ' --dateTo 1');node_0(){ value \
-__rootId 0;};node_1(){ value __output_compressed 1;};node_2(){ value \
-__output_directory 2;};node_3(){ value __childTypes 3;};node_4(){ switch \
-__no_children 4;};node_5(){ value __dataTypes 5;};node_6(){ value __dateFrom 6;}
-node_7(){ value __dateTo 7;};node_8(){ choice 1 2;};node_9(){ optional 10;}
-node_10(){ choice 3 4;};node_11(){ optional 5;};node_12(){ optional 6;}
-node_13(){ optional 7;};node_14(){ sequence 0 8 9 11 12 13;};cat <<<' \
-docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" \
-"${DOC:47:196}" >&2;exit 1;}';local varnames=(__rootId __output_compressed \
-__output_directory __childTypes __no_children __dataTypes __dateFrom __dateTo) \
-varname;for varname in "${varnames[@]}"; do unset "var_$varname";done;parse 14 \
-"$@";local p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset \
-"$p$varname";done;eval $p'__rootId=${var___rootId:-};'$p'__output_compressed=$'\
-'{var___output_compressed:-};'$p'__output_directory=${var___output_directory:-'\
-'};'$p'__childTypes=${var___childTypes:-asset,device};'$p'__no_children=${var_'\
-'__no_children:-false};'$p'__dataTypes=${var___dataTypes:-};'$p'__dateFrom=${v'\
-'ar___dateFrom:-};'$p'__dateTo=${var___dateTo:-};';local docopt_i=1;[[ \
+'-children 0' ' --dataTypes 1' ' --dateFrom 1' ' --dateTo 1' ' --ignoreLimits '\
+'0');node_0(){ value __rootId 0;};node_1(){ value __output_compressed 1;}
+node_2(){ value __output_directory 2;};node_3(){ value __childTypes 3;}
+node_4(){ switch __no_children 4;};node_5(){ value __dataTypes 5;};node_6(){
+value __dateFrom 6;};node_7(){ value __dateTo 7;};node_8(){ switch \
+__ignoreLimits 8;};node_9(){ choice 1 2;};node_10(){ optional 11;};node_11(){
+choice 3 4;};node_12(){ optional 5;};node_13(){ optional 6;};node_14(){
+optional 7;};node_15(){ optional 8;};node_16(){ sequence 0 9 10 12 13 14 15;}
+cat <<<' docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" \
+"${DOC:47:213}" >&2;exit 1;}';local varnames=(__rootId __output_compressed \
+__output_directory __childTypes __no_children __dataTypes __dateFrom __dateTo \
+__ignoreLimits) varname;for varname in "${varnames[@]}"; do unset "var_$varname"
+done;parse 16 "$@";local p=${DOCOPT_PREFIX:-''};for varname in \
+"${varnames[@]}"; do unset "$p$varname";done;eval $p'__rootId=${var___rootId:-'\
+'};'$p'__output_compressed=${var___output_compressed:-};'$p'__output_directory'\
+'=${var___output_directory:-};'$p'__childTypes=${var___childTypes:-asset,devic'\
+'e};'$p'__no_children=${var___no_children:-false};'$p'__dataTypes=${var___data'\
+'Types:-};'$p'__dateFrom=${var___dateFrom:-};'$p'__dateTo=${var___dateTo:-};'\
+$p'__ignoreLimits=${var___ignoreLimits:-false};';local docopt_i=1;[[ \
 $BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for \
 varname in "${varnames[@]}"; do declare -p "$p$varname";done;done;}
 # docopt parser above, complete command for generating this parser is `docopt.sh export`
@@ -135,8 +150,31 @@ dataTypes=""
 # functions in a subshell and their updates to the totals would be lost.
 dataSummary=""
 
-# --dateFrom / --dateTo, passed through to the list commands
-dateArgs=()
+# --dateFrom / --dateTo, passed through to the list commands. Split by type:
+# measurements default to a window because an unbounded measurement export is
+# the one that runs away, while events and alarms default to the whole history.
+measurementDateArgs=()
+historyDateArgs=()
+
+# Export limits. Checked before anything is written; --ignoreLimits overrides
+# them with a warning.
+MAX_CHILD_OBJECTS=25
+MAX_MEASUREMENTS_PER_DEVICE=1000000
+MAX_EVENTS_PER_DEVICE=1000
+MAX_ALARMS_PER_DEVICE=1000
+DEFAULT_MEASUREMENT_DATE_FROM=-14d
+
+# Ids the export will visit, collected by the pre-flight traversal
+plannedIds=" "
+
+# Every file this run wrote, so a partial export can be removed precisely
+# rather than by deleting the output directory, which may not be ours
+artifacts=()
+createdOutputDirectory=""
+
+# --ignoreLimits, resolved once so the limit helpers do not each reach for the
+# parser variables
+ignoreLimits=false
 
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
@@ -177,10 +215,17 @@ resolve_data_types() {
 # shellcheck disable=SC2154
 resolve_date_args() {
     if [[ -n "$__dateFrom" ]]; then
-        dateArgs+=(--dateFrom "$__dateFrom")
+        historyDateArgs+=(--dateFrom "$__dateFrom")
     fi
     if [[ -n "$__dateTo" ]]; then
-        dateArgs+=(--dateTo "$__dateTo")
+        historyDateArgs+=(--dateTo "$__dateTo")
+    fi
+
+    # Measurements inherit whatever window was asked for, and fall back to the
+    # default 14 days when no --dateFrom was given.
+    measurementDateArgs=("${historyDateArgs[@]}")
+    if [[ -z "$__dateFrom" ]]; then
+        measurementDateArgs+=(--dateFrom "$DEFAULT_MEASUREMENT_DATE_FROM")
     fi
 }
 
@@ -265,6 +310,175 @@ resolve_child_types() {
 # attachments correlatable.
 #
 # Returns nothing; appends to the per-type totals and echoes a summary fragment.
+# --- limits ----------------------------------------------------------------
+#
+# Counted before anything is written, so the normal refusal leaves nothing
+# behind at all. The during-export check further down is the backstop for data
+# that grew between the count and the fetch.
+
+# Walks the hierarchy collecting ids, without writing anything and without
+# fetching the objects themselves.
+collect_planned_ids() {
+    local deviceId="$1"
+    local childType children childId
+
+    if [[ "$plannedIds" == *" $deviceId "* ]]; then
+        return 0
+    fi
+    plannedIds+="$deviceId "
+
+    # shellcheck disable=2086
+    for childType in $childTypes; do
+        children=$(c8y inventory children list --childType "$childType" \
+            --id "$deviceId" --select id --nullInput)
+        [[ -n "$children" ]] || continue
+
+        while IFS= read -r childId; do
+            [[ -n "$childId" ]] || continue
+            collect_planned_ids "$childId" < /dev/null
+        done < <(printf '%s\n' "$children" | jq -r '.id')
+    done
+}
+
+# How many records a device holds, without fetching them. --withTotalElements
+# needs 10.13 or newer, so totalPages is the fallback: with a page size of one
+# it equals the record count.
+count_records() {
+    local kind="$1" deviceId="$2"
+    local response total
+    local -a windowArgs
+
+    if [[ "$kind" == "measurements" ]]; then
+        windowArgs=("${measurementDateArgs[@]}")
+    else
+        windowArgs=("${historyDateArgs[@]}")
+    fi
+
+    response=$(c8y "$kind" list --device "$deviceId" "${windowArgs[@]}" \
+        --pageSize 1 --withTotalElements --withTotalPages --raw --nullInput)
+    total=$(printf '%s' "$response" \
+        | jq -r '.statistics.totalElements // .statistics.totalPages // empty')
+    printf '%s' "${total:-0}"
+}
+
+check_limits() {
+    local rootId="$1"
+    local violations="" childObjects deviceId total
+
+    collect_planned_ids "$rootId"
+
+    # the root itself is not a child
+    childObjects=$(( $(printf '%s' "$plannedIds" | wc -w) - 1 ))
+    if [[ "$childObjects" -gt "$MAX_CHILD_OBJECTS" ]]; then
+        violations+="  the hierarchy has $childObjects child objects, more than the limit of $MAX_CHILD_OBJECTS"$'\n'
+    fi
+
+    # shellcheck disable=2086
+    for deviceId in $plannedIds; do
+        if wants_data measurements; then
+            total=$(count_records measurements "$deviceId")
+            if [[ "$total" -gt "$MAX_MEASUREMENTS_PER_DEVICE" ]]; then
+                violations+="  device $deviceId has $total measurements, more than the limit of $MAX_MEASUREMENTS_PER_DEVICE"$'\n'
+            fi
+        fi
+        if wants_data events; then
+            total=$(count_records events "$deviceId")
+            if [[ "$total" -gt "$MAX_EVENTS_PER_DEVICE" ]]; then
+                violations+="  device $deviceId has $total events, more than the limit of $MAX_EVENTS_PER_DEVICE"$'\n'
+            fi
+        fi
+        if wants_data alarms; then
+            total=$(count_records alarms "$deviceId")
+            if [[ "$total" -gt "$MAX_ALARMS_PER_DEVICE" ]]; then
+                violations+="  device $deviceId has $total alarms, more than the limit of $MAX_ALARMS_PER_DEVICE"$'\n'
+            fi
+        fi
+    done
+
+    if [[ -z "$violations" ]]; then
+        return 0
+    fi
+
+    # Every violation is reported, not just the first, so one run tells the
+    # whole story.
+    echo "Export limits exceeded:" >&2
+    printf '%s' "$violations" >&2
+
+    if [[ "$ignoreLimits" == "true" ]]; then
+        echo "Exporting anyway because --ignoreLimits was given." >&2
+        return 0
+    fi
+
+    echo "Nothing was exported. Narrow the export with --childTypes, --dataTypes" >&2
+    echo "or --dateFrom, or pass --ignoreLimits to export regardless." >&2
+    exit 1
+}
+
+warn_ignoring_limits() {
+    local bold="" reset=""
+
+    # bold only at a terminal, so piped and captured output stays clean
+    if [[ -t 2 ]]; then
+        bold=$'\033[1m'
+        reset=$'\033[0m'
+    fi
+
+    echo "${bold}WARNING: --ignoreLimits is set, so the export limits are not enforced.${reset}" >&2
+    echo "${bold}An unbounded export can take a very long time and produce a very large${reset}" >&2
+    echo "${bold}result. It can also put avoidable load on the source tenant.${reset}" >&2
+}
+
+# --- partial export cleanup ------------------------------------------------
+
+record_artifact() {
+    artifacts+=("$1")
+}
+
+# Removes exactly what this run wrote. The output directory itself is only
+# deleted when this run created it: --output-directory may point at a directory
+# holding unrelated files, and those are not ours to remove.
+revert_partial_export() {
+    local index path
+
+    for (( index = ${#artifacts[@]} - 1; index >= 0; index-- )); do
+        rm -f "${artifacts[$index]}"
+    done
+
+    if [[ -n "$createdOutputDirectory" && -d "$createdOutputDirectory" ]]; then
+        rm -rf "$createdOutputDirectory"
+        return 0
+    fi
+
+    # a pre-existing directory: take away only the empty shells we left
+    for path in "${artifacts[@]}"; do
+        while [[ "$path" == */* ]]; do
+            path=${path%/*}
+            rmdir "$path" 2>/dev/null || break
+        done
+    done
+}
+
+abort_export() {
+    echo "$1" >&2
+    revert_partial_export
+    echo "The partial export was removed." >&2
+    exit 1
+}
+
+# Backstop for data that grew between the pre-flight count and the fetch.
+enforce_record_limit() {
+    local kind="$1" limit="$2" deviceId="$3" count="$4"
+
+    if [[ "$ignoreLimits" == "true" ]]; then
+        return 0
+    fi
+    if [[ "$count" -le "$limit" ]]; then
+        return 0
+    fi
+
+    abort_export "Device $deviceId returned $count $kind, more than the limit of $limit"
+}
+
 export_device_data() {
     local deviceId="$1" outputDirectory="$2"
     local dataDirectory="${outputDirectory}/data/${deviceId}"
@@ -278,12 +492,15 @@ export_device_data() {
 
     if wants_data measurements; then
         mkdir -p "$dataDirectory"
-        c8y measurements list --device "$deviceId" "${dateArgs[@]}" \
+        c8y measurements list --device "$deviceId" "${measurementDateArgs[@]}" \
             --includeAll --nullInput > "${dataDirectory}/measurements.jsonl"
         count=$(grep -c '' < "${dataDirectory}/measurements.jsonl" || true)
         if [[ "$count" -eq 0 ]]; then
             rm -f "${dataDirectory}/measurements.jsonl"
         else
+            record_artifact "${dataDirectory}/measurements.jsonl"
+            enforce_record_limit measurements \
+                "$MAX_MEASUREMENTS_PER_DEVICE" "$deviceId" "$count"
             measurementCount=$((measurementCount + count))
             dataSummary+=", $count $(plural "$count" measurement measurements)"
         fi
@@ -291,12 +508,15 @@ export_device_data() {
 
     if wants_data events; then
         mkdir -p "$dataDirectory"
-        c8y events list --device "$deviceId" "${dateArgs[@]}" \
+        c8y events list --device "$deviceId" "${historyDateArgs[@]}" \
             --includeAll --nullInput > "${dataDirectory}/events.jsonl"
         count=$(grep -c '' < "${dataDirectory}/events.jsonl" || true)
         if [[ "$count" -eq 0 ]]; then
             rm -f "${dataDirectory}/events.jsonl"
         else
+            record_artifact "${dataDirectory}/events.jsonl"
+            enforce_record_limit events \
+                "$MAX_EVENTS_PER_DEVICE" "$deviceId" "$count"
             eventCount=$((eventCount + count))
             dataSummary+=", $count $(plural "$count" event events)"
             export_event_binaries "$dataDirectory"
@@ -305,12 +525,15 @@ export_device_data() {
 
     if wants_data alarms; then
         mkdir -p "$dataDirectory"
-        c8y alarms list --device "$deviceId" "${dateArgs[@]}" \
+        c8y alarms list --device "$deviceId" "${historyDateArgs[@]}" \
             --includeAll --nullInput > "${dataDirectory}/alarms.jsonl"
         count=$(grep -c '' < "${dataDirectory}/alarms.jsonl" || true)
         if [[ "$count" -eq 0 ]]; then
             rm -f "${dataDirectory}/alarms.jsonl"
         else
+            record_artifact "${dataDirectory}/alarms.jsonl"
+            enforce_record_limit alarms \
+                "$MAX_ALARMS_PER_DEVICE" "$deviceId" "$count"
             alarmCount=$((alarmCount + count))
             dataSummary+=", $count $(plural "$count" alarm alarms)"
         fi
@@ -331,6 +554,7 @@ export_event_binaries() {
         mkdir -p "${dataDirectory}/binaries"
         c8y events downloadBinary --id "$eventId" \
             --outputFileRaw "${dataDirectory}/binaries/${eventId}" --nullInput > /dev/null
+        record_artifact "${dataDirectory}/binaries/${eventId}"
         count=$((count + 1))
     done < <(jq -r 'select(has("c8y_IsBinary")) | .id' "${dataDirectory}/events.jsonl")
 
@@ -354,6 +578,7 @@ export_device_recursive() {
     c8y inventory get --id "$deviceId" \
         --outputFileRaw "${outputDirectory}/exported_device_$deviceId.json" \
         --nullInput > /dev/null
+    record_artifact "${outputDirectory}/exported_device_$deviceId.json"
 
     local name
     name=$(read_name "${outputDirectory}/exported_device_$deviceId.json")
@@ -365,6 +590,7 @@ export_device_recursive() {
     if [[ -n "$identities" ]]; then
         identityFile="${outputDirectory}/${deviceId}_identities.json"
         printf '%s\n' "$identities" | jq -s 'map({type, externalId})' > "$identityFile"
+        record_artifact "$identityFile"
         deviceIdentities=$(jq 'length' "$identityFile")
         identityCount=$((identityCount + deviceIdentities))
     fi
@@ -387,6 +613,7 @@ export_device_recursive() {
         # file matches its extension and a rerun replaces it instead of appending
         indexFile="${outputDirectory}/${deviceId}_child_${childType}.json"
         printf '%s\n' "$children" | jq -s 'map(.id)' > "$indexFile"
+        record_artifact "$indexFile"
 
         count=$(jq 'length' "$indexFile")
         summary+=", $count $childType $(plural "$count" child children)"
@@ -421,7 +648,20 @@ run_export() {
     resolve_data_types
     resolve_date_args
 
+    ignoreLimits="$__ignoreLimits"
+    if [[ "$ignoreLimits" == "true" ]]; then
+        warn_ignoring_limits
+    fi
+
+    # Before anything is written, so a refusal leaves nothing behind
+    check_limits "$__rootId"
+
     if [[ -n "$__output_directory" ]]; then
+        # remembered so a partial export can delete a directory it created,
+        # while leaving a pre-existing one in place
+        if [[ ! -d "$__output_directory" ]]; then
+            createdOutputDirectory="$__output_directory"
+        fi
         mkdir -p "$__output_directory"
         export_device_recursive "$__rootId" "$__output_directory"
         report_totals "$__output_directory"

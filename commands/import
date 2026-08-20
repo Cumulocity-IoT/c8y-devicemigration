@@ -181,22 +181,37 @@ plural() {
     fi
 }
 
-# Server managed properties removed with jsonnet hidden fields, which is how
-# `measurements createBulk` does it internally. source is hidden because
-# --device supplies the new one; c8y_IsBinary is hidden because the platform
-# sets it when the attachment is actually uploaded.
-EVENT_STRIP="input.value + {id:: '', self:: '', creationTime:: '', lastUpdated:: '', source:: {}, c8y_IsBinary:: {}}"
+# Server managed properties removed with jq before the record is handed to c8y.
+#
+# NOT a jsonnet --template, deliberately. When a record is piped into a create
+# command, go-c8y-cli inlines it into the jsonnet program as source text
+# (`local input = ... + {value: {...record...}};`). A record whose text carries
+# escaped quotes and backslashes - a JSON payload stored inside a JSON string,
+# which real alarms do contain - can then fail to lex, and the whole import dies
+# with "Could not lex the character". Passing the cleaned record as --data with
+# --nullInput means nothing is ever inlined into jsonnet, so the content cannot
+# break the request no matter how it is escaped.
+#
+# source is dropped here as well: --device supplies the new source.id, and
+# removing it means the source tenant's self link cannot leak through.
+EVENT_STRIP_JQ='del(.id, .self, .creationTime, .lastUpdated, .c8y_IsBinary, .source)'
 
 # count, firstOccurrenceTime and history are dropped deliberately: that is the
 # "current status only, not the full history" requirement, and none of them are
 # settable through the API anyway.
-ALARM_STRIP="input.value + {id:: '', self:: '', creationTime:: '', lastUpdated:: '', count:: 0, firstOccurrenceTime:: '', history:: {}, source:: {}}"
+ALARM_STRIP_JQ='del(.id, .self, .creationTime, .lastUpdated, .count, .firstOccurrenceTime, .history, .source)'
 
 # Records in chronological order. Streams through sort rather than slurping the
 # file into jq, which matters at measurement volumes. Cumulocity returns UTC
 # timestamps, which sort lexicographically; mixed offsets would not.
+#
+# The key is plain interpolation and NOT @tsv. @tsv escapes backslashes in the
+# field it emits, so a record whose text contains escaped JSON - `\"a\": 1`,
+# which real alarms do carry - comes back out with every backslash doubled and
+# is no longer valid JSON. tojson never emits a literal tab or newline, so
+# interpolating it into a tab separated line is safe without any escaping.
 sort_by_time() {
-    jq -r '[(.time // ""), tojson] | @tsv' "$1" | LC_ALL=C sort -k1,1 | cut -f2-
+    jq -r '"\(.time // "")\t\(tojson)"' "$1" | LC_ALL=C sort -k1,1 | cut -f2-
 }
 
 records_in() {
@@ -244,59 +259,40 @@ import_measurements() {
 
 import_events() {
     local dataDirectory="$1" newId="$2" name="$3"
-    local file="${dataDirectory}/events.jsonl" count
+    local file="${dataDirectory}/events.jsonl"
+    local record cleaned oldEventId newEventId binary hasBinary created=0
 
     [[ -f "$file" ]] || return 0
 
-    # Events without an attachment go on the fast piped path.
-    count=$(jq -c 'select(has("c8y_IsBinary") | not)' "$file" | grep -c '' || true)
-    if [[ "$count" -gt 0 ]]; then
-        if jq -c 'select(has("c8y_IsBinary") | not)' "$file" \
-            | c8y events create --device "$newId" --template "$EVENT_STRIP" \
-                --processingMode "$DATA_PROCESSING_MODE" \
-                --workers "$DATA_WORKERS" --delay "$DATA_DELAY" \
-                "${forceArgs[@]}" > /dev/null; then
-            eventsCreated=$((eventsCreated + count))
-            echo "Imported $count $(plural "$count" event events) for $name ($newId)" >&2
-        else
-            echo "Failed to import events for $name ($newId)" >&2
-        fi
-    fi
-
-    import_events_with_attachments "$dataDirectory" "$newId" "$name"
-}
-
-# An attachment is addressed by its event id, so these events have to be
-# created one at a time to learn the new id before the file can be uploaded.
-import_events_with_attachments() {
-    local dataDirectory="$1" newId="$2" name="$3"
-    local file="${dataDirectory}/events.jsonl"
-    local record oldEventId newEventId binary
-
+    # Oldest first, for the same reason as measurements and alarms.
     while IFS= read -r record; do
         [[ -n "$record" ]] || continue
 
-        oldEventId=$(printf '%s' "$record" | jq -r '.id')
-        binary="${dataDirectory}/binaries/${oldEventId}"
+        oldEventId=$(printf '%s' "$record" | jq -r '.id // empty')
+        hasBinary=$(printf '%s' "$record" | jq -r 'has("c8y_IsBinary")')
+        cleaned=$(printf '%s' "$record" | jq -c "$EVENT_STRIP_JQ")
 
-        newEventId=$(printf '%s\n' "$record" \
-            | c8y events create --device "$newId" --template "$EVENT_STRIP" \
-                --processingMode "$DATA_PROCESSING_MODE" --select id \
+        newEventId=$(printf '%s' "$cleaned" | jq -r 'empty' 2>/dev/null; \
+            c8y events create --device "$newId" --data "$cleaned" \
+                --processingMode "$DATA_PROCESSING_MODE" --select id --nullInput \
                 "${forceArgs[@]}" | jq -r '.id')
 
         if [[ -z "$newEventId" || "$newEventId" == "null" ]]; then
             echo "Failed to create event $oldEventId for $name ($newId)" >&2
             continue
         fi
+        created=$((created + 1))
         eventsCreated=$((eventsCreated + 1))
 
+        [[ "$hasBinary" == "true" ]] || continue
+
+        binary="${dataDirectory}/binaries/${oldEventId}"
         if [[ ! -f "$binary" ]]; then
             echo "Event $oldEventId claimed an attachment but none was exported" >&2
             continue
         fi
 
-        # --nullInput here: this runs inside a loop reading from a pipe, and
-        # --id accepts pipeline input, so without it the loop would be drained
+        # the attachment is addressed by the NEW event id
         if c8y events createBinary --id "$newEventId" --file "$binary" \
             --nullInput "${forceArgs[@]}" > /dev/null; then
             binariesCreated=$((binariesCreated + 1))
@@ -304,29 +300,46 @@ import_events_with_attachments() {
         else
             echo "Failed to attach $(basename "$binary") to event $newEventId" >&2
         fi
-    done < <(jq -c 'select(has("c8y_IsBinary"))' "$file")
+    done < <(sort_by_time "$file")
+
+    if [[ "$created" -gt 0 ]]; then
+        echo "Imported $created $(plural "$created" event events) for $name ($newId)" >&2
+    fi
 }
 
 import_alarms() {
     local dataDirectory="$1" newId="$2" name="$3"
-    local file="${dataDirectory}/alarms.jsonl" count
+    local file="${dataDirectory}/alarms.jsonl"
+    local record cleaned created=0 failed=0
 
     [[ -f "$file" ]] || return 0
-    count=$(records_in "$file")
-    [[ "$count" -gt 0 ]] || return 0
 
     # Oldest first, and it matters more here than for measurements: Cumulocity
     # de-duplicates on source and type while an alarm is ACTIVE or
     # ACKNOWLEDGED, so a still-open alarm created before the cleared history of
     # the same type would absorb it and only bump its count.
-    if sort_by_time "$file" | c8y alarms create --device "$newId" \
-        --template "$ALARM_STRIP" \
-        --workers "$DATA_WORKERS" --delay "$DATA_DELAY" \
-        "${forceArgs[@]}" > /dev/null; then
-        alarmsCreated=$((alarmsCreated + count))
-        echo "Imported $count $(plural "$count" alarm alarms) for $name ($newId)" >&2
-    else
-        echo "Failed to import alarms for $name ($newId)" >&2
+    #
+    # No --processingMode: QUIESCENT is documented as applying to measurements
+    # and events only, and alarm creation is always PERSISTENT regardless.
+    while IFS= read -r record; do
+        [[ -n "$record" ]] || continue
+
+        cleaned=$(printf '%s' "$record" | jq -c "$ALARM_STRIP_JQ")
+
+        if c8y alarms create --device "$newId" --data "$cleaned" --nullInput \
+            "${forceArgs[@]}" > /dev/null; then
+            created=$((created + 1))
+            alarmsCreated=$((alarmsCreated + 1))
+        else
+            failed=$((failed + 1))
+        fi
+    done < <(sort_by_time "$file")
+
+    if [[ "$created" -gt 0 ]]; then
+        echo "Imported $created $(plural "$created" alarm alarms) for $name ($newId)" >&2
+    fi
+    if [[ "$failed" -gt 0 ]]; then
+        echo "Failed to import $failed $(plural "$failed" alarm alarms) for $name ($newId)" >&2
     fi
 }
 

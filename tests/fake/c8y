@@ -137,7 +137,7 @@ fi
 subcommand="$1 $2 $3"
 id=""; child=""; childType=""; outputFileRaw=""; template=""
 device=""; externalType=""; externalId=""; ids=()
-file=""; batchSize=""; processingMode=""
+file=""; batchSize=""; processingMode=""; data=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --id) id="$2"; ids+=("$2"); shift 2 ;;
@@ -151,6 +151,7 @@ while [[ $# -gt 0 ]]; do
         --file) file="$2"; shift 2 ;;
         --batchSize) batchSize="$2"; shift 2 ;;
         --processingMode) processingMode="$2"; shift 2 ;;
+        --data|-d) data="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -365,17 +366,28 @@ case "$subcommand" in
         dataKind=${subcommand%% *}
         printf 'processingMode=%s\n' "${processingMode:-none}" \
             >> "$FAKE_C8Y_REC/processing-modes.log"
-        # one line recorded per piped record, with the body it would have sent
-        while IFS= read -r record; do
-            [[ -n "$record" ]] || continue
-            printf '%s\t%s\t%s\t%s\n' "$dataKind" "$device" "$record" "$template" \
-                >> "$FAKE_C8Y_REC/$dataKind.log"
-            # a created record gets a fresh id, as the real API would assign
+
+        allocateId() {
             counter=$(cat "$FAKE_C8Y_REC/counter" 2>/dev/null || echo 1000)
             counter=$((counter + 1))
             echo "$counter" > "$FAKE_C8Y_REC/counter"
             printf '{"id":"%s"}\n' "$counter"
-        done < "$stdinFile"
+        }
+
+        if [[ -n "$data" ]]; then
+            # one record per invocation, handed over as --data rather than piped
+            printf '%s\t%s\t%s\t%s\n' "$dataKind" "$device" "$data" "$template" \
+                >> "$FAKE_C8Y_REC/$dataKind.log"
+            allocateId
+        else
+            # piped records, one line each
+            while IFS= read -r record; do
+                [[ -n "$record" ]] || continue
+                printf '%s\t%s\t%s\t%s\n' "$dataKind" "$device" "$record" "$template" \
+                    >> "$FAKE_C8Y_REC/$dataKind.log"
+                allocateId
+            done < "$stdinFile"
+        fi
         ;;
 
     "events downloadBinary"*)

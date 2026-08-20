@@ -154,7 +154,8 @@ many were refused, so a partial result is never silent.
 `alarms`. It defaults to empty, so no data is collected unless asked for —
 measurement volumes make that the only sensible default. `--dateFrom` and
 `--dateTo` bound the window and accept the same absolute and relative forms as
-`c8y` itself, e.g. `-30d`.
+`c8y` itself, e.g. `-30d`. See [Limits](#limits) for the defaults and the caps
+that apply.
 
 Data lands in per-device folders as newline-delimited JSON, one record per line,
 which is what `c8y` emits and what its create commands consume:
@@ -176,6 +177,10 @@ On import:
   measurement collection rather than one request per record. Batches are
   deliberately small — a migration should not be the reason a tenant starts
   throttling.
+- **Server managed properties are stripped** from every record before it is
+  sent, including `source.self`, which points at the source tenant. `source`
+  itself is kept, because `--device` overwrites `source.id` and needs the field
+  to be there.
 - **Alarms** keep their `status` and `severity`, which are settable at creation.
   `count`, `firstOccurrenceTime` and the audit `history` are dropped: that is
   the "current status, not the full history" intent, and none of them are
@@ -192,6 +197,42 @@ On import:
   persists the record while suppressing realtime notifications. It is
   documented as applying to those two only — alarm creation is always
   PERSISTENT whatever the header says.
+
+### Limits
+
+An export refuses to run when it would be larger than these:
+
+| Limit | Value |
+|---|---|
+| child objects in the hierarchy, total | 25 |
+| measurements per device | 1&nbsp;000&nbsp;000 |
+| events per device | 1000 |
+| alarms per device | 1000 |
+
+Measurements also default to the **last 14 days** when no `--dateFrom` is given,
+because an unbounded measurement export is the one that runs away. Events and
+alarms default to the whole history. An explicit `--dateFrom` applies to all
+three.
+
+The limits are counted **before anything is written**, using one cheap count
+query per device per type rather than fetching the records, so a refusal leaves
+nothing behind at all. Every violation is reported together:
+
+```
+Export limits exceeded:
+  device 7874377868 has 2431009 measurements, more than the limit of 1000000
+  device 4074377869 has 1200 alarms, more than the limit of 1000
+Nothing was exported. Narrow the export with --childTypes, --dataTypes
+or --dateFrom, or pass --ignoreLimits to export regardless.
+```
+
+If a limit is breached anyway — data can grow between the count and the fetch —
+the export stops and deletes what it wrote. It removes only the files it
+created: `--output-directory` may point at a directory holding unrelated
+content, and that is not the export's to delete.
+
+`--ignoreLimits` turns the checks off. It is not the default and it warns
+whenever it is used, whether or not a limit was actually exceeded.
 
 ### Operations are not migrated
 
@@ -356,6 +397,11 @@ every command path has been exercised there at least once: export, import
 including external identities, and revert. Any change to those assumptions
 should be recorded in that file, since a fake that quietly drifts is worse than
 no test at all.
+
+The jsonnet templates that strip server managed properties are evaluated for
+real in the suite, using `c8y template execute`, which needs no session and no
+network. Those tests assert the resulting body rather than the template text,
+and they skip when `c8y` is not installed so the suite stays hermetic in CI.
 
 The suite still cannot see a real tenant, so after changing anything that talks
 to `c8y`, smoke it manually:

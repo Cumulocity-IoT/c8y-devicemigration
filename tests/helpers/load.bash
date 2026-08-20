@@ -4,6 +4,25 @@
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
 
+# The real c8y, resolved before any test shadows it with the fake. `c8y template
+# execute` evaluates a jsonnet template with no session and no network, which is
+# the only way to check what a --template actually PRODUCES rather than what it
+# says. Tests using it skip when c8y is not installed, so the suite stays
+# hermetic in CI.
+REAL_C8Y="$(command -v c8y 2>/dev/null || true)"
+
+# Evaluates a template against one record and prints the resulting body.
+evaluate_template() {
+    local template="$1" record="$2"
+    printf '%s\n' "$record" | "$REAL_C8Y" template execute --template "$template"
+}
+
+require_real_c8y() {
+    if [[ -z "$REAL_C8Y" ]]; then
+        skip "c8y is not installed, so templates cannot be evaluated"
+    fi
+}
+
 load "$TESTS_DIR/vendor/bats-support/load.bash"
 load "$TESTS_DIR/vendor/bats-assert/load.bash"
 
@@ -67,7 +86,7 @@ count_links() { assigned_links | grep -c '' | tr -d ' '; }
 # Commands whose records legitimately arrive on stdin. --device is the pipeline
 # target on every create command, so piping is how the data import achieves
 # throughput. Everything else reading stdin is the bug this guards against.
-DATA_PIPELINE_SUBCOMMANDS='^(measurements createBulk|measurements create|events create|alarms create) '
+DATA_PIPELINE_SUBCOMMANDS='^measurements createBulk '
 
 # The invariant that guards the stdin-consumption bug generically: no call that
 # runs inside a loop may ever have read stdin. Scoped, not weakened - the data
@@ -108,6 +127,20 @@ count_gets_for_id() {
     awk -F'\t' -v id="$1" \
         '$1 ~ /^inventory get/ && $3 ~ (" --id " id " ") { n++ } END { print n+0 }' \
         "$REC/calls.log"
+}
+
+# jsonnet field definitions must be quoted. `self` is a jsonnet keyword, so a
+# bare `self::` is a parse error and the whole import fails at the first record;
+# `error`, `super`, `local`, `function`, `import` and `assert` are keywords too.
+# Quoting every field name is what makes that unreachable, so assert it.
+assert_template_fields_quoted() {
+    local template="$1" bare
+    bare=$(printf '%s' "$template" | grep -oE "[{,] *[A-Za-z_][A-Za-z0-9_]*::" || true)
+    if [[ -n "$bare" ]]; then
+        printf 'template has unquoted field names, which breaks on jsonnet keywords:\n%s\nin: %s\n' \
+            "$bare" "$template" >&2
+        return 1
+    fi
 }
 
 assert_flag_on_all_calls() {

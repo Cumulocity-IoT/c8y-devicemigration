@@ -4,6 +4,10 @@ load helpers/load
 
 setup() {
     setup_common
+    # read straight out of the command, so a test can never assert against a
+    # stale copy of a template
+    ALARM_STRIP_FOR_TEST=$(sed -n 's/^ALARM_STRIP="\(.*\)"$/\1/p' "$REPO_DIR/commands/import")
+    EVENT_STRIP_FOR_TEST=$(sed -n 's/^EVENT_STRIP="\(.*\)"$/\1/p' "$REPO_DIR/commands/import")
     FIXTURE="$TESTS_DIR/fixtures/export-9object"
     # the mapping file defaults to the working directory
     cd "$WORK"
@@ -373,12 +377,14 @@ setup_data_export() {
     assert_success
     local template
     template=$(head -1 "$REC/alarms.log" | cut -f4)
-    for field in id self creationTime lastUpdated count firstOccurrenceTime history source; do
-        if [[ "$template" != *"$field:: "* ]]; then
+    for field in id self creationTime lastUpdated count firstOccurrenceTime history; do
+        if [[ "$template" != *"'$field':: "* ]]; then
             printf 'alarm template does not hide %s: %s\n' "$field" "$template" >&2
             return 1
         fi
     done
+    # and every field name is quoted, so a jsonnet keyword can never sneak in
+    assert_template_fields_quoted "$template"
 }
 
 @test "import: the event template hides every server managed property" {
@@ -387,12 +393,14 @@ setup_data_export() {
     assert_success
     local template
     template=$(head -1 "$REC/events.log" | cut -f4)
-    for field in id self creationTime lastUpdated source c8y_IsBinary; do
-        if [[ "$template" != *"$field:: "* ]]; then
+    for field in id self creationTime lastUpdated c8y_IsBinary; do
+        if [[ "$template" != *"'$field':: "* ]]; then
             printf 'event template does not hide %s: %s\n' "$field" "$template" >&2
             return 1
         fi
     done
+    # and every field name is quoted, so a jsonnet keyword can never sneak in
+    assert_template_fields_quoted "$template"
 }
 
 @test "import: an event attachment is uploaded against the new event id" {
@@ -459,4 +467,71 @@ setup_data_export() {
     assert_success
     assert_output --partial "claimed an attachment but none was exported"
     assert_equal "$(ls "$REC" | grep -c 'binaries-uploaded' || true)" "0"
+}
+
+@test "import: the data templates keep source so --device can overwrite it" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+
+    # --device maps onto source.id, so hiding source removes the very field it
+    # would overwrite and the request fails with
+    # "Body is missing required properties: source.id"
+    local alarmTemplate eventTemplate
+    alarmTemplate=$(head -1 "$REC/alarms.log" | cut -f4)
+    eventTemplate=$(head -1 "$REC/events.log" | cut -f4)
+    assert_equal "$(printf '%s' "$alarmTemplate" | grep -c "source'*::" || true)" "0"
+    assert_equal "$(printf '%s' "$eventTemplate" | grep -c "source'*::" || true)" "0"
+
+    # and the new device id is supplied on every data create
+    assert_flag_on_all_calls "--device" "alarms create "
+    assert_flag_on_all_calls "--device" "events create "
+    assert_flag_on_all_calls "--device" "measurements createBulk "
+}
+
+
+# --- record integrity through the ordering step -------------------------------
+#
+# Records are sorted by time before being sent. jq's @tsv escapes backslashes in
+# the field it emits, so a record whose text holds escaped JSON came back out
+# with every backslash doubled and was no longer valid JSON. That corrupted the
+# record before c8y ever saw it and killed the whole import with
+# "Could not lex the character". Alarm a3 in the fixture has that shape.
+
+@test "import: records with escaped JSON survive the chronological sort" {
+    setup_data_export
+    local file="$OUT/data/2/alarms.jsonl"
+    assert [ -f "$file" ]
+
+    # every record the sort emits must still be valid JSON
+    local line bad=0 total=0
+    while IFS= read -r line; do
+        total=$((total + 1))
+        printf '%s' "$line" | jq -e . > /dev/null 2>&1 || bad=$((bad + 1))
+    done < <(sed -n '/^sort_by_time()/,/^}/p' "$REPO_DIR/commands/import" \
+        | { cat; printf 'sort_by_time "%s"\n' "$file"; } | bash)
+
+    assert_equal "$bad" "0"
+    assert_equal "$total" "3"
+}
+
+@test "import: an awkward alarm text reaches the create body unchanged" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+
+    # the record carrying escaped JSON was sent, and its text is intact
+    local sent expected
+    expected=$(jq -r 'select(.id=="a3") | .text' "$OUT/data/2/alarms.jsonl")
+    sent=$(cut -f3 "$REC/alarms.log" | jq -r 'select(.type=="c8y_RuleFailed") | .text')
+    assert_equal "$sent" "$expected"
+    assert [ -n "$sent" ]
+}
+
+@test "import: every alarm is created even when one holds escaped JSON" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_equal "$(grep -c '' "$REC/alarms.log")" "3"
+    assert_line --partial "Imported 3 alarms for Line A"
 }
