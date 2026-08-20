@@ -342,9 +342,11 @@ setup_data_export() {
     setup_data_export
     run_import --input-directory "$OUT" --force
     assert_success
+    # only the measurement bulk command still pipes; events and alarms are
+    # handed one record each via --data, which cannot be corrupted by escaping
     assert_data_command_received_stdin "measurements createBulk"
-    assert_data_command_received_stdin "events create"
-    assert_data_command_received_stdin "alarms create"
+    assert_flag_on_all_calls "--nullInput" "events create "
+    assert_flag_on_all_calls "--nullInput" "alarms create "
 }
 
 @test "import: nothing else consumes stdin by accident" {
@@ -368,39 +370,37 @@ setup_data_export() {
     run_import --input-directory "$OUT" --force
     assert_success
     run bash -c "cut -f3 '$REC/alarms.log' | jq -r .status | tr '\n' ','"
-    assert_output "CLEARED,ACTIVE,"
+    assert_output "CLEARED,CLEARED,ACTIVE,"
 }
 
-@test "import: the alarm template hides every server managed property" {
+@test "import: no server managed property reaches the alarm body" {
     setup_data_export
     run_import --input-directory "$OUT" --force
     assert_success
-    local template
-    template=$(head -1 "$REC/alarms.log" | cut -f4)
-    for field in id self creationTime lastUpdated count firstOccurrenceTime history; do
-        if [[ "$template" != *"'$field':: "* ]]; then
-            printf 'alarm template does not hide %s: %s\n' "$field" "$template" >&2
-            return 1
-        fi
+
+    # the fake records the exact --data value, so this is the real body
+    local body
+    body=$(head -1 "$REC/alarms.log" | cut -f3)
+    for field in id self creationTime lastUpdated count firstOccurrenceTime history source; do
+        assert_equal "$(printf '%s' "$body" | jq -r --arg f "$field" 'has($f)')" "false"
     done
-    # and every field name is quoted, so a jsonnet keyword can never sneak in
-    assert_template_fields_quoted "$template"
+    # and what must survive, does
+    assert_equal "$(printf '%s' "$body" | jq -r '.status')" "CLEARED"
+    assert_equal "$(printf '%s' "$body" | jq -r '.severity')" "MAJOR"
+    assert_equal "$(printf '%s' "$body" | jq -r '.time')" "2026-01-01T00:00:00.000Z"
 }
 
-@test "import: the event template hides every server managed property" {
+@test "import: no server managed property reaches the event body" {
     setup_data_export
     run_import --input-directory "$OUT" --force
     assert_success
-    local template
-    template=$(head -1 "$REC/events.log" | cut -f4)
-    for field in id self creationTime lastUpdated c8y_IsBinary; do
-        if [[ "$template" != *"'$field':: "* ]]; then
-            printf 'event template does not hide %s: %s\n' "$field" "$template" >&2
-            return 1
-        fi
+
+    local body
+    body=$(head -1 "$REC/events.log" | cut -f3)
+    for field in id self creationTime lastUpdated c8y_IsBinary source; do
+        assert_equal "$(printf '%s' "$body" | jq -r --arg f "$field" 'has($f)')" "false"
     done
-    # and every field name is quoted, so a jsonnet keyword can never sneak in
-    assert_template_fields_quoted "$template"
+    assert [ -n "$(printf '%s' "$body" | jq -r '.type')" ]
 }
 
 @test "import: an event attachment is uploaded against the new event id" {
@@ -457,7 +457,7 @@ setup_data_export() {
     setup_data_export
     run_import --input-directory "$OUT" --force
     assert_success
-    assert_line "Imported 4 measurements, 2 events and 2 alarms, including 1 attachment"
+    assert_line "Imported 4 measurements, 2 events and 3 alarms, including 1 attachment"
 }
 
 @test "import: a claimed attachment missing from the export is reported" {

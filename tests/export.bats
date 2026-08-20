@@ -323,7 +323,7 @@ setup() { setup_common; }
     assert_success
     assert_equal "$(jq -c '.' <(jq -s 'length' "$OUT/data/2/measurements.jsonl"))" "3"
     assert_equal "$(jq -s 'length' "$OUT/data/2/events.jsonl")" "2"
-    assert_equal "$(jq -s 'length' "$OUT/data/2/alarms.jsonl")" "2"
+    assert_equal "$(jq -s 'length' "$OUT/data/2/alarms.jsonl")" "3"
     # device 4 has measurements only
     assert [ -f "$OUT/data/4/measurements.jsonl" ]
     refute [ -f "$OUT/data/4/events.jsonl" ]
@@ -414,14 +414,14 @@ setup() { setup_common; }
 @test "export: progress lines report data counts per device" {
     run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
     assert_success
-    assert_line --partial "Exported Line A (2), 2 asset children, 2 identities, 3 measurements, 2 events, 1 attachment, 2 alarms"
+    assert_line --partial "Exported Line A (2), 2 asset children, 2 identities, 3 measurements, 2 events, 1 attachment, 3 alarms"
     assert_line --partial 'Exported Pump "West" (4), 1 identity, 1 measurement'
 }
 
 @test "export: the closing line totals the data" {
     run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
     assert_success
-    assert_line --partial "with 4 measurements, 2 events and 2 alarms including 1 attachment"
+    assert_line --partial "with 4 measurements, 2 events and 3 alarms including 1 attachment"
 }
 
 @test "export: the closing line omits data when none was requested" {
