@@ -96,8 +96,10 @@ build_plan() {
     while IFS=$'\t' read -r oldId newId; do
         [[ -n "$oldId" && -n "$newId" ]] || continue
 
-        # stdout discarded: the plan printed below is what the caller reads,
-        # not the raw managed object
+        # A 404 here is how an already absent object is detected, so the
+        # non-zero exit code IS the signal: do not add --silentExit to this
+        # call, or every object would look present. stdout and stderr are
+        # discarded because the plan printed below is what the caller reads.
         if c8y inventory get --id "$newId" --select id,name \
             --outputFileRaw "$workDirectory/object.json" --nullInput \
             > /dev/null 2>&1; then
@@ -195,6 +197,7 @@ report_outcome() {
     while IFS=$'\t' read -r oldId newId state name; do
         [[ "$state" == "present" ]] || continue
 
+        # as in build_plan, the non-zero exit on a missing object is the signal
         if c8y inventory get --id "$newId" --select id --nullInput > /dev/null 2>&1; then
             failed=$((failed + 1))
             printf 'present\t%s\t%s\n' "$newId" "$name" >> "$outcome"

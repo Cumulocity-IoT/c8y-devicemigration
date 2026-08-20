@@ -22,12 +22,15 @@
 #      tenant: the objects a real import created carried their original names,
 #      which only happens if the template reached the request body.
 #   5. `inventory get` fails with a non-zero exit code for an id that does not
-#      exist. NOT verified against a live tenant: every object was still
-#      present in the one real revert so far, so the absent branch of the plan
-#      has never actually run. If this is wrong, revert would report an object
-#      as present that is already gone.
+#      exist. VERIFIED against a live tenant: it exits 4, which go-c8y-cli
+#      defines as ExitNotFound404. revert only tests success or failure, so the
+#      specific code does not matter, but any non-zero value is required for it
+#      to tell an absent object from a present one.
 #   6. Deleting a managed object also removes its external identities, so
 #      revert does not delete them separately. VERIFIED against a live tenant.
+#
+# Creating external identities on import has also been confirmed against a live
+# tenant, so every command path in this extension has run for real at least once.
 #
 # Two id spaces are in play, which is why `inventory get` has two sources:
 # the hierarchy fixture is the SOURCE tenant that export reads, and objects
@@ -76,12 +79,19 @@ argv=("$@")
 # iteration. Model it exactly, and record whether it happened.
 nullInput=no
 force=no
+silentExit=no
 for a in "${argv[@]}"; do
     if [[ "$a" == "--nullInput" || "$a" == "-n" ]]; then
         nullInput=yes
     fi
     if [[ "$a" == "--force" || "$a" == "-f" ]]; then
         force=yes
+    fi
+    # --silentExit zeroes the exit code for ANY error, not only for codes named
+    # in --silentStatusCodes. Verified in go-c8y-cli pkg/cmdutil/factory.go,
+    # where GetSilentExit() nils the returned error unconditionally.
+    if [[ "$a" == "--silentExit" ]]; then
+        silentExit=yes
     fi
 done
 
@@ -180,6 +190,9 @@ case "$subcommand" in
         else
             # assumption 5
             echo "fake c8y: managed object $id not found" >&2
+            if [[ "$silentExit" == "yes" ]]; then
+                exit 0
+            fi
             exit 1
         fi
         ;;

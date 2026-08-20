@@ -255,16 +255,14 @@ docopt.sh commands/export      # pipx install docopt-sh==2.0.3
 ### What the tests cannot cover
 
 The fake encodes assumptions about real `c8y` behaviour, listed at the top of
-`tests/fake/c8y`. Most have since been confirmed against a live tenant. One has
-not: that `inventory get` exits non-zero for an id that no longer exists, which
-is how `revert` decides an object is already absent. Every object was still
-present in the reverts run so far, so that branch has never executed for real.
-If it is wrong, `revert` would list an already-deleted object as present.
+`tests/fake/c8y`. All of them have been confirmed against a live tenant, and
+every command path has been exercised there at least once: export, import
+including external identities, and revert. Any change to those assumptions
+should be recorded in that file, since a fake that quietly drifts is worse than
+no test at all.
 
-Creating external identities on import is also still unexercised against a real
-tenant, as far as is known.
-
-Before trusting a real migration, smoke it manually:
+The suite still cannot see a real tenant, so after changing anything that talks
+to `c8y`, smoke it manually:
 
 1. `c8y devicemigration export --rootId <id> --output-directory ./smoke`
 2. Check one `exported_device_*.json` looks like the managed object, and that
@@ -272,6 +270,8 @@ Before trusting a real migration, smoke it manually:
 3. Switch to a throwaway tenant and import with `--force`.
 4. Confirm the reported link count matches the number of references in the
    export, and spot-check the hierarchy in the UI.
+5. Check the `Added external identity ...` lines appear for any device that had
+   external IDs, and that those IDs resolve in the target tenant.
 
 ## Licensing
 
