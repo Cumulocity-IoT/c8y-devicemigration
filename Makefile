@@ -8,7 +8,7 @@ BATS_VERSION         := v1.11.1
 BATS_SUPPORT_VERSION := v0.3.0
 BATS_ASSERT_VERSION  := v2.1.0
 
-.PHONY: check test lint parser-freshness bootstrap clean
+.PHONY: check test test-bash3 lint parser-freshness bootstrap clean
 
 check: lint parser-freshness test
 
