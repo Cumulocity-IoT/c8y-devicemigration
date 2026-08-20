@@ -93,3 +93,21 @@ expected_links() {
     assert_success
     assert_no_call_drained_stdin
 }
+
+@test "roundtrip: external identities survive export and import" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+
+    # every identity in the export was recreated, bound to the new object id
+    local expected
+    expected=$(for f in "$OUT"/*_identities.json; do
+        local old newId
+        old=$(basename "$f" _identities.json)
+        newId=$(jq -r --arg k "$old" '.[$k]' id_mapping.json)
+        jq -r --arg n "$newId" '.[] | "\($n) \(.type) \(.externalId)"' "$f"
+    done | sort)
+    assert_equal "$(sort "$REC/identities.log")" "$expected"
+    assert_equal "$(printf '%s\n' "$expected" | grep -c '')" "4"
+}

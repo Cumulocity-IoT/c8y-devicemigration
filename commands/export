@@ -108,6 +108,35 @@ exported_ids=" "
 # Child relationship types to follow, set from --childTypes
 childTypes=""
 
+# Totals for the closing summary
+exportedCount=0
+identityCount=0
+
+# Name of a managed object as it appears in the export, for logging only
+read_name() {
+    local name
+    # -j so no trailing newline is turned into a trailing space by tr
+    name=$(jq -rj '.name // empty' "$1" | tr '\t\n' '  ')
+    if [[ -z "${name// /}" ]]; then
+        name="<unnamed>"
+    fi
+    printf '%s' "$name"
+}
+
+report_totals() {
+    echo "Exported $exportedCount $(plural "$exportedCount" "managed object" "managed objects")" \
+        "and $identityCount $(plural "$identityCount" "external identity" "external identities")" \
+        "to $1" >&2
+}
+
+plural() {
+    if [[ "$1" -eq 1 ]]; then
+        printf '%s' "$2"
+    else
+        printf '%s' "$3"
+    fi
+}
+
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
 # shellcheck disable=SC2154
@@ -150,11 +179,30 @@ export_device_recursive() {
     fi
     exported_ids+="$deviceId "
 
-    # Export the current device
-    c8y inventory get --id "$deviceId" --outputFileRaw "${outputDirectory}/exported_device_$deviceId.json" --nullInput
+    # Export the current device. Its stdout is discarded: what the caller wants
+    # to read is the progress line below, not the raw managed object.
+    c8y inventory get --id "$deviceId" \
+        --outputFileRaw "${outputDirectory}/exported_device_$deviceId.json" \
+        --nullInput > /dev/null
 
-    # Get children of all types and process them recursively
-    local childType children childId
+    local name
+    name=$(read_name "${outputDirectory}/exported_device_$deviceId.json")
+
+    # External identities bound to the device. Written as a JSON array so the
+    # file matches its extension, and only when the device actually has any.
+    local identities identityFile deviceIdentities=0
+    identities=$(c8y identity list --device "$deviceId" --select externalId,type --nullInput)
+    if [[ -n "$identities" ]]; then
+        identityFile="${outputDirectory}/${deviceId}_identities.json"
+        printf '%s\n' "$identities" | jq -s 'map({type, externalId})' > "$identityFile"
+        deviceIdentities=$(jq 'length' "$identityFile")
+        identityCount=$((identityCount + deviceIdentities))
+    fi
+
+    # Children are gathered for every requested type before descending, so the
+    # progress line for this device is complete and the output reads top down
+    # rather than depth first.
+    local childType children indexFile count summary="" pending=""
     # shellcheck disable=2086
     for childType in $childTypes; do
         # --nullInput so c8y never consumes the child ID list driving the loop
@@ -167,15 +215,27 @@ export_device_recursive() {
 
         # Save child IDs to separate file per child type, as a JSON array so the
         # file matches its extension and a rerun replaces it instead of appending
-        printf '%s\n' "$children" | jq -s 'map(.id)' > "${outputDirectory}/${deviceId}_child_${childType}.json"
+        indexFile="${outputDirectory}/${deviceId}_child_${childType}.json"
+        printf '%s\n' "$children" | jq -s 'map(.id)' > "$indexFile"
 
-        # Process each child recursively
-        while IFS= read -r childId; do
-            if [[ -n "$childId" ]]; then
-                export_device_recursive "$childId" "$outputDirectory" < /dev/null
-            fi
-        done < <(printf '%s\n' "$children" | jq -r '.id')
+        count=$(jq 'length' "$indexFile")
+        summary+=", $count $childType $(plural "$count" child children)"
+        pending+="$(jq -r '.[]' "$indexFile")"$'\n'
     done
+
+    if [[ "$deviceIdentities" -gt 0 ]]; then
+        summary+=", $deviceIdentities $(plural "$deviceIdentities" identity identities)"
+    fi
+
+    exportedCount=$((exportedCount + 1))
+    echo "Exported $name ($deviceId)$summary" >&2
+
+    local childId
+    while IFS= read -r childId; do
+        if [[ -n "$childId" ]]; then
+            export_device_recursive "$childId" "$outputDirectory" < /dev/null
+        fi
+    done <<< "$pending"
 }
 
 # The __* variables are set by the generated parser through eval, which
@@ -189,6 +249,7 @@ run_export() {
     if [[ -n "$__output_directory" ]]; then
         mkdir -p "$__output_directory"
         export_device_recursive "$__rootId" "$__output_directory"
+        report_totals "$__output_directory"
         return 0
     fi
 
@@ -200,6 +261,7 @@ run_export() {
 
     export_device_recursive "$__rootId" "$stagingDirectory"
     tar -czf "$__output_compressed" -C "$stagingDirectory" .
+    report_totals "$__output_compressed"
 }
 
 run_export "$@"

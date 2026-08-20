@@ -229,3 +229,67 @@ setup() {
     assert_success
     assert_output --partial "Import devices and their data into Cumulocity"
 }
+
+# --- external identities ----------------------------------------------------
+
+@test "import: identities are recreated against the new object id" {
+    run_import --input-directory "$FIXTURE" --force
+    assert_success
+    local newId
+    newId=$(jq -r '.["5174376875"]' id_mapping.json)
+    assert_equal "$(grep -c "^$newId c8y_Serial CUSTOMER-1-SN\$" "$REC/identities.log")" "1"
+}
+
+@test "import: a device with two identities gets both" {
+    run_import --input-directory "$FIXTURE" --force
+    assert_success
+    local newId
+    newId=$(jq -r '.["7874377868"]' id_mapping.json)
+    assert_equal "$(grep -c "^$newId " "$REC/identities.log")" "2"
+}
+
+@test "import: an external id containing a space survives the tab separated read" {
+    run_import --input-directory "$FIXTURE" --force
+    assert_success
+    assert_equal "$(grep -c 'c8y_ExternalId f1 site north$' "$REC/identities.log")" "1"
+}
+
+@test "import: every identity create passes --nullInput" {
+    run_import --input-directory "$FIXTURE" --force
+    assert_success
+    assert_flag_on_all_calls "--nullInput" "identity create"
+    assert_no_call_drained_stdin
+}
+
+@test "import: --force reaches identity creation too" {
+    run_import --input-directory "$FIXTURE" --force
+    assert_success
+    assert_flag_on_all_calls "--force" "identity create"
+}
+
+@test "import: the summary reports how many identities were created" {
+    run_import --input-directory "$FIXTURE" --force
+    assert_success
+    assert_line --regexp '^Imported 9 devices and 3 external identities,'
+}
+
+@test "import: an identity the tenant already knows is reported, not fatal" {
+    FAKE_C8Y_FAIL_IDENTITY="F1-SN-0001" run_import --input-directory "$FIXTURE" --force
+    assert_success
+    assert_output --partial "Could not add external identity c8y_Serial:F1-SN-0001"
+    assert_output --partial "it may already exist in the target tenant"
+    # the run still completes and the remaining identities are created
+    assert_line --regexp '^Imported 9 devices and 2 external identities,'
+    assert_line --regexp '^1 external identities could not be created$'
+    assert_equal "$(count_links)" "8"
+}
+
+@test "import: an export without identity files creates none" {
+    local dir="$WORK/noident"
+    mkdir -p "$dir"
+    printf '{"id":"30","name":"lonely"}\n' > "$dir/exported_device_30.json"
+    run_import --input-directory "$dir" --force
+    assert_success
+    assert_equal "$(count_calls "identity create")" "0"
+    assert_line --regexp '^Imported 1 devices and 0 external identities,'
+}

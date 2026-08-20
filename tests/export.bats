@@ -193,3 +193,104 @@ setup() { setup_common; }
     assert_success
     assert_output --partial "Export devices and their data from Cumulocity"
 }
+
+# --- external identities ----------------------------------------------------
+
+@test "export: identities are written as a valid JSON array" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run jq -e 'type == "array" and all(has("type") and has("externalId"))' "$OUT/1_identities.json"
+    assert_success
+    assert_equal "$(jq -c '.' "$OUT/1_identities.json")" \
+        '[{"type":"c8y_Serial","externalId":"PLANT-BERLIN-01"}]'
+}
+
+@test "export: a device with two identities exports both" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    assert_equal "$(jq 'length' "$OUT/2_identities.json")" "2"
+    assert_equal "$(jq -r '.[].externalId' "$OUT/2_identities.json" | sort | tr '\n' ',')" \
+        "LINE-A-SN,line-a@example,"
+}
+
+@test "export: an external id containing a space is preserved" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    assert_equal "$(jq -r '.[0].externalId' "$OUT/4_identities.json")" "PUMP WEST 001"
+}
+
+@test "export: devices without identities get no identity file" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    # only 1, 2 and 4 carry identities in the fixture
+    assert_equal "$(ls "$OUT" | grep -c '_identities\.json$' || true)" "3"
+    refute [ -e "$OUT/3_identities.json" ]
+}
+
+@test "export: identities are collected for every visited device" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    # one identity list call per exported object, and never more
+    assert_equal "$(count_calls "identity list")" "9"
+    assert_flag_on_all_calls "--nullInput" "identity list"
+}
+
+@test "export: --no-children still exports the root's identities" {
+    run_export --rootId 1 --output-directory "$OUT" --no-children
+    assert_success
+    assert_equal "$(exported_ids "$OUT")" "1"
+    assert [ -e "$OUT/1_identities.json" ]
+    assert_equal "$(count_calls "identity list")" "1"
+}
+
+# --- progress reporting -----------------------------------------------------
+
+@test "export: raw managed objects are not printed" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    # the whole object goes to the file, not to the operator
+    refute_output --partial '"lastUpdated"'
+    refute_output --partial '"my_Custom-Fragment"'
+    refute_output --partial '"c8y_Availability"'
+}
+
+@test "export: each device is reported by name and id" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    assert_line "Exported Plant Berlin (1), 2 asset children, 1 device child, 1 identity"
+    assert_line "Exported Edge Node (11)"
+}
+
+@test "export: an unnamed device is reported as unnamed" {
+    run_export --rootId 1 --output-directory "$OUT" --childTypes asset,device,addition
+    assert_success
+    assert_line "Exported <unnamed> (8), 1 device child"
+}
+
+@test "export: counts are singular or plural as appropriate" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    assert_line --partial "2 asset children"
+    assert_line --partial "1 device child"
+    assert_line --partial "2 identities"
+    assert_line --partial "1 identity"
+}
+
+@test "export: the closing line totals objects and identities" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    assert_line "Exported 9 managed objects and 4 external identities to $OUT"
+}
+
+@test "export: the closing line names the archive in compressed mode" {
+    run_export --rootId 1 --output-compressed "$WORK/mig.tgz"
+    assert_success
+    assert_line --partial "to $WORK/mig.tgz"
+}
+
+@test "export: --no-children reports just the root" {
+    run_export --rootId 1 --output-directory "$OUT" --no-children
+    assert_success
+    assert_line "Exported Plant Berlin (1), 1 identity"
+    assert_line --partial "Exported 1 managed object and 1 external identity"
+}

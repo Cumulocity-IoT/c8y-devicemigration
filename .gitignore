@@ -38,6 +38,7 @@ go.work.sum
 # the repository even when they are written into the working directory.
 exported_device_*.json
 *_child_*.json
+*_identities.json
 id_mapping.json
 
 # Compressed exports written by `export --output-compressed`. The file name is

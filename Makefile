@@ -2,7 +2,7 @@
 
 TESTS_DIR := tests
 VENDOR    := $(TESTS_DIR)/vendor
-COMMANDS  := commands/export commands/import
+COMMANDS  := commands/export commands/import commands/revert
 
 # Pinned so local and CI agree. Older shellcheck (e.g. Ubuntu's 0.9.0) has a
 # cruder reachability analysis and floods the generated docopt parser with

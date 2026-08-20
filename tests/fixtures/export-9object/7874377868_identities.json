@@ -1,0 +1,10 @@
+[
+  {
+    "type": "c8y_Serial",
+    "externalId": "F1-SN-0001"
+  },
+  {
+    "type": "c8y_ExternalId",
+    "externalId": "f1 site north"
+  }
+]

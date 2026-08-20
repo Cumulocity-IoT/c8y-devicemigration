@@ -114,6 +114,24 @@ idMap=""
 # Extra arguments passed to every c8y call which modifies data, set from --force
 forceArgs=()
 
+# External identities created, and those the target tenant refused
+identitiesCreated=0
+identitiesFailed=0
+
+# Where the old to new ID mapping is written
+mappingFile=""
+
+# Rewrite the mapping from the running record. Called after every created
+# object rather than once at the end, because an import that dies part way
+# through is precisely the case `revert` has to be able to clean up: a mapping
+# written only on success would leave those objects orphaned in the tenant.
+write_mapping() {
+    jq -R -s 'split("\n")
+        | map(select(length > 0) | split("\t"))
+        | map({(.[0]): .[1]})
+        | add // {}' "$idMap" > "$mappingFile"
+}
+
 lookup_new_id() {
     awk -F'\t' -v old="$1" '$1 == old { print $2; exit }' "$idMap"
 }
@@ -155,8 +173,36 @@ import_devices() {
         fi
 
         printf '%s\t%s\t%s\n' "$oldId" "$newId" "$name" >> "$idMap"
+        write_mapping
         echo "Imported $name ($oldId -> $newId)" >&2
+
+        import_identities "$inputDirectory" "$oldId" "$newId" "$name"
     done
+}
+
+# Recreate the external identities of one managed object against its new id.
+# An external id is unique per type within a tenant, so a target tenant that
+# already knows it will reject the request. That is worth reporting loudly, but
+# not worth aborting a bulk migration over, so it is counted and carried on.
+import_identities() {
+    local inputDirectory="$1" oldId="$2" newId="$3" name="$4"
+    local identityFile="${inputDirectory}/${oldId}_identities.json"
+    local externalType externalId
+
+    [[ -f "$identityFile" ]] || return 0
+
+    while IFS=$'\t' read -r externalType externalId; do
+        [[ -n "$externalType" && -n "$externalId" ]] || continue
+
+        if c8y identity create --device "$newId" --type "$externalType" \
+            --name "$externalId" --nullInput "${forceArgs[@]}" > /dev/null; then
+            identitiesCreated=$((identitiesCreated + 1))
+            echo "Added external identity $externalType:$externalId to $name ($newId)" >&2
+        else
+            identitiesFailed=$((identitiesFailed + 1))
+            echo "Could not add external identity $externalType:$externalId to $name ($newId), it may already exist in the target tenant" >&2
+        fi
+    done < <(jq -r '.[] | [.type, .externalId] | @tsv' "$identityFile")
 }
 
 link_children() {
@@ -204,7 +250,7 @@ link_children() {
 run_import() {
     eval "$(docopt "$@")"
 
-    local mappingFile="${__mapping:-id_mapping.json}"
+    mappingFile="${__mapping:-id_mapping.json}"
     local workDirectory inputDirectory
 
     if [[ "$__force" == "true" ]]; then
@@ -217,6 +263,7 @@ run_import() {
 
     idMap="$workDirectory/id_map.tsv"
     : > "$idMap"
+    write_mapping
 
     if [[ -n "$__input_compressed" ]]; then
         inputDirectory="$workDirectory/extracted"
@@ -234,12 +281,12 @@ run_import() {
     import_devices "$inputDirectory" "$workDirectory"
     link_children "$inputDirectory"
 
-    jq -R -s 'split("\n")
-        | map(select(length > 0) | split("\t"))
-        | map({(.[0]): .[1]})
-        | add // {}' "$idMap" > "$mappingFile"
+    write_mapping
 
-    echo "Imported $(grep -c '' "$idMap") devices, ID mapping written to $mappingFile" >&2
+    echo "Imported $(grep -c '' "$idMap") devices and $identitiesCreated external identities, ID mapping written to $mappingFile" >&2
+    if [[ "$identitiesFailed" -gt 0 ]]; then
+        echo "$identitiesFailed external identities could not be created" >&2
+    fi
 }
 
 run_import "$@"
