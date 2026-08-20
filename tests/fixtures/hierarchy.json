@@ -11,17 +11,268 @@
     "  - 8 has no name; others carry quotes, #, [, a tab and non-ASCII.",
     "  - 1, 2 and 4 carry external identities; 2 carries TWO, because the",
     "    identity loop can be truncated the same way the child loop can.",
-    "    4's external id contains a space, to exercise the tab separated read."
+    "    4's external id contains a space, to exercise the tab separated read.",
+    "  - 2 carries measurements, events and alarms, several of each, so a",
+    "    truncated batch or loop is visible. Its event e2 has an attachment",
+    "    (c8y_IsBinary) and its alarms are one CLEARED then one ACTIVE, which",
+    "    is the order import has to preserve for alarm de-duplication.",
+    "  - 4 carries measurements only, to prove per-type selection."
   ],
-  "1":  { "name": "Plant Berlin",      "type": "c8y_Site",   "identities": [{"type": "c8y_Serial", "externalId": "PLANT-BERLIN-01"}], "children": { "asset": ["2", "3"], "device": ["10"], "addition": ["8"] } },
-  "2":  { "name": "Line A",            "type": "c8y_Line",   "identities": [{"type": "c8y_Serial", "externalId": "LINE-A-SN"}, {"type": "c8y_ExternalId", "externalId": "line-a@example"}], "children": { "asset": ["4", "5"] } },
-  "3":  { "name": "Line B",            "type": "c8y_Line",   "children": { "device": ["6", "7"], "asset": ["4"] } },
-  "4":  { "name": "Pump \"West\"",     "type": "c8y_Pump",   "identities": [{"type": "c8y_Serial", "externalId": "PUMP WEST 001"}], "children": {} },
-  "5":  { "name": "Ünit Köln ✓",       "type": "c8y_Pump",   "children": { "asset": ["2"] } },
-  "6":  { "name": "Sensor #1 [raw]",   "type": "c8y_Sensor", "children": {} },
-  "7":  { "name": "Sensor\tTabbed",    "type": "c8y_Sensor", "children": {} },
-  "8":  {                              "type": "c8y_Addition", "children": { "device": ["9"] } },
-  "9":  { "name": "Deep Device",       "type": "c8y_Device", "children": {} },
-  "10": { "name": "Gateway",           "type": "c8y_Device", "children": { "device": ["11"] } },
-  "11": { "name": "Edge Node",         "type": "c8y_Device", "children": {} }
+  "1": {
+    "name": "Plant Berlin",
+    "type": "c8y_Site",
+    "identities": [
+      {
+        "type": "c8y_Serial",
+        "externalId": "PLANT-BERLIN-01"
+      }
+    ],
+    "children": {
+      "asset": [
+        "2",
+        "3"
+      ],
+      "device": [
+        "10"
+      ],
+      "addition": [
+        "8"
+      ]
+    }
+  },
+  "2": {
+    "name": "Line A",
+    "type": "c8y_Line",
+    "identities": [
+      {
+        "type": "c8y_Serial",
+        "externalId": "LINE-A-SN"
+      },
+      {
+        "type": "c8y_ExternalId",
+        "externalId": "line-a@example"
+      }
+    ],
+    "children": {
+      "asset": [
+        "4",
+        "5"
+      ]
+    },
+    "measurements": [
+      {
+        "id": "m1",
+        "self": "https://example.cumulocity.com/measurement/measurements/m1",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:00:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 21.5,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m2",
+        "self": "https://example.cumulocity.com/measurement/measurements/m2",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:00:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 22.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m3",
+        "self": "https://example.cumulocity.com/measurement/measurements/m3",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T02:00:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 22.5,
+            "unit": "C"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "id": "e1",
+        "self": "x",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:30:00.000Z",
+        "creationTime": "2026-01-01T00:30:01.000Z",
+        "lastUpdated": "2026-01-01T00:30:01.000Z",
+        "type": "c8y_LocationUpdate",
+        "text": "Location updated",
+        "c8y_Position": {
+          "lat": 51.21,
+          "lng": 6.15
+        }
+      },
+      {
+        "id": "e2",
+        "self": "x",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:30:00.000Z",
+        "creationTime": "2026-01-01T01:30:01.000Z",
+        "type": "c8y_LogfileRequest",
+        "text": "Log uploaded",
+        "c8y_IsBinary": {
+          "name": "agent.log",
+          "type": "text/plain"
+        }
+      }
+    ],
+    "alarms": [
+      {
+        "id": "a1",
+        "self": "x",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:00:00.000Z",
+        "creationTime": "2026-01-01T00:00:01.000Z",
+        "lastUpdated": "2026-01-01T03:00:00.000Z",
+        "firstOccurrenceTime": "2026-01-01T00:00:00.000Z",
+        "count": 4,
+        "history": {
+          "auditRecords": [
+            {
+              "x": 1
+            }
+          ],
+          "self": "x"
+        },
+        "type": "c8y_UnavailableAlarm",
+        "text": "Device unavailable",
+        "severity": "MAJOR",
+        "status": "CLEARED"
+      },
+      {
+        "id": "a2",
+        "self": "x",
+        "source": {
+          "id": "2",
+          "self": "x"
+        },
+        "time": "2026-01-01T02:00:00.000Z",
+        "creationTime": "2026-01-01T02:00:01.000Z",
+        "count": 1,
+        "type": "c8y_TemperatureAlarm",
+        "text": "Too hot",
+        "severity": "CRITICAL",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "3": {
+    "name": "Line B",
+    "type": "c8y_Line",
+    "children": {
+      "device": [
+        "6",
+        "7"
+      ],
+      "asset": [
+        "4"
+      ]
+    }
+  },
+  "4": {
+    "name": "Pump \"West\"",
+    "type": "c8y_Pump",
+    "identities": [
+      {
+        "type": "c8y_Serial",
+        "externalId": "PUMP WEST 001"
+      }
+    ],
+    "children": {},
+    "measurements": [
+      {
+        "id": "m4",
+        "self": "x",
+        "source": {
+          "id": "4",
+          "self": "x"
+        },
+        "time": "2026-01-02T00:00:00.000Z",
+        "type": "c8y_Pressure",
+        "c8y_Pressure": {
+          "P": {
+            "value": 1013,
+            "unit": "hPa"
+          }
+        }
+      }
+    ]
+  },
+  "5": {
+    "name": "\u00dcnit K\u00f6ln \u2713",
+    "type": "c8y_Pump",
+    "children": {
+      "asset": [
+        "2"
+      ]
+    }
+  },
+  "6": {
+    "name": "Sensor #1 [raw]",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "7": {
+    "name": "Sensor\tTabbed",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "8": {
+    "type": "c8y_Addition",
+    "children": {
+      "device": [
+        "9"
+      ]
+    }
+  },
+  "9": {
+    "name": "Deep Device",
+    "type": "c8y_Device",
+    "children": {}
+  },
+  "10": {
+    "name": "Gateway",
+    "type": "c8y_Device",
+    "children": {
+      "device": [
+        "11"
+      ]
+    }
+  },
+  "11": {
+    "name": "Edge Node",
+    "type": "c8y_Device",
+    "children": {}
+  }
 }

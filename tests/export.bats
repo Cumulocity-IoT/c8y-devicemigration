@@ -177,12 +177,14 @@ setup() { setup_common; }
 }
 
 @test "export: --output-compressed leaves no staging directory behind" {
-    local before after
-    before=$(ls "${TMPDIR:-/tmp}" | wc -l | tr -d ' ')
+    local before after added
+    before=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
     run_export --rootId 1 --output-compressed "$WORK/mig.tgz"
     assert_success
-    after=$(ls "${TMPDIR:-/tmp}" | wc -l | tr -d ' ')
-    assert_equal "$before" "$after"
+    after=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
+    # only additions matter: unrelated processes remove entries too
+    added=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))
+    assert_equal "$added" ""
 }
 
 # --- generated parser -------------------------------------------------------
@@ -293,4 +295,137 @@ setup() { setup_common; }
     assert_success
     assert_line "Exported Plant Berlin (1), 1 identity"
     assert_line --partial "Exported 1 managed object and 1 external identity"
+}
+
+# --- device data -------------------------------------------------------------
+
+@test "export: no data is collected unless asked for" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    refute [ -d "$OUT/data" ]
+    assert_equal "$(count_calls "measurements list")" "0"
+    assert_equal "$(count_calls "events list")" "0"
+    assert_equal "$(count_calls "alarms list")" "0"
+}
+
+@test "export: --dataTypes selects only the requested types" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_success
+    assert [ -f "$OUT/data/2/measurements.jsonl" ]
+    refute [ -f "$OUT/data/2/events.jsonl" ]
+    refute [ -f "$OUT/data/2/alarms.jsonl" ]
+    assert_equal "$(count_calls "events list")" "0"
+    assert_equal "$(count_calls "alarms list")" "0"
+}
+
+@test "export: all three types land in per-device folders" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    assert_equal "$(jq -c '.' <(jq -s 'length' "$OUT/data/2/measurements.jsonl"))" "3"
+    assert_equal "$(jq -s 'length' "$OUT/data/2/events.jsonl")" "2"
+    assert_equal "$(jq -s 'length' "$OUT/data/2/alarms.jsonl")" "2"
+    # device 4 has measurements only
+    assert [ -f "$OUT/data/4/measurements.jsonl" ]
+    refute [ -f "$OUT/data/4/events.jsonl" ]
+}
+
+@test "export: devices without data get no data folder" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    # 6 and 7 are leaf sensors with no data in the fixture
+    refute [ -d "$OUT/data/6" ]
+    refute [ -d "$OUT/data/7" ]
+}
+
+@test "export: data records are written verbatim for import to strip" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
+    assert_success
+    # the server-managed properties are still present in the export
+    run jq -e 'has("id") and has("self") and has("count") and has("history")' \
+        <(head -1 "$OUT/data/2/alarms.jsonl")
+    assert_success
+}
+
+@test "export: event attachments are downloaded and named by the source event id" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes events
+    assert_success
+    # e2 is the fixture event carrying c8y_IsBinary
+    assert [ -f "$OUT/data/2/binaries/e2" ]
+    assert_equal "$(cat "$OUT/data/2/binaries/e2")" "attachment of event e2"
+    # only the event with an attachment cost a download
+    assert_equal "$(grep -c '' "$REC/binaries-downloaded.log")" "1"
+}
+
+@test "export: events without attachments cost no download" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes events
+    assert_success
+    refute [ -e "$OUT/data/2/binaries/e1" ]
+}
+
+@test "export: --dateFrom and --dateTo reach the list commands" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements \
+        --dateFrom "-30d" --dateTo "-1d"
+    assert_success
+    assert_flag_on_all_calls "--dateFrom" "measurements list"
+    assert_flag_on_all_calls "--dateTo" "measurements list"
+}
+
+@test "export: data lists page through everything" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    assert_flag_on_all_calls "--includeAll" "measurements list"
+    assert_flag_on_all_calls "--includeAll" "events list"
+    assert_flag_on_all_calls "--includeAll" "alarms list"
+}
+
+@test "export: operations are rejected with the reason" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes operations
+    assert_failure
+    assert_output --partial "Operations are not migrated"
+    assert_output --partial "PENDING"
+    assert_equal "$(count_calls "measurements list")" "0"
+}
+
+@test "export: an unsupported data type is rejected and names the value" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,bogus
+    assert_failure
+    assert_output --partial "bogus"
+}
+
+@test "export: --dataTypes with no valid entries is rejected" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes ","
+    assert_failure
+    assert_output --partial "No data types given"
+}
+
+@test "export: progress lines report data counts per device" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    assert_line --partial "Exported Line A (2), 2 asset children, 2 identities, 3 measurements, 2 events, 1 attachment, 2 alarms"
+    assert_line --partial 'Exported Pump "West" (4), 1 identity, 1 measurement'
+}
+
+@test "export: the closing line totals the data" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    assert_line --partial "with 4 measurements, 2 events and 2 alarms including 1 attachment"
+}
+
+@test "export: the closing line omits data when none was requested" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    refute_output --partial "measurements"
+}
+
+@test "export: no c8y call consumes stdin while collecting data" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    assert_no_call_drained_stdin
+}
+
+@test "export: data files travel in the compressed archive" {
+    run_export --rootId 1 --output-compressed "$WORK/mig.tgz" --dataTypes measurements
+    assert_success
+    run tar -tzf "$WORK/mig.tgz"
+    assert_output --partial "data/2/measurements.jsonl"
 }

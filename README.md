@@ -32,6 +32,19 @@ Export into a single compressed archive instead:
 c8y devicemigration export --rootId 12345 --output-compressed ./my-export.tgz
 ```
 
+Device data is not exported unless asked for, so a plain export stays fast:
+
+```sh
+c8y devicemigration export --rootId 12345 --output-directory ./my-export \
+    --dataTypes measurements,events,alarms --dateFrom -30d
+```
+
+```
+Exported Customer 1 (5174376875), 2 asset children, 1 identity
+Exported F1 (7874377868), 2 asset children, 412 measurements, 38 events, 2 alarms
+Exported 9 managed objects and 3 external identities, with 1204 measurements, 38 events and 2 alarms to ./my-export
+```
+
 By default only the `asset` and `device` relationships are followed. Use
 `--childTypes` to migrate additions as well, or to narrow the export further:
 
@@ -135,6 +148,81 @@ reports it, counts it, and carries on rather than abandoning the migration
 part-way. The closing summary states how many identities were created and how
 many were refused, so a partial result is never silent.
 
+## Device data
+
+`--dataTypes` takes a comma separated list of `measurements`, `events` and
+`alarms`. It defaults to empty, so no data is collected unless asked for —
+measurement volumes make that the only sensible default. `--dateFrom` and
+`--dateTo` bound the window and accept the same absolute and relative forms as
+`c8y` itself, e.g. `-30d`.
+
+Data lands in per-device folders as newline-delimited JSON, one record per line,
+which is what `c8y` emits and what its create commands consume:
+
+```
+data/<id>/measurements.jsonl
+data/<id>/events.jsonl
+data/<id>/alarms.jsonl
+data/<id>/binaries/<eventId>      one file per event attachment
+```
+
+Records are written **verbatim**; `import` does the stripping, exactly as it
+does for the managed objects themselves. That keeps the export a faithful
+record and is what makes event attachments correlatable.
+
+On import:
+
+- **Measurements** go through `c8y measurements createBulk`, which posts a
+  measurement collection rather than one request per record. Batches are
+  deliberately small — a migration should not be the reason a tenant starts
+  throttling.
+- **Alarms** keep their `status` and `severity`, which are settable at creation.
+  `count`, `firstOccurrenceTime` and the audit `history` are dropped: that is
+  the "current status, not the full history" intent, and none of them are
+  settable through the API anyway.
+- **Events** with an attachment are created one at a time so their new ID is
+  known before the file is uploaded; the rest go through the fast piped path.
+- **Records are sent oldest first.** Two reasons: `c8y_LatestMeasurements` on
+  the managed object holds the last value *received*, not the newest by
+  timestamp, so an out-of-order backfill would leave a device showing a stale
+  reading as its latest; and Cumulocity de-duplicates alarms on source and type
+  while one is ACTIVE or ACKNOWLEDGED, so a still-open alarm has to be created
+  after the cleared history of its type or it absorbs it.
+- **`--processingMode QUIESCENT`** is used for measurements and events, which
+  persists the record while suppressing realtime notifications. It is
+  documented as applying to those two only — alarm creation is always
+  PERSISTENT whatever the header says.
+
+### Operations are not migrated
+
+`c8y operations create` accepts no status and `creationTime` is server-assigned,
+so every recreated operation would arrive as `PENDING` — a live command that the
+target device would pick up and execute, since pending operations are pushed to
+devices on subscribe. Operations also have no `time` field at all, so their
+original timing could not be preserved even if the status could. Asking for
+`--dataTypes operations` fails with that explanation rather than silently
+ignoring it.
+
+### Before importing data into a tenant
+
+Two platform behaviours can ruin a data migration, and neither can be handled
+from here:
+
+- **Smart rules and EPL apps will fire on imported data.** No processing mode
+  suppresses CEP/Apama. The stock smart rules include *on alarm send SMS*, *on
+  alarm send email*, *on alarm execute operation* and *on measurement threshold
+  create alarm*, so importing a history into a tenant with those active can
+  send real notifications and create real operations on real devices.
+  Deactivate Apama-ctrl/Smartrule, or the individual rules, for the duration of
+  the import.
+- **Retention rules will delete the import.** The documented default removes
+  historical data after 60 days, with cleanup running about daily, so a
+  two-year history imported into a default tenant is largely gone within a day.
+  Raise the target tenant's retention rules first.
+
+Worth checking too: alarm mapping rules on the target can rewrite an incoming
+alarm's severity and text by type prefix, and one of the options is *Drop*.
+
 ## Reverting a migration
 
 `revert` takes the mapping file written by `import` and deletes the managed
@@ -204,14 +292,22 @@ Rerunning is safe: objects already gone are listed as absent and skipped.
 
 ## Limitations
 
-Managed objects, their parent/child relationships and their external identities
-are migrated. In particular the following are **not** covered:
+Managed objects, their parent/child relationships, their external identities
+and, on request, their measurements, events and alarms are migrated. In
+particular the following are **not** covered:
 
+- operations, for the safety reason above
 - device protocols
-- measurements, events, alarms and operations
-- binaries attached to devices
+- anything offloaded to the data lake
+- audit logs
+- binaries attached to managed objects (event attachments *are* migrated)
 - device credentials, so migrated devices do not reconnect on their own
 - applications, tenant options and user or role assignments
+
+There is no per-record ID mapping for data. On tenants with enhanced time series
+enabled there is no stable per-measurement identity to map, so traceability, if
+ever needed, would mean stamping a fragment onto each record rather than keeping
+a mapping file.
 
 Existing objects in the target tenant are never matched or updated: every import
 creates new managed objects, so importing the same export twice produces two

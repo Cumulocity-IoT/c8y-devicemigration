@@ -121,6 +121,28 @@ identitiesFailed=0
 # Where the old to new ID mapping is written
 mappingFile=""
 
+# Device data recreated in the target tenant
+measurementsCreated=0
+eventsCreated=0
+alarmsCreated=0
+binariesCreated=0
+
+# Deliberately conservative. A migration should not be the reason a tenant
+# starts throttling, and measurements go in the smallest batches because they
+# are by far the highest volume and the collection POST carries the largest
+# body. Cumulocity's relevant caps are a recommended 1 MB document, a soft
+# 1000-element array and a hard five minute request duration; 50 sits well
+# inside all three.
+MEASUREMENT_BATCH_SIZE=50
+DATA_WORKERS=2
+DATA_DELAY=200ms
+
+# QUIESCENT persists the record while suppressing realtime notifications. It is
+# documented as applying to measurements and events only: alarm creation is
+# always PERSISTENT whatever this header says. TRANSIENT and CEP must never be
+# used here, as neither persists the data.
+DATA_PROCESSING_MODE=QUIESCENT
+
 # Rewrite the mapping from the running record. Called after every created
 # object rather than once at the end, because an import that dies part way
 # through is precisely the case `revert` has to be able to clean up: a mapping
@@ -151,6 +173,163 @@ read_name() {
     printf '%s' "$name"
 }
 
+plural() {
+    if [[ "$1" -eq 1 ]]; then
+        printf '%s' "$2"
+    else
+        printf '%s' "$3"
+    fi
+}
+
+# Server managed properties removed with jsonnet hidden fields, which is how
+# `measurements createBulk` does it internally. source is hidden because
+# --device supplies the new one; c8y_IsBinary is hidden because the platform
+# sets it when the attachment is actually uploaded.
+EVENT_STRIP="input.value + {id:: '', self:: '', creationTime:: '', lastUpdated:: '', source:: {}, c8y_IsBinary:: {}}"
+
+# count, firstOccurrenceTime and history are dropped deliberately: that is the
+# "current status only, not the full history" requirement, and none of them are
+# settable through the API anyway.
+ALARM_STRIP="input.value + {id:: '', self:: '', creationTime:: '', lastUpdated:: '', count:: 0, firstOccurrenceTime:: '', history:: {}, source:: {}}"
+
+# Records in chronological order. Streams through sort rather than slurping the
+# file into jq, which matters at measurement volumes. Cumulocity returns UTC
+# timestamps, which sort lexicographically; mixed offsets would not.
+sort_by_time() {
+    jq -r '[(.time // ""), tojson] | @tsv' "$1" | LC_ALL=C sort -k1,1 | cut -f2-
+}
+
+records_in() {
+    grep -c '' < "$1" || true
+}
+
+# Device data belonging to one managed object, recreated against its new id.
+import_device_data() {
+    local inputDirectory="$1" oldId="$2" newId="$3" name="$4"
+    local dataDirectory="${inputDirectory}/data/${oldId}"
+
+    [[ -d "$dataDirectory" ]] || return 0
+
+    import_measurements "$dataDirectory" "$newId" "$name"
+    import_events "$dataDirectory" "$newId" "$name"
+    import_alarms "$dataDirectory" "$newId" "$name"
+}
+
+# NOTE on stdin: these are the only calls in this extension that intentionally
+# consume it. --device is the pipeline target on every create command, so
+# piping the records in is how throughput is achieved and --nullInput must NOT
+# be used. Everywhere else it still must be.
+import_measurements() {
+    local dataDirectory="$1" newId="$2" name="$3"
+    local file="${dataDirectory}/measurements.jsonl" count
+
+    [[ -f "$file" ]] || return 0
+    count=$(records_in "$file")
+    [[ "$count" -gt 0 ]] || return 0
+
+    # Oldest first: c8y_LatestMeasurements on the managed object holds the last
+    # value RECEIVED rather than the newest by timestamp, so an out of order
+    # backfill would leave the device showing a stale reading as its latest.
+    if sort_by_time "$file" | c8y measurements createBulk --device "$newId" \
+        --batchSize "$MEASUREMENT_BATCH_SIZE" \
+        --processingMode "$DATA_PROCESSING_MODE" \
+        --workers "$DATA_WORKERS" --delay "$DATA_DELAY" \
+        "${forceArgs[@]}" > /dev/null; then
+        measurementsCreated=$((measurementsCreated + count))
+        echo "Imported $count $(plural "$count" measurement measurements) for $name ($newId)" >&2
+    else
+        echo "Failed to import measurements for $name ($newId)" >&2
+    fi
+}
+
+import_events() {
+    local dataDirectory="$1" newId="$2" name="$3"
+    local file="${dataDirectory}/events.jsonl" count
+
+    [[ -f "$file" ]] || return 0
+
+    # Events without an attachment go on the fast piped path.
+    count=$(jq -c 'select(has("c8y_IsBinary") | not)' "$file" | grep -c '' || true)
+    if [[ "$count" -gt 0 ]]; then
+        if jq -c 'select(has("c8y_IsBinary") | not)' "$file" \
+            | c8y events create --device "$newId" --template "$EVENT_STRIP" \
+                --processingMode "$DATA_PROCESSING_MODE" \
+                --workers "$DATA_WORKERS" --delay "$DATA_DELAY" \
+                "${forceArgs[@]}" > /dev/null; then
+            eventsCreated=$((eventsCreated + count))
+            echo "Imported $count $(plural "$count" event events) for $name ($newId)" >&2
+        else
+            echo "Failed to import events for $name ($newId)" >&2
+        fi
+    fi
+
+    import_events_with_attachments "$dataDirectory" "$newId" "$name"
+}
+
+# An attachment is addressed by its event id, so these events have to be
+# created one at a time to learn the new id before the file can be uploaded.
+import_events_with_attachments() {
+    local dataDirectory="$1" newId="$2" name="$3"
+    local file="${dataDirectory}/events.jsonl"
+    local record oldEventId newEventId binary
+
+    while IFS= read -r record; do
+        [[ -n "$record" ]] || continue
+
+        oldEventId=$(printf '%s' "$record" | jq -r '.id')
+        binary="${dataDirectory}/binaries/${oldEventId}"
+
+        newEventId=$(printf '%s\n' "$record" \
+            | c8y events create --device "$newId" --template "$EVENT_STRIP" \
+                --processingMode "$DATA_PROCESSING_MODE" --select id \
+                "${forceArgs[@]}" | jq -r '.id')
+
+        if [[ -z "$newEventId" || "$newEventId" == "null" ]]; then
+            echo "Failed to create event $oldEventId for $name ($newId)" >&2
+            continue
+        fi
+        eventsCreated=$((eventsCreated + 1))
+
+        if [[ ! -f "$binary" ]]; then
+            echo "Event $oldEventId claimed an attachment but none was exported" >&2
+            continue
+        fi
+
+        # --nullInput here: this runs inside a loop reading from a pipe, and
+        # --id accepts pipeline input, so without it the loop would be drained
+        if c8y events createBinary --id "$newEventId" --file "$binary" \
+            --nullInput "${forceArgs[@]}" > /dev/null; then
+            binariesCreated=$((binariesCreated + 1))
+            echo "Attached $(basename "$binary") to event $newEventId of $name ($newId)" >&2
+        else
+            echo "Failed to attach $(basename "$binary") to event $newEventId" >&2
+        fi
+    done < <(jq -c 'select(has("c8y_IsBinary"))' "$file")
+}
+
+import_alarms() {
+    local dataDirectory="$1" newId="$2" name="$3"
+    local file="${dataDirectory}/alarms.jsonl" count
+
+    [[ -f "$file" ]] || return 0
+    count=$(records_in "$file")
+    [[ "$count" -gt 0 ]] || return 0
+
+    # Oldest first, and it matters more here than for measurements: Cumulocity
+    # de-duplicates on source and type while an alarm is ACTIVE or
+    # ACKNOWLEDGED, so a still-open alarm created before the cleared history of
+    # the same type would absorb it and only bump its count.
+    if sort_by_time "$file" | c8y alarms create --device "$newId" \
+        --template "$ALARM_STRIP" \
+        --workers "$DATA_WORKERS" --delay "$DATA_DELAY" \
+        "${forceArgs[@]}" > /dev/null; then
+        alarmsCreated=$((alarmsCreated + count))
+        echo "Imported $count $(plural "$count" alarm alarms) for $name ($newId)" >&2
+    else
+        echo "Failed to import alarms for $name ($newId)" >&2
+    fi
+}
+
 import_devices() {
     local inputDirectory="$1"
     local workDirectory="$2"
@@ -177,6 +356,7 @@ import_devices() {
         echo "Imported $name ($oldId -> $newId)" >&2
 
         import_identities "$inputDirectory" "$oldId" "$newId" "$name"
+        import_device_data "$inputDirectory" "$oldId" "$newId" "$name"
     done
 }
 
@@ -284,6 +464,16 @@ run_import() {
     write_mapping
 
     echo "Imported $(grep -c '' "$idMap") devices and $identitiesCreated external identities, ID mapping written to $mappingFile" >&2
+    if [[ "$measurementsCreated" -gt 0 || "$eventsCreated" -gt 0 || "$alarmsCreated" -gt 0 ]]; then
+        local dataLine
+        dataLine="Imported $measurementsCreated $(plural "$measurementsCreated" measurement measurements)"
+        dataLine+=", $eventsCreated $(plural "$eventsCreated" event events)"
+        dataLine+=" and $alarmsCreated $(plural "$alarmsCreated" alarm alarms)"
+        if [[ "$binariesCreated" -gt 0 ]]; then
+            dataLine+=", including $binariesCreated $(plural "$binariesCreated" attachment attachments)"
+        fi
+        echo "$dataLine" >&2
+    fi
     if [[ "$identitiesFailed" -gt 0 ]]; then
         echo "$identitiesFailed external identities could not be created" >&2
     fi

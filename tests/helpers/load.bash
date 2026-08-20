@@ -64,13 +64,31 @@ assigned_links() {
 
 count_links() { assigned_links | grep -c '' | tr -d ' '; }
 
+# Commands whose records legitimately arrive on stdin. --device is the pipeline
+# target on every create command, so piping is how the data import achieves
+# throughput. Everything else reading stdin is the bug this guards against.
+DATA_PIPELINE_SUBCOMMANDS='^(measurements createBulk|measurements create|events create|alarms create) '
+
 # The invariant that guards the stdin-consumption bug generically: no call that
-# runs inside a loop may ever have read stdin.
+# runs inside a loop may ever have read stdin. Scoped, not weakened - the data
+# create commands are exempt by name and everything else still fails.
 assert_no_call_drained_stdin() {
     local drained
-    drained=$(awk -F'\t' '$2 == "yes" { print $1 }' "$REC/calls.log" 2>/dev/null || true)
+    drained=$(awk -F'\t' -v ok="$DATA_PIPELINE_SUBCOMMANDS" \
+        '$2 == "yes" && $1 !~ ok { print $1 }' "$REC/calls.log" 2>/dev/null || true)
     if [[ -n "$drained" ]]; then
         printf 'these c8y calls consumed stdin (missing --nullInput):\n%s\n' "$drained" >&2
+        return 1
+    fi
+}
+
+# The other half of that invariant: the data commands must actually be fed.
+assert_data_command_received_stdin() {
+    local subcommand="$1" fed
+    fed=$(awk -F'\t' -v s="$subcommand" 'index($1, s) == 1 && $2 == "yes"' \
+        "$REC/calls.log" | grep -c '' || true)
+    if [[ "$fed" -eq 0 ]]; then
+        printf '%s was never given records on stdin\n' "$subcommand" >&2
         return 1
     fi
 }

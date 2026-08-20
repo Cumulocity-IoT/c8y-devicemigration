@@ -111,3 +111,56 @@ expected_links() {
     assert_equal "$(sort "$REC/identities.log")" "$expected"
     assert_equal "$(printf '%s\n' "$expected" | grep -c '')" "4"
 }
+
+# --- device data -------------------------------------------------------------
+
+@test "roundtrip: device data survives export and import" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+
+    # every exported record was delivered
+    local exportedMeasurements
+    exportedMeasurements=$(cat "$OUT"/data/*/measurements.jsonl | grep -c '' || true)
+    assert_equal "$(awk '{s+=$2} END {print s+0}' "$REC/measurements.log")" "$exportedMeasurements"
+    assert_equal "$(grep -c '' "$REC/events.log")" "$(cat "$OUT"/data/*/events.jsonl | grep -c '' || true)"
+    assert_equal "$(grep -c '' "$REC/alarms.log")" "$(cat "$OUT"/data/*/alarms.jsonl | grep -c '' || true)"
+}
+
+@test "roundtrip: data is bound to the new device ids, never the old ones" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+
+    local newId
+    newId=$(jq -r '.["2"]' id_mapping.json)
+    # the bulk call and the event/alarm creates all target the new id
+    assert_equal "$(awk -v id="$newId" '$1 == id {print $2}' "$REC/measurements.log")" "3"
+    assert_equal "$(cut -f2 "$REC/alarms.log" | sort -u)" "$newId"
+    # and never the source id
+    refute_output --partial "--device 2 "
+}
+
+@test "roundtrip: an event attachment survives with its content intact" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes events
+    assert_success
+    assert_equal "$(cat "$OUT/data/2/binaries/e2")" "attachment of event e2"
+
+    run_import --input-directory "$OUT" --force
+    assert_success
+    local uploaded
+    uploaded=$(awk '{print $2}' "$REC/binaries-uploaded.log")
+    assert_equal "$(cat "$uploaded")" "attachment of event e2"
+}
+
+@test "roundtrip: no data types means no data on either side" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+    refute [ -d "$OUT/data" ]
+    assert_equal "$(count_calls "measurements createBulk")" "0"
+    assert_equal "$(count_calls "alarms create ")" "0"
+}

@@ -41,6 +41,12 @@ exported_device_*.json
 *_identities.json
 id_mapping.json
 
+# Per-device data folders written by `export --dataTypes`. Deliberately broad:
+# the folder holds measurements, events, alarms and event attachments, and the
+# attachments keep whatever name and extension the source event gave them, so
+# there is no file pattern to match on.
+data/
+
 # Compressed exports written by `export --output-compressed`. The file name is
 # chosen by the caller, so this covers the usual gzipped tar extensions.
 *.tgz

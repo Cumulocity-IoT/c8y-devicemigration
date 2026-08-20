@@ -196,12 +196,14 @@ setup() {
 
 @test "import: --input-compressed leaves no temporary directory behind" {
     tar -czf "$WORK/mig.tgz" -C "$FIXTURE" .
-    local before after
-    before=$(ls "${TMPDIR:-/tmp}" | wc -l | tr -d ' ')
+    local before after added
+    before=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
     run_import --input-compressed "$WORK/mig.tgz" --force
     assert_success
-    after=$(ls "${TMPDIR:-/tmp}" | wc -l | tr -d ' ')
-    assert_equal "$before" "$after"
+    after=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
+    # only additions matter: unrelated processes remove entries too
+    added=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))
+    assert_equal "$added" ""
 }
 
 # --- partial and failing inputs -------------------------------------------
@@ -292,4 +294,169 @@ setup() {
     assert_success
     assert_equal "$(count_calls "identity create")" "0"
     assert_line --regexp '^Imported 1 devices and 0 external identities,'
+}
+
+# --- device data -------------------------------------------------------------
+#
+# The data creates are the only calls in this extension that take their records
+# on stdin: --device is the pipeline target, so piping is how throughput is
+# achieved. That is why the stdin invariant is scoped rather than absolute.
+
+setup_data_export() {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    [ "$status" -eq 0 ]
+}
+
+@test "import: measurements go through the bulk collection command" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_equal "$(count_calls "measurements createBulk")" "2"
+    # and never one request per record
+    assert_equal "$(count_calls "measurements create ")" "0"
+}
+
+@test "import: measurement batches are deliberately small" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    # <device> <recordCount> <batchSize>
+    run awk '{print $3}' "$REC/measurements.log"
+    assert_output --partial "50"
+    refute_output --partial "none"
+}
+
+@test "import: every measurement is delivered" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_equal "$(awk '{s+=$2} END {print s+0}' "$REC/measurements.log")" "4"
+    assert_line --partial "Imported 3 measurements for Line A"
+}
+
+@test "import: the data commands really are fed on stdin" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_data_command_received_stdin "measurements createBulk"
+    assert_data_command_received_stdin "events create"
+    assert_data_command_received_stdin "alarms create"
+}
+
+@test "import: nothing else consumes stdin by accident" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_no_call_drained_stdin
+}
+
+@test "import: measurements are sent oldest first" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    # c8y_LatestMeasurements keeps the last value received, not the newest
+    run bash -c "jq -r '.time' '$OUT/data/2/measurements.jsonl' | LC_ALL=C sort -c && echo ordered"
+    assert_output --partial "ordered"
+}
+
+@test "import: alarms are sent oldest first, cleared before still-open" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    run bash -c "cut -f3 '$REC/alarms.log' | jq -r .status | tr '\n' ','"
+    assert_output "CLEARED,ACTIVE,"
+}
+
+@test "import: the alarm template hides every server managed property" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    local template
+    template=$(head -1 "$REC/alarms.log" | cut -f4)
+    for field in id self creationTime lastUpdated count firstOccurrenceTime history source; do
+        if [[ "$template" != *"$field:: "* ]]; then
+            printf 'alarm template does not hide %s: %s\n' "$field" "$template" >&2
+            return 1
+        fi
+    done
+}
+
+@test "import: the event template hides every server managed property" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    local template
+    template=$(head -1 "$REC/events.log" | cut -f4)
+    for field in id self creationTime lastUpdated source c8y_IsBinary; do
+        if [[ "$template" != *"$field:: "* ]]; then
+            printf 'event template does not hide %s: %s\n' "$field" "$template" >&2
+            return 1
+        fi
+    done
+}
+
+@test "import: an event attachment is uploaded against the new event id" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    # one upload, and the id must not be the source event id
+    assert_equal "$(grep -c '' "$REC/binaries-uploaded.log")" "1"
+    # assert on the import output before `run` replaces it
+    assert_line --regexp '^Attached e2 to event [0-9]+ of Line A \([0-9]+\)$'
+
+    local uploadedId
+    uploadedId=$(awk '{print $1}' "$REC/binaries-uploaded.log")
+    refute [ "$uploadedId" = "e2" ]
+    assert_equal "$(printf '%s' "$uploadedId" | grep -c '^[0-9][0-9]*$')" "1"
+}
+
+@test "import: measurements and events use QUIESCENT, alarms cannot" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_flag_on_all_calls "QUIESCENT" "measurements createBulk"
+    # trailing space: "events create" would also match "events createBinary"
+    assert_flag_on_all_calls "QUIESCENT" "events create "
+    # QUIESCENT is documented as measurements and events only
+    assert_flag_on_no_calls "--processingMode" "alarms create"
+}
+
+@test "import: createBinary passes --nullInput because it runs inside a loop" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_flag_on_all_calls "--nullInput" "events createBinary"
+}
+
+@test "import: --force reaches the data creates" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_flag_on_all_calls "--force" "measurements createBulk"
+    assert_flag_on_all_calls "--force" "alarms create"
+}
+
+@test "import: an export without data imports none" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_equal "$(count_calls "measurements createBulk")" "0"
+    refute_output --partial "measurements,"
+}
+
+@test "import: the summary totals the data" {
+    setup_data_export
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_line "Imported 4 measurements, 2 events and 2 alarms, including 1 attachment"
+}
+
+@test "import: a claimed attachment missing from the export is reported" {
+    setup_data_export
+    rm "$OUT/data/2/binaries/e2"
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_output --partial "claimed an attachment but none was exported"
+    assert_equal "$(ls "$REC" | grep -c 'binaries-uploaded' || true)" "0"
 }

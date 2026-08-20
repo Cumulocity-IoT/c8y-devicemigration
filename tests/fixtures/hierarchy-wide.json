@@ -1,0 +1,193 @@
+{
+  "_comment": [
+    "Root with 30 leaf asset children, to exercise the child object limit."
+  ],
+  "1": {
+    "name": "Wide Root",
+    "type": "c8y_Site",
+    "children": {
+      "asset": [
+        "100",
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112",
+        "113",
+        "114",
+        "115",
+        "116",
+        "117",
+        "118",
+        "119",
+        "120",
+        "121",
+        "122",
+        "123",
+        "124",
+        "125",
+        "126",
+        "127",
+        "128",
+        "129"
+      ]
+    }
+  },
+  "100": {
+    "name": "Leaf 0",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "101": {
+    "name": "Leaf 1",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "102": {
+    "name": "Leaf 2",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "103": {
+    "name": "Leaf 3",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "104": {
+    "name": "Leaf 4",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "105": {
+    "name": "Leaf 5",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "106": {
+    "name": "Leaf 6",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "107": {
+    "name": "Leaf 7",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "108": {
+    "name": "Leaf 8",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "109": {
+    "name": "Leaf 9",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "110": {
+    "name": "Leaf 10",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "111": {
+    "name": "Leaf 11",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "112": {
+    "name": "Leaf 12",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "113": {
+    "name": "Leaf 13",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "114": {
+    "name": "Leaf 14",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "115": {
+    "name": "Leaf 15",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "116": {
+    "name": "Leaf 16",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "117": {
+    "name": "Leaf 17",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "118": {
+    "name": "Leaf 18",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "119": {
+    "name": "Leaf 19",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "120": {
+    "name": "Leaf 20",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "121": {
+    "name": "Leaf 21",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "122": {
+    "name": "Leaf 22",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "123": {
+    "name": "Leaf 23",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "124": {
+    "name": "Leaf 24",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "125": {
+    "name": "Leaf 25",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "126": {
+    "name": "Leaf 26",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "127": {
+    "name": "Leaf 27",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "128": {
+    "name": "Leaf 28",
+    "type": "c8y_Sensor",
+    "children": {}
+  },
+  "129": {
+    "name": "Leaf 29",
+    "type": "c8y_Sensor",
+    "children": {}
+  }
+}

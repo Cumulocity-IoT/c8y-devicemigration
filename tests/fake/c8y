@@ -21,6 +21,12 @@
 #      verbatim (JSON being a subset of jsonnet). VERIFIED against a live
 #      tenant: the objects a real import created carried their original names,
 #      which only happens if the template reached the request body.
+#
+#      Corollary and a real limit of this fake: it does NOT evaluate jsonnet.
+#      For the data create commands it records the piped record and the
+#      --template string separately, so a test can assert that the template
+#      hides the server managed properties, but not that the resulting body
+#      lacks them. Verifying the evaluated body needs a live tenant.
 #   5. `inventory get` fails with a non-zero exit code for an id that does not
 #      exist. VERIFIED against a live tenant: it exits 4, which go-c8y-cli
 #      defines as ExitNotFound404. revert only tests success or failure, so the
@@ -48,6 +54,11 @@
 #   FAKE_C8Y_FAIL_IDENTITY  external id that `identity create` rejects, standing
 #                           in for one the target tenant already knows
 #   FAKE_C8Y_FAIL_DELETE    id whose deletion fails
+#   FAKE_C8Y_TOTAL_MEASUREMENTS, FAKE_C8Y_TOTAL_EVENTS, FAKE_C8Y_TOTAL_ALARMS
+#                           counts reported to a pre-flight count query,
+#                           overriding what the fixture actually holds. Lets a
+#                           test drive export's limit checks without generating
+#                           a million records.
 #   FAKE_C8Y_CONFIRM        stands in for the answer a user gives to c8y's own
 #                           confirmation dialog when --force was not passed.
 #                           "yes" or "a" proceeds, anything else (the default)
@@ -80,6 +91,7 @@ argv=("$@")
 nullInput=no
 force=no
 silentExit=no
+countQuery=no
 for a in "${argv[@]}"; do
     if [[ "$a" == "--nullInput" || "$a" == "-n" ]]; then
         nullInput=yes
@@ -93,6 +105,10 @@ for a in "${argv[@]}"; do
     if [[ "$a" == "--silentExit" ]]; then
         silentExit=yes
     fi
+    # a count query rather than a data fetch
+    if [[ "$a" == "--withTotalElements" || "$a" == "--withTotalPages" ]]; then
+        countQuery=yes
+    fi
 done
 
 # real c8y suppresses the error message for status codes listed here
@@ -105,9 +121,15 @@ if [[ "${*}" == *"--silentStatusCodes"* ]]; then
     done
 fi
 
+# Captured rather than discarded, because some commands legitimately take their
+# records on stdin: --device is the pipeline target on every create command.
+# `drained` is still recorded either way, so the "nothing reads stdin by
+# accident" invariant can be asserted for the commands where it applies.
 drained=no
+stdinFile="$FAKE_C8Y_REC/stdin.$$"
+: > "$stdinFile"
 if [[ "$nullInput" == "no" ]] && [[ ! -t 0 ]]; then
-    cat > /dev/null
+    cat > "$stdinFile"
     drained=yes
 fi
 # ---------------------------------------------------------------------------
@@ -115,6 +137,7 @@ fi
 subcommand="$1 $2 $3"
 id=""; child=""; childType=""; outputFileRaw=""; template=""
 device=""; externalType=""; externalId=""; ids=()
+file=""; batchSize=""; processingMode=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --id) id="$2"; ids+=("$2"); shift 2 ;;
@@ -125,6 +148,9 @@ while [[ $# -gt 0 ]]; do
         --device) device="$2"; shift 2 ;;
         --type) externalType="$2"; shift 2 ;;
         --name) externalId="$2"; shift 2 ;;
+        --file) file="$2"; shift 2 ;;
+        --batchSize) batchSize="$2"; shift 2 ;;
+        --processingMode) processingMode="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -294,6 +320,72 @@ case "$subcommand" in
         fi
         printf '%s %s %s\n' "$device" "$externalType" "$externalId" >> "$FAKE_C8Y_REC/identities.log"
         printf '{"externalId":"%s","type":"%s"}\n' "$externalId" "$externalType"
+        ;;
+
+    "measurements list"*|"events list"*|"alarms list"*)
+        dataKind=${subcommand%% *}
+
+        if [[ "$countQuery" == "yes" ]]; then
+            # A pre-flight count: the real CLI returns the response envelope
+            # with .statistics when --raw is combined with --withTotalElements.
+            case "$dataKind" in
+                measurements) total="${FAKE_C8Y_TOTAL_MEASUREMENTS:-}" ;;
+                events) total="${FAKE_C8Y_TOTAL_EVENTS:-}" ;;
+                alarms) total="${FAKE_C8Y_TOTAL_ALARMS:-}" ;;
+            esac
+            if [[ -z "$total" ]]; then
+                # shellcheck disable=SC2016
+                total=$(jq -r --arg device "$device" --arg kind "$dataKind" \
+                    '(.[$device][$kind] // []) | length' "${FAKE_C8Y_HIERARCHY:?}")
+            fi
+            printf '{"statistics":{"totalElements":%s,"totalPages":%s},"%s":[]}\n' \
+                "$total" "$total" "$dataKind"
+            exit 0
+        fi
+
+        # newline delimited records straight from the hierarchy fixture, which
+        # is what the real list commands emit when piped.
+        # $device is a jq variable bound with --arg.
+        # shellcheck disable=SC2016
+        jq -r --arg device "$device" --arg kind "$dataKind" \
+            '(.[$device][$kind] // [])[] | tojson' "${FAKE_C8Y_HIERARCHY:?}"
+        ;;
+
+    "measurements createBulk "*)
+        # Records arrive on stdin. Grouping into batches is the whole point of
+        # this command, so the batch size is recorded for assertions.
+        recordCount=$(grep -c '' < "$stdinFile" || true)
+        printf '%s %s %s\n' "$device" "$recordCount" "${batchSize:-none}" \
+            >> "$FAKE_C8Y_REC/measurements.log"
+        printf 'processingMode=%s\n' "${processingMode:-none}" \
+            >> "$FAKE_C8Y_REC/processing-modes.log"
+        ;;
+
+    "measurements create "*|"events create "*|"alarms create "*)
+        dataKind=${subcommand%% *}
+        printf 'processingMode=%s\n' "${processingMode:-none}" \
+            >> "$FAKE_C8Y_REC/processing-modes.log"
+        # one line recorded per piped record, with the body it would have sent
+        while IFS= read -r record; do
+            [[ -n "$record" ]] || continue
+            printf '%s\t%s\t%s\t%s\n' "$dataKind" "$device" "$record" "$template" \
+                >> "$FAKE_C8Y_REC/$dataKind.log"
+            # a created record gets a fresh id, as the real API would assign
+            counter=$(cat "$FAKE_C8Y_REC/counter" 2>/dev/null || echo 1000)
+            counter=$((counter + 1))
+            echo "$counter" > "$FAKE_C8Y_REC/counter"
+            printf '{"id":"%s"}\n' "$counter"
+        done < "$stdinFile"
+        ;;
+
+    "events downloadBinary"*)
+        printf 'attachment of event %s\n' "$id" | emit
+        printf '%s\n' "$id" >> "$FAKE_C8Y_REC/binaries-downloaded.log"
+        ;;
+
+    "events createBinary"*)
+        printf '%s %s\n' "$id" "$file" >> "$FAKE_C8Y_REC/binaries-uploaded.log"
+        printf '{"id":"%s"}\n' "$id"
         ;;
 
     "inventory children assign")
