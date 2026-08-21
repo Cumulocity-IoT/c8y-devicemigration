@@ -45,6 +45,113 @@ setup_common() {
 run_export() { run bash "$REPO_DIR/commands/export" "$@"; }
 run_import() { run bash "$REPO_DIR/commands/import" "$@"; }
 
+# --- memoised migrations ------------------------------------------------------
+#
+# Most tests re-run an identical export or import purely to assert a different
+# property of the result. bats runs the tests of one file sequentially in one
+# process, so the first test needing a given invocation can run it and cache the
+# result under $BATS_FILE_TMPDIR for the rest of the file.
+#
+# A caller gets a private copy, so a test that mutates its output cannot affect
+# any other. $output, $status and $lines are populated exactly as `run` leaves
+# them, so no assertion has to change.
+
+# The identity of a run: its arguments AND the environment the fake reads.
+#
+# Two mistakes are easy here and both were made once:
+#
+#   * per-test paths must be normalised out. $OUT and $WORK live under
+#     $BATS_TEST_TMPDIR, which is unique per test, so leaving them in makes
+#     every key unique and the cache never hits at all.
+#   * the FAKE_C8Y_* environment must be included. Two invocations with
+#     identical arguments but a different hierarchy fixture or a different
+#     injected failure are NOT the same run, and sharing between them returns a
+#     confidently wrong result. FAKE_C8Y_REC is excluded because it is per test
+#     by construction.
+_cache_key() {
+    local raw="$*" env
+
+    raw=${raw//$BATS_TEST_TMPDIR/TESTTMP}
+    env=$(printenv | grep '^FAKE_C8Y_' | grep -v '^FAKE_C8Y_REC=' \
+        | LC_ALL=C sort | tr '\n' ' ')
+    env=${env//$BATS_TEST_TMPDIR/TESTTMP}
+
+    printf '%s %s' "$raw" "$env" | shasum -a 256 | cut -c1-16
+}
+
+# Rebuilds $output/$status/$lines from a cache entry, rewriting the paths the
+# cached run used so assertions against $OUT and $WORK still match.
+_restore_from_cache() {
+    local cache="$1" cachedWork line
+
+    # Clear the CONTENTS, do not remove the directories. Several tests cd into
+    # $WORK, and deleting it out from under the shell leaves it with an invalid
+    # working directory - "getcwd: cannot access parent directories" - after
+    # which every relative path in the test fails.
+    find "$WORK" -mindepth 1 -delete 2>/dev/null || true
+    find "$REC" -mindepth 1 -delete 2>/dev/null || true
+    cp -R "$cache/work/." "$WORK/"
+    cp -R "$cache/rec/." "$REC/"
+
+    cachedWork=$(cat "$cache/workpath")
+    status=$(cat "$cache/status")
+    output=$(cat "$cache/output")
+    output=${output//$cachedWork/$WORK}
+
+    lines=()
+    while IFS= read -r line; do
+        lines+=("$line")
+    done <<< "$output"
+}
+
+# Built aside and moved into place, so a reader never sees a half written entry.
+# Under `bats -j` two tests can miss the same key at once: both do the work and
+# one wins the rename, which costs a duplicated run but can never corrupt.
+_save_to_cache() {
+    local cache="$1" staging="$1.incomplete.$$"
+
+    mkdir -p "$staging"
+    cp -R "$WORK" "$staging/work"
+    cp -R "$REC" "$staging/rec"
+    printf '%s' "$WORK" > "$staging/workpath"
+    printf '%s' "$status" > "$staging/status"
+    printf '%s' "$output" > "$staging/output"
+
+    if ! mv "$staging" "$cache" 2>/dev/null; then
+        # another test got there first, which is fine
+        rm -rf "$staging"
+    fi
+}
+
+# Same contract as run_export, but only actually exports once per argument list.
+shared_export() {
+    local cache
+    cache="$BATS_FILE_TMPDIR/export.$(_cache_key "$@")"
+
+    if [[ -d "$cache" ]]; then
+        _restore_from_cache "$cache"
+        return 0
+    fi
+    run_export "$@"
+    _save_to_cache "$cache"
+}
+
+# Same, for an export followed by an import of it. Callers that then mutate the
+# target tenant (every revert test) get their own copy of the fake's state.
+shared_migration() {
+    local cache
+    cache="$BATS_FILE_TMPDIR/migration.$(_cache_key "$@")"
+
+    if [[ -d "$cache" ]]; then
+        _restore_from_cache "$cache"
+        return 0
+    fi
+    run_export "$@"
+    [[ "$status" -eq 0 ]] || return 0
+    run_import --input-directory "$OUT" --force
+    _save_to_cache "$cache"
+}
+
 # --- assertions over the export output --------------------------------------
 
 # ids of every exported managed object, sorted numerically

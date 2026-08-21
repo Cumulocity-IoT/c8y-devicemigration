@@ -399,10 +399,30 @@ The test suite runs entirely against a fake `c8y` on `PATH`, so it never touches
 a tenant and needs no session.
 
 ```sh
-make check     # what CI runs: lint, parser freshness, tests
-make test      # tests only (bootstraps bats into tests/vendor on first run)
-make lint      # shellcheck, skipped with a warning if not installed
+make check      # lint, parser freshness, tests
+make test       # tests only (bootstraps bats into tests/vendor on first run)
+make test-fast  # the same tests across every core, needs GNU parallel
+make lint       # shellcheck, skipped with a warning if not installed
 ```
+
+`make test` is sequential, which is what you want when debugging one failure.
+`make test-fast` is the same suite with `bats --jobs`, and takes about a quarter
+of the time; CI uses it. `make test JOBS=4` picks a specific level.
+
+Two things keep the suite quick enough to run casually. Tests are parallel-safe
+because every piece of per-test state lives under `$BATS_TEST_TMPDIR` — keep it
+that way, and in particular do not assert against the shared temp directory,
+since concurrent tests write there too. And identical exports and imports are
+memoised per file by `shared_export` and `shared_migration` in
+`tests/helpers/load.bash`: the first test needing a given invocation runs it and
+the rest get a private copy.
+
+The cache key covers the arguments **and** the `FAKE_C8Y_*` environment. Both
+halves matter: per-test paths are normalised out of it or it would never hit,
+and the environment is included because two runs with the same arguments but a
+different hierarchy fixture are not the same run. A test that mutates what it is
+given should call `run_export`/`run_import` directly rather than the memoised
+helpers.
 
 `tests/fixtures/hierarchy.json` describes the fake tenant. It is shaped
 deliberately: three parents have two children of the same type, because a parent

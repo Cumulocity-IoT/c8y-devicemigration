@@ -24,10 +24,7 @@ expected_links() {
 }
 
 @test "roundtrip: the imported tree matches the exported tree" {
-    run_export --rootId 1 --output-directory "$OUT"
-    assert_success
-
-    run_import --input-directory "$OUT" --force
+    shared_migration --rootId 1 --output-directory "$OUT"
     assert_success
 
     # every exported object was recreated
@@ -75,9 +72,7 @@ expected_links() {
 
 @test "roundtrip: a cycle does not produce duplicate objects or links" {
     # 1 -> 2 -> 5 -> 2 closes a loop, and 4 has two parents
-    run_export --rootId 1 --output-directory "$OUT"
-    assert_success
-    run_import --input-directory "$OUT" --force
+    shared_migration --rootId 1 --output-directory "$OUT"
     assert_success
 
     # each object created exactly once
@@ -87,17 +82,13 @@ expected_links() {
 }
 
 @test "roundtrip: no c8y call anywhere consumed stdin" {
-    run_export --rootId 1 --output-directory "$OUT"
-    assert_success
-    run_import --input-directory "$OUT" --force
+    shared_migration --rootId 1 --output-directory "$OUT"
     assert_success
     assert_no_call_drained_stdin
 }
 
 @test "roundtrip: external identities survive export and import" {
-    run_export --rootId 1 --output-directory "$OUT"
-    assert_success
-    run_import --input-directory "$OUT" --force
+    shared_migration --rootId 1 --output-directory "$OUT"
     assert_success
 
     # every identity in the export was recreated, bound to the new object id
@@ -156,9 +147,7 @@ expected_links() {
 }
 
 @test "roundtrip: no data types means no data on either side" {
-    run_export --rootId 1 --output-directory "$OUT"
-    assert_success
-    run_import --input-directory "$OUT" --force
+    shared_migration --rootId 1 --output-directory "$OUT"
     assert_success
     refute [ -d "$OUT/data" ]
     assert_equal "$(count_calls "measurements createBulk")" "0"

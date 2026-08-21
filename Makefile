@@ -13,7 +13,18 @@ BATS_VERSION         := v1.11.1
 BATS_SUPPORT_VERSION := v0.3.0
 BATS_ASSERT_VERSION  := v2.1.0
 
-.PHONY: check test test-bash3 lint parser-freshness bootstrap clean
+# Parallel jobs for the test suite. 1 keeps it sequential, which is what you
+# want when debugging a single failure; anything else needs GNU parallel.
+JOBS ?= 1
+# An empty JOBS would silently drop --jobs and run the whole suite sequentially,
+# which is a slow success rather than an honest failure. Refuse it.
+ifeq ($(strip $(JOBS)),)
+$(error JOBS is empty. Pass a number, for example JOBS=4)
+endif
+BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
+	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
+
+.PHONY: check test test-fast test-bash3 lint parser-freshness bootstrap clean
 
 check: lint parser-freshness test
 
@@ -30,14 +41,22 @@ $(VENDOR)/bats-assert:
 
 test: bootstrap
 	@echo "bash: $$(bash --version | head -1)"
-	$(VENDOR)/bats-core/bin/bats --print-output-on-failure $(TESTS_DIR)
+	@echo "parallel jobs: $(JOBS)"
+	$(BATS) $(TESTS_DIR)
+
+# The whole suite across every core. Needs GNU parallel; see the JOBS variable.
+test-fast:
+	@command -v parallel >/dev/null 2>&1 \
+		|| { echo "GNU parallel is required for a parallel run"; exit 1; }
+	$(MAKE) test JOBS=$$(getconf _NPROCESSORS_ONLN)
 
 # Runs the suite through /bin/bash explicitly. On macOS that is bash 3.2, the
 # oldest shell the commands must support; relying on the shebang is not enough
 # because /usr/bin/env may find a newer bash earlier on PATH.
 test-bash3: bootstrap
 	@echo "forcing $$(/bin/bash --version | head -1)"
-	/bin/bash $(VENDOR)/bats-core/bin/bats --print-output-on-failure $(TESTS_DIR)
+	@echo "parallel jobs: $(JOBS)"
+	/bin/bash $(BATS) $(TESTS_DIR)
 
 lint:
 	@if command -v shellcheck >/dev/null 2>&1; then \

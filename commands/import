@@ -437,6 +437,17 @@ link_children() {
     done
 }
 
+# A staging directory with a name that says where it came from.
+#
+# `mktemp -d` with no template ignores TMPDIR on macOS and always uses the
+# system temp directory, which makes a leaked directory both untraceable and
+# untestable. An explicit template fixes the location and gives the directory a
+# recognisable prefix.
+staging_directory() {
+    local base="${TMPDIR:-/tmp}"
+    mktemp -d "${base%/}/c8y-devicemigration.XXXXXXXX"
+}
+
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
 # shellcheck disable=SC2154
@@ -450,7 +461,7 @@ run_import() {
         forceArgs=(--force)
     fi
 
-    workDirectory=$(mktemp -d)
+    workDirectory=$(staging_directory)
     # shellcheck disable=2064
     trap "rm -rf '$workDirectory'" EXIT
 

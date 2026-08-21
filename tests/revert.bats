@@ -17,9 +17,10 @@ run_revert() { run bash "$REPO_DIR/commands/revert" "$@"; }
 
 # Import the whole fixture tree, leaving a mapping and a populated tenant.
 do_full_import() {
-    run_export --rootId 1 --output-directory "$OUT"
-    [ "$status" -eq 0 ]
-    run_import --input-directory "$OUT" --force
+    # Memoised: the export and import are identical for every test that calls
+    # this, and each caller gets a private copy of the result, which matters
+    # because these tests then delete the objects the import created.
+    shared_migration --rootId 1 --output-directory "$OUT"
     [ "$status" -eq 0 ]
 }
 

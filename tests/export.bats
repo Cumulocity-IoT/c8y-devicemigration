@@ -7,7 +7,7 @@ setup() { setup_common; }
 # --- child index files (regression: bare IDs appended with >>) ---------------
 
 @test "export: child index files are valid JSON arrays" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     run jq -e 'type == "array" and all(type == "string")' "$OUT/1_child_asset.json"
     assert_success
@@ -28,7 +28,7 @@ setup() { setup_common; }
 # --- traversal integrity ----------------------------------------------------
 
 @test "export: a parent with two children exports both" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     # 1 -> asset 2,3   2 -> asset 4,5   3 -> device 6,7
     assert_equal "$(jq -c '.' "$OUT/1_child_asset.json")" '["2","3"]'
@@ -37,13 +37,13 @@ setup() { setup_common; }
 }
 
 @test "export: no c8y call consumes stdin" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_no_call_drained_stdin
 }
 
 @test "export: every c8y call passes --nullInput" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_flag_on_all_calls "--nullInput" "inventory get"
     assert_flag_on_all_calls "--nullInput" "inventory children list"
@@ -51,7 +51,7 @@ setup() { setup_common; }
 
 @test "export: a cycle in the hierarchy terminates without refetching" {
     # 1 -> 2 -> 5 -> 2 closes a loop
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     # the cycle edge was genuinely traversed
     assert_equal "$(jq -c '.' "$OUT/5_child_asset.json")" '["2"]'
@@ -63,7 +63,7 @@ setup() { setup_common; }
 
 @test "export: a device with two parents is exported once" {
     # 4 is an asset child of both 2 and 3
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_equal "$(ls "$OUT" | grep -c '^exported_device_4\.json$')" "1"
     # fetched once, not once per parent
@@ -74,7 +74,7 @@ setup() { setup_common; }
 }
 
 @test "export: default traversal covers the whole asset+device tree" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_equal "$(exported_ids "$OUT")" "1 2 3 4 5 6 7 10 11"
     assert_equal "$(count_refs "$OUT")" "10"
@@ -83,7 +83,7 @@ setup() { setup_common; }
 # --- --childTypes -----------------------------------------------------------
 
 @test "export: default childTypes excludes additions transitively" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     # 8 is an addition of 1, and 9 hangs off 8; neither may appear
     refute [ -e "$OUT/exported_device_8.json" ]
@@ -177,14 +177,21 @@ setup() { setup_common; }
 }
 
 @test "export: --output-compressed leaves no staging directory behind" {
-    local before after added
-    before=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
+    # A private TMPDIR, so the assertion is exact rather than "nothing new
+    # appeared in a directory the whole machine shares" - and so the test stays
+    # correct when the suite runs in parallel.
+    local privateTmp="$BATS_TEST_TMPDIR/tmp"
+    mkdir -p "$privateTmp"
+
+    # exported, not a command prefix: a prefix assignment on a function call is
+    # not passed to the child process, which would leave the command using the
+    # real TMPDIR and make the assertion below vacuous
+    export TMPDIR="$privateTmp"
     run_export --rootId 1 --output-compressed "$WORK/mig.tgz"
     assert_success
-    after=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
-    # only additions matter: unrelated processes remove entries too
-    added=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))
-    assert_equal "$added" ""
+
+    # the command stages its work in a mktemp directory and must clean it up
+    assert_equal "$(ls "$privateTmp" | grep -c '' || true)" "0"
 }
 
 # --- generated parser -------------------------------------------------------
@@ -199,7 +206,7 @@ setup() { setup_common; }
 # --- external identities ----------------------------------------------------
 
 @test "export: identities are written as a valid JSON array" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     run jq -e 'type == "array" and all(has("type") and has("externalId"))' "$OUT/1_identities.json"
     assert_success
@@ -208,7 +215,7 @@ setup() { setup_common; }
 }
 
 @test "export: a device with two identities exports both" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_equal "$(jq 'length' "$OUT/2_identities.json")" "2"
     assert_equal "$(jq -r '.[].externalId' "$OUT/2_identities.json" | sort | tr '\n' ',')" \
@@ -216,13 +223,13 @@ setup() { setup_common; }
 }
 
 @test "export: an external id containing a space is preserved" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_equal "$(jq -r '.[0].externalId' "$OUT/4_identities.json")" "PUMP WEST 001"
 }
 
 @test "export: devices without identities get no identity file" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     # only 1, 2 and 4 carry identities in the fixture
     assert_equal "$(ls "$OUT" | grep -c '_identities\.json$' || true)" "3"
@@ -230,7 +237,7 @@ setup() { setup_common; }
 }
 
 @test "export: identities are collected for every visited device" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     # one identity list call per exported object, and never more
     assert_equal "$(count_calls "identity list")" "9"
@@ -248,7 +255,7 @@ setup() { setup_common; }
 # --- progress reporting -----------------------------------------------------
 
 @test "export: raw managed objects are not printed" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     # the whole object goes to the file, not to the operator
     refute_output --partial '"lastUpdated"'
@@ -257,7 +264,7 @@ setup() { setup_common; }
 }
 
 @test "export: each device is reported by name and id" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_line "Exported Plant Berlin (1), 2 asset children, 1 device child, 1 identity"
     assert_line "Exported Edge Node (11)"
@@ -270,7 +277,7 @@ setup() { setup_common; }
 }
 
 @test "export: counts are singular or plural as appropriate" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_line --partial "2 asset children"
     assert_line --partial "1 device child"
@@ -279,7 +286,7 @@ setup() { setup_common; }
 }
 
 @test "export: the closing line totals objects and identities" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     assert_line "Exported 9 managed objects and 4 external identities to $OUT"
 }
@@ -300,7 +307,7 @@ setup() { setup_common; }
 # --- device data -------------------------------------------------------------
 
 @test "export: no data is collected unless asked for" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     refute [ -d "$OUT/data" ]
     assert_equal "$(count_calls "measurements list")" "0"
@@ -425,7 +432,7 @@ setup() { setup_common; }
 }
 
 @test "export: the closing line omits data when none was requested" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     refute_output --partial "measurements"
 }
@@ -450,7 +457,7 @@ setup() { setup_common; }
 
 @test "export: the hierarchy child limit is enforced" {
     FAKE_C8Y_HIERARCHY="$TESTS_DIR/fixtures/hierarchy-wide.json" \
-        run_export --rootId 1 --output-directory "$OUT"
+        shared_export --rootId 1 --output-directory "$OUT"
     assert_failure
     assert_output --partial "child objects"
     assert_output --partial "30"
@@ -460,7 +467,7 @@ setup() { setup_common; }
 }
 
 @test "export: a hierarchy inside the limit is fine" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     refute_output --partial "limits exceeded"
 }
@@ -521,7 +528,7 @@ setup() { setup_common; }
 }
 
 @test "export: no warning when limits are enforced" {
-    run_export --rootId 1 --output-directory "$OUT"
+    shared_export --rootId 1 --output-directory "$OUT"
     assert_success
     refute_output --partial "WARNING"
 }

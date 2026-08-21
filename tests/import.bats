@@ -200,14 +200,21 @@ setup() {
 
 @test "import: --input-compressed leaves no temporary directory behind" {
     tar -czf "$WORK/mig.tgz" -C "$FIXTURE" .
-    local before after added
-    before=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
+    # A private TMPDIR, so the assertion is exact rather than "nothing new
+    # appeared in a directory the whole machine shares" - and so the test stays
+    # correct when the suite runs in parallel.
+    local privateTmp="$BATS_TEST_TMPDIR/tmp"
+    mkdir -p "$privateTmp"
+
+    # exported, not a command prefix: a prefix assignment on a function call is
+    # not passed to the child process, which would leave the command using the
+    # real TMPDIR and make the assertion below vacuous
+    export TMPDIR="$privateTmp"
     run_import --input-compressed "$WORK/mig.tgz" --force
     assert_success
-    after=$(ls "${TMPDIR:-/tmp}" 2>/dev/null | sort)
-    # only additions matter: unrelated processes remove entries too
-    added=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))
-    assert_equal "$added" ""
+
+    # the command stages its work in a mktemp directory and must clean it up
+    assert_equal "$(ls "$privateTmp" | grep -c '' || true)" "0"
 }
 
 # --- partial and failing inputs -------------------------------------------
@@ -307,13 +314,20 @@ setup() {
 # achieved. That is why the stdin invariant is scoped rather than absolute.
 
 setup_data_export() {
-    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    shared_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
     [ "$status" -eq 0 ]
 }
 
+# The export plus its import, both memoised. Replaces the very common pair of
+# setup_data_export followed by an identical `run_import ... --force`, which
+# together cost about 3.5 s per test.
+do_data_migration() {
+    shared_migration --rootId 1 --output-directory "$OUT" \
+        --dataTypes measurements,events,alarms
+}
+
 @test "import: measurements go through the bulk collection command" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_equal "$(count_calls "measurements createBulk")" "2"
     # and never one request per record
@@ -321,8 +335,7 @@ setup_data_export() {
 }
 
 @test "import: measurement batches are deliberately small" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     # <device> <recordCount> <batchSize>
     run awk '{print $3}' "$REC/measurements.log"
@@ -331,16 +344,14 @@ setup_data_export() {
 }
 
 @test "import: every measurement is delivered" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_equal "$(awk '{s+=$2} END {print s+0}' "$REC/measurements.log")" "4"
     assert_line --partial "Imported 3 measurements for Line A"
 }
 
 @test "import: the data commands really are fed on stdin" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     # only the measurement bulk command still pipes; events and alarms are
     # handed one record each via --data, which cannot be corrupted by escaping
@@ -350,15 +361,13 @@ setup_data_export() {
 }
 
 @test "import: nothing else consumes stdin by accident" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_no_call_drained_stdin
 }
 
 @test "import: measurements are sent oldest first" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     # c8y_LatestMeasurements keeps the last value received, not the newest
     run bash -c "jq -r '.time' '$OUT/data/2/measurements.jsonl' | LC_ALL=C sort -c && echo ordered"
@@ -366,16 +375,14 @@ setup_data_export() {
 }
 
 @test "import: alarms are sent oldest first, cleared before still-open" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     run bash -c "cut -f3 '$REC/alarms.log' | jq -r .status | tr '\n' ','"
     assert_output "CLEARED,CLEARED,ACTIVE,"
 }
 
 @test "import: no server managed property reaches the alarm body" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
 
     # the fake records the exact --data value, so this is the real body
@@ -391,8 +398,7 @@ setup_data_export() {
 }
 
 @test "import: no server managed property reaches the event body" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
 
     local body
@@ -404,8 +410,7 @@ setup_data_export() {
 }
 
 @test "import: an event attachment is uploaded against the new event id" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     # one upload, and the id must not be the source event id
     assert_equal "$(grep -c '' "$REC/binaries-uploaded.log")" "1"
@@ -419,8 +424,7 @@ setup_data_export() {
 }
 
 @test "import: measurements and events use QUIESCENT, alarms cannot" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_flag_on_all_calls "QUIESCENT" "measurements createBulk"
     # trailing space: "events create" would also match "events createBinary"
@@ -430,15 +434,13 @@ setup_data_export() {
 }
 
 @test "import: createBinary passes --nullInput because it runs inside a loop" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_flag_on_all_calls "--nullInput" "events createBinary"
 }
 
 @test "import: --force reaches the data creates" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_flag_on_all_calls "--force" "measurements createBulk"
     assert_flag_on_all_calls "--force" "alarms create"
@@ -454,8 +456,7 @@ setup_data_export() {
 }
 
 @test "import: the summary totals the data" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_line "Imported 4 measurements, 2 events and 3 alarms, including 1 attachment"
 }
@@ -470,8 +471,7 @@ setup_data_export() {
 }
 
 @test "import: the data templates keep source so --device can overwrite it" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
 
     # --device maps onto source.id, so hiding source removes the very field it
@@ -516,8 +516,7 @@ setup_data_export() {
 }
 
 @test "import: an awkward alarm text reaches the create body unchanged" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
 
     # the record carrying escaped JSON was sent, and its text is intact
@@ -529,8 +528,7 @@ setup_data_export() {
 }
 
 @test "import: every alarm is created even when one holds escaped JSON" {
-    setup_data_export
-    run_import --input-directory "$OUT" --force
+    do_data_migration
     assert_success
     assert_equal "$(grep -c '' "$REC/alarms.log")" "3"
     assert_line --partial "Imported 3 alarms for Line A"

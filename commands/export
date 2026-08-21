@@ -758,6 +758,17 @@ export_device_recursive() {
     done <<< "$pending"
 }
 
+# A staging directory with a name that says where it came from.
+#
+# `mktemp -d` with no template ignores TMPDIR on macOS and always uses the
+# system temp directory, which makes a leaked directory both untraceable and
+# untestable. An explicit template fixes the location and gives the directory a
+# recognisable prefix.
+staging_directory() {
+    local base="${TMPDIR:-/tmp}"
+    mktemp -d "${base%/}/c8y-devicemigration.XXXXXXXX"
+}
+
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
 # shellcheck disable=SC2154
@@ -790,7 +801,7 @@ run_export() {
 
     # --output-compressed: collect the export in a staging directory, then archive it
     local stagingDirectory
-    stagingDirectory=$(mktemp -d)
+    stagingDirectory=$(staging_directory)
     # shellcheck disable=2064
     trap "rm -rf '$stagingDirectory'" EXIT
 
