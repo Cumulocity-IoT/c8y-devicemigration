@@ -167,6 +167,15 @@ DEFAULT_MEASUREMENT_DATE_FROM=-14d
 # Ids the export will visit, collected by the pre-flight traversal
 plannedIds=" "
 
+# Exceeded limits, one tab separated row each: kind, subject, actual, allowed
+violationRows=""
+
+# Which device held the highest count for each exceeded limit
+worstNote=""
+
+# The window the suggestion was scaled from
+currentWindow=""
+
 # Every file this run wrote, so a partial export can be removed precisely
 # rather than by deleting the output directory, which may not be ours
 artifacts=()
@@ -361,54 +370,165 @@ count_records() {
     printf '%s' "${total:-0}"
 }
 
+# One row per exceeded limit: kind, what it applies to, actual, allowed.
+record_violation() {
+    violationRows+="$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"$'\n'
+}
+
+# The window that would bring a count within its limit, scaled linearly from
+# the window actually used. Only whole days and weeks are understood; anything
+# else returns nothing and the suggestion is simply omitted.
+window_in_days() {
+    local value="$1" number
+    case "$value" in
+        -[0-9]*d) number=${value%d}; printf '%s' "${number#-}" ;;
+        -[0-9]*w) number=${value%w}; printf '%s' $(( ${number#-} * 7 )) ;;
+        *) printf '' ;;
+    esac
+}
+
+suggest_window() {
+    local actual="$1" limit="$2" days="$3" scaled
+
+    scaled=$(( days * limit / actual ))
+    if [[ "$scaled" -lt 1 ]]; then
+        scaled=1
+    fi
+    printf '%s' "$scaled"
+}
+
+# shellcheck disable=SC2154
+report_violations() {
+    local kind label affected highest limit worst
+    local window days required tightest="" tightestKind=""
+
+    echo "Export limits exceeded:" >&2
+    echo "" >&2
+    printf '  %-22s %8s %14s %14s\n' "limit" "devices" "highest" "allowed" >&2
+    printf '  %-22s %8s %14s %14s\n' \
+        "----------------------" "--------" "--------------" "--------------" >&2
+
+    # One row per limit rather than per device: every device is still checked,
+    # but a wide hierarchy would otherwise produce hundreds of near identical
+    # lines. The worst count per limit is what a narrower window has to fit.
+    while IFS=$'\t' read -r kind affected highest limit worst; do
+        [[ -n "$kind" ]] || continue
+
+        label=$kind
+        if [[ "$kind" == "children" ]]; then
+            label="child objects"
+            affected="-"
+        fi
+
+        printf '  %-22s %8s %14s %14s\n' \
+            "$label" "$affected" "$highest" "$limit" >&2
+
+        if [[ -n "$worst" && "$kind" != "children" ]]; then
+            worstNote+="  $kind: highest on device $worst"$'\n'
+        fi
+
+        # What window would bring this count inside its limit? Measurements
+        # always have one, defaulting to 14 days. Events and alarms only have a
+        # window if the caller gave one, since they default to all history.
+        window=""
+        case "$kind" in
+            measurements) window="${__dateFrom:-$DEFAULT_MEASUREMENT_DATE_FROM}" ;;
+            events|alarms) window="${__dateFrom:-}" ;;
+        esac
+        [[ -n "$window" ]] || continue
+
+        days=$(window_in_days "$window")
+        [[ -n "$days" ]] || continue
+
+        required=$(suggest_window "$highest" "$limit" "$days")
+        # --dateFrom is a single flag covering every type, so the suggestion has
+        # to be the tightest of them
+        if [[ -z "$tightest" || "$required" -lt "$tightest" ]]; then
+            tightest=$required
+            tightestKind=$kind
+            currentWindow=$window
+        fi
+    done < <(awk -F'\t' '
+        $1 == "children"     { rank[$1] = 1 }
+        $1 == "measurements" { rank[$1] = 2 }
+        $1 == "events"       { rank[$1] = 3 }
+        $1 == "alarms"       { rank[$1] = 4 }
+        $1 != "" {
+            seen[$1]++
+            allowed[$1] = $4
+            if ($3 + 0 > highest[$1]) { highest[$1] = $3 + 0; worst[$1] = $2 }
+        }
+        END {
+            for (k in seen) {
+                printf "%s\t%s\t%s\t%s\t%s\t%s\n", \
+                    rank[k], k, seen[k], highest[k], allowed[k], worst[k]
+            }
+        }' <<< "$violationRows" | LC_ALL=C sort -n | cut -f2-)
+
+    if [[ -n "$worstNote" ]]; then
+        echo "" >&2
+        printf '%s' "$worstNote" >&2
+    fi
+
+    if [[ -n "$tightest" ]]; then
+        echo "" >&2
+        echo "Try --dateFrom -${tightest}d, which would bring $tightestKind within their" >&2
+        echo "limit (the window is currently $currentWindow)." >&2
+    fi
+}
+
+# The __* variables are set by the generated parser through eval, which
+# this linter cannot follow.
+# shellcheck disable=SC2154
 check_limits() {
     local rootId="$1"
-    local violations="" childObjects deviceId total
+    local childObjects deviceId total
 
     collect_planned_ids "$rootId"
 
     # the root itself is not a child
     childObjects=$(( $(printf '%s' "$plannedIds" | wc -w) - 1 ))
     if [[ "$childObjects" -gt "$MAX_CHILD_OBJECTS" ]]; then
-        violations+="  the hierarchy has $childObjects child objects, more than the limit of $MAX_CHILD_OBJECTS"$'\n'
+        record_violation children "-" "$childObjects" "$MAX_CHILD_OBJECTS"
     fi
 
+    # Every limit is checked for every device before anything is reported, so
+    # one run tells the whole story rather than stopping at the first problem.
     # shellcheck disable=2086
     for deviceId in $plannedIds; do
         if wants_data measurements; then
             total=$(count_records measurements "$deviceId")
             if [[ "$total" -gt "$MAX_MEASUREMENTS_PER_DEVICE" ]]; then
-                violations+="  device $deviceId has $total measurements, more than the limit of $MAX_MEASUREMENTS_PER_DEVICE"$'\n'
+                record_violation measurements "$deviceId" "$total" "$MAX_MEASUREMENTS_PER_DEVICE"
             fi
         fi
         if wants_data events; then
             total=$(count_records events "$deviceId")
             if [[ "$total" -gt "$MAX_EVENTS_PER_DEVICE" ]]; then
-                violations+="  device $deviceId has $total events, more than the limit of $MAX_EVENTS_PER_DEVICE"$'\n'
+                record_violation events "$deviceId" "$total" "$MAX_EVENTS_PER_DEVICE"
             fi
         fi
         if wants_data alarms; then
             total=$(count_records alarms "$deviceId")
             if [[ "$total" -gt "$MAX_ALARMS_PER_DEVICE" ]]; then
-                violations+="  device $deviceId has $total alarms, more than the limit of $MAX_ALARMS_PER_DEVICE"$'\n'
+                record_violation alarms "$deviceId" "$total" "$MAX_ALARMS_PER_DEVICE"
             fi
         fi
     done
 
-    if [[ -z "$violations" ]]; then
+    if [[ -z "$violationRows" ]]; then
         return 0
     fi
 
-    # Every violation is reported, not just the first, so one run tells the
-    # whole story.
-    echo "Export limits exceeded:" >&2
-    printf '%s' "$violations" >&2
+    report_violations
 
     if [[ "$ignoreLimits" == "true" ]]; then
+        echo "" >&2
         echo "Exporting anyway because --ignoreLimits was given." >&2
         return 0
     fi
 
+    echo "" >&2
     echo "Nothing was exported. Narrow the export with --childTypes, --dataTypes" >&2
     echo "or --dateFrom, or pass --ignoreLimits to export regardless." >&2
     exit 1

@@ -216,15 +216,45 @@ three.
 
 The limits are counted **before anything is written**, using one cheap count
 query per device per type rather than fetching the records, so a refusal leaves
-nothing behind at all. Every violation is reported together:
+nothing behind at all. Every limit is checked for every device before anything
+is reported — the run does not stop at the first problem — and the report shows
+what was found against what is allowed, with a suggested limit alongside:
 
 ```
 Export limits exceeded:
-  device 7874377868 has 2431009 measurements, more than the limit of 1000000
-  device 4074377869 has 1200 alarms, more than the limit of 1000
+
+  limit                   devices        highest        allowed      suggested
+  ---------------------- -------- -------------- -------------- --------------
+  child objects                 -             30             25             50
+  measurements                 31        2400000        1000000        3000000
+  alarms                       31           1200           1000           2000
+
+  measurements: highest on device 7874377868
+  alarms: highest on device 4074377869
+
+Suggested values are the current limit scaled up to the smallest whole
+multiple that would allow this export.
+
+Measurements are windowed, so --dateFrom -5d would bring them within
+the current limit of 1000000 instead (currently -14d).
+
 Nothing was exported. Narrow the export with --childTypes, --dataTypes
 or --dateFrom, or pass --ignoreLimits to export regardless.
 ```
+
+The report is one row per limit rather than per device: a wide hierarchy would
+otherwise produce hundreds of near-identical lines, and the worst count is what
+decides the suggestion anyway. The device holding that worst count is named
+underneath.
+
+Measurements get a second suggestion because they are the only windowed type:
+the same linear scaling applied to the window instead of the limit. It is only
+offered when the window is expressed in whole days or weeks — an absolute date
+cannot be scaled, so no guess is made.
+
+`--dateFrom` and `--dateTo` are passed to `c8y` untouched, so every form it
+accepts works: `-30d`, `-14d`, `-6months`, `-2w`, `-30h+30min`, `0s`, or an
+absolute `2026-01-01T00:00:00Z`.
 
 If a limit is breached anyway — data can grow between the count and the fetch —
 the export stops and deletes what it wrote. It removes only the files it

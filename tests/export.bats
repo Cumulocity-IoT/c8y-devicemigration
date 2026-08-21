@@ -452,7 +452,9 @@ setup() { setup_common; }
     FAKE_C8Y_HIERARCHY="$TESTS_DIR/fixtures/hierarchy-wide.json" \
         run_export --rootId 1 --output-directory "$OUT"
     assert_failure
-    assert_output --partial "the hierarchy has 30 child objects, more than the limit of 25"
+    assert_output --partial "child objects"
+    assert_output --partial "30"
+    assert_output --partial "25"
     assert_output --partial "Nothing was exported"
     refute [ -d "$OUT" ]
 }
@@ -467,7 +469,7 @@ setup() { setup_common; }
     FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
         run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
     assert_failure
-    assert_output --partial "has 2000000 measurements, more than the limit of 1000000"
+    assert_output --regexp "measurements +[0-9]+ +2000000 +1000000"
     refute [ -d "$OUT" ]
 }
 
@@ -475,7 +477,7 @@ setup() { setup_common; }
     FAKE_C8Y_TOTAL_EVENTS=5000 \
         run_export --rootId 1 --output-directory "$OUT" --dataTypes events
     assert_failure
-    assert_output --partial "has 5000 events, more than the limit of 1000"
+    assert_output --regexp "events +[0-9]+ +5000 +1000"
     refute [ -d "$OUT" ]
 }
 
@@ -483,7 +485,7 @@ setup() { setup_common; }
     FAKE_C8Y_TOTAL_ALARMS=5000 \
         run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
     assert_failure
-    assert_output --partial "has 5000 alarms, more than the limit of 1000"
+    assert_output --regexp "alarms +[0-9]+ +5000 +1000"
     refute [ -d "$OUT" ]
 }
 
@@ -491,8 +493,8 @@ setup() { setup_common; }
     FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
         run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
     assert_failure
-    # one line per offending device, not a single early exit
-    assert [ "$(printf '%s\n' "$output" | grep -c 'more than the limit')" -gt 1 ]
+    # aggregated to one row per limit, but every device was still counted
+    assert_output --regexp "measurements +9 +2000000"
 }
 
 @test "export: limits are counted before anything is written" {
@@ -587,4 +589,97 @@ setup() { setup_common; }
     assert_output --partial "at most 1000000 measurements per device"
     assert_output --partial "at most 1000 events per device"
     assert_output --partial "at most 1000 alarms per device"
+}
+
+@test "export: every limit is checked, not just the first to fail" {
+    FAKE_C8Y_HIERARCHY="$TESTS_DIR/fixtures/hierarchy-wide.json" \
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2400000 FAKE_C8Y_TOTAL_EVENTS=5000 FAKE_C8Y_TOTAL_ALARMS=1200 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_failure
+
+    # the child limit fails first, yet all three data limits are still reported
+    assert_line --regexp 'child objects +- +30 +25$'
+    assert_line --regexp 'measurements +31 +2400000 +1000000$'
+    assert_line --regexp 'events +31 +5000 +1000$'
+    assert_line --regexp 'alarms +31 +1200 +1000$'
+}
+
+@test "export: the report shows actual against allowed for each limit" {
+    FAKE_C8Y_TOTAL_ALARMS=3000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
+    assert_failure
+    assert_output --partial "highest"
+    assert_output --partial "allowed"
+    assert_line --regexp 'alarms +[0-9]+ +3000 +1000$'
+}
+
+@test "export: no limit value is suggested, only a window" {
+    FAKE_C8Y_TOTAL_ALARMS=3000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
+    assert_failure
+    # the limits are not settable from the command line, so suggesting a limit
+    # value would point at a knob that does not exist
+    refute_output --partial "suggested"
+    assert_output --partial "highest"
+    assert_output --partial "allowed"
+}
+
+@test "export: the report names the worst device per limit" {
+    FAKE_C8Y_TOTAL_ALARMS=3000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
+    assert_failure
+    assert_output --regexp 'alarms: highest on device [0-9]+'
+}
+
+@test "export: measurements also get a narrower window suggested" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2800000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_failure
+    # 2800000 over the default 14 days against a limit of 1000000 scales to 5 days
+    assert_output --partial "Try --dateFrom -5d"
+    assert_output --partial "currently -14d"
+}
+
+@test "export: the window suggestion scales from an explicit --dateFrom" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements --dateFrom -30d
+    assert_failure
+    # 2000000 over 30 days against a limit of 1000000 scales to 15 days
+    assert_output --partial "Try --dateFrom -15d"
+    assert_output --partial "currently -30d"
+}
+
+@test "export: no window is suggested when the window is not in days" {
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements \
+        --dateFrom "2026-01-01T00:00:00Z"
+    assert_failure
+    # an absolute date cannot be scaled linearly, so no guess is offered
+    refute_output --partial "Try --dateFrom"
+}
+
+@test "export: relative dates are passed through to c8y untouched" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements --dateFrom -6months
+    assert_success
+    run grep '^measurements list' "$REC/calls.log"
+    assert_output --partial "--dateFrom -6months"
+}
+
+@test "export: the tightest window wins when several limits are over" {
+    # one --dateFrom covers every type, so the suggestion must satisfy them all
+    FAKE_C8Y_TOTAL_MEASUREMENTS=2000000 FAKE_C8Y_TOTAL_ALARMS=6000 \
+        run_export --rootId 1 --output-directory "$OUT" \
+        --dataTypes measurements,alarms --dateFrom -30d
+    assert_failure
+    # measurements alone would allow -15d, alarms need -5d
+    assert_output --partial "Try --dateFrom -5d"
+    assert_output --partial "bring alarms within"
+}
+
+@test "export: events and alarms get no window suggestion without --dateFrom" {
+    # they default to the whole history, so there is no window to scale from
+    FAKE_C8Y_TOTAL_ALARMS=6000 \
+        run_export --rootId 1 --output-directory "$OUT" --dataTypes alarms
+    assert_failure
+    refute_output --partial "Try --dateFrom"
 }
