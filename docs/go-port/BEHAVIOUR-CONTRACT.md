@@ -167,6 +167,23 @@ hints. `importStarted` (`migrate:500`) distinguishes "this attempt created nothi
 from "stopped part way through", so a failure before the first import does not
 report an earlier attempt's objects as this one's leftovers.
 
+## Library defaults that diverge from the contract
+
+The v2 library is helpful in places where the bash implementation is not, and
+two of those defaults change observable behaviour:
+
+- **`Identity.Create` calls `IgnoreConflict()`**, so a 409 comes back with a nil
+  `Err` and `Status == StatusDuplicate`. Left alone, an external id the target
+  tenant already knows would be reported as freshly created — the opposite of
+  what an operator needs to hear, because a collision means the target already
+  knows that device under that id. The Go import therefore checks
+  `StatusDuplicate` as well as `Err` and reports it exactly as
+  `commands/import:577` does.
+- **`ChildAssets.Assign` and its siblings also call `IgnoreConflict()`.** Here
+  the default is what we want: re-assigning an existing relationship is a no-op
+  rather than an error, which is the property a resume needs. Left as is,
+  deliberately.
+
 ## Session resolution in the Go tool
 
 `--session` is optional on `export`. The order is:
@@ -185,6 +202,24 @@ file's still do. A host with no credentials is not a session and does not shadow
 
 Nothing is printed about which route was taken — `commands/export` prints nothing
 either, and the outputs are compared byte for byte.
+
+## What the import differential test compares
+
+Import's interesting output is not files on disk but what arrived at the tenant,
+so three different kinds of comparison apply:
+
+| Thing | Compared |
+| --- | --- |
+| `id_mapping.json` | byte for byte |
+| stderr | line for line, with only the mapping path normalised |
+| relationships and external identities | by **source** id on both sides |
+| created request bodies | as parsed JSON, not as bytes |
+
+The last one is deliberate. The bash side builds bodies with jq and the Go side
+edits the raw document with sjson, so the whitespace differs — and whitespace in
+a request body is not behaviour. What must not differ is the content, and
+`600.0` staying `600.0` is asserted directly by the byte-for-byte passthrough
+test in `internal/export`.
 
 ## Byte-level facts, verified
 

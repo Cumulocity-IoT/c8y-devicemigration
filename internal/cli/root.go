@@ -64,6 +64,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		"Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)")
 
 	root.AddCommand(newExportCommand(stderr))
+	root.AddCommand(newImportCommand(stderr))
 	root.AddCommand(newPreflightCommand(stderr))
 
 	return root

@@ -10,12 +10,14 @@ package testfixture
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -58,6 +60,74 @@ type Server struct {
 
 	mu       sync.Mutex
 	requests []string
+
+	// The target tenant this server also stands in for. Ids come from one
+	// counter shared with identities, as a real platform's do, so a test cannot
+	// accidentally depend on them being contiguous per kind.
+	counter int
+
+	// failCreateAfter refuses managed object creates once this many have
+	// succeeded, and is only consulted when failCreateSet is true - so zero
+	// means refuse every one, not "disabled". It models an import dying part way
+	// through, which is the only way to observe that the mapping is written as
+	// it goes rather than once at the end.
+	failCreateSet   bool
+	failCreateAfter int
+
+	created    map[string][]byte
+	identities []CreatedIdentity
+	links      []Link
+}
+
+// CreatedIdentity is one external identity the server was asked to create.
+type CreatedIdentity struct {
+	DeviceID   string
+	Type       string
+	ExternalID string
+}
+
+// Link is one parent/child relationship the server was asked to assign.
+type Link struct {
+	ParentID  string
+	ChildType string
+	ChildID   string
+}
+
+// Created returns the bodies of the managed objects this server created, keyed
+// by the id it assigned.
+func (s *Server) Created() map[string][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string][]byte, len(s.created))
+	for id, body := range s.created {
+		out[id] = body
+	}
+	return out
+}
+
+// CreatedIdentities returns the external identities the server was asked for, in
+// the order they arrived.
+func (s *Server) CreatedIdentities() []CreatedIdentity {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]CreatedIdentity(nil), s.identities...)
+}
+
+// Links returns the relationships the server was asked to assign, in order.
+func (s *Server) Links() []Link {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Link(nil), s.links...)
+}
+
+// FailCreateAfter makes the server refuse managed object creates once n have
+// succeeded, so a test can interrupt an import at a known point. Zero refuses
+// every create.
+func (s *Server) FailCreateAfter(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failCreateSet = true
+	s.failCreateAfter = n
 }
 
 // SetObjectBody makes the server return exactly these bytes for one managed
@@ -176,6 +246,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/tenant/currentTenant":
 		s.writeJSON(w, map[string]any{"name": "t-fixture"})
 
+	case r.Method == http.MethodPost && r.URL.Path == "/inventory/managedObjects":
+		s.createManagedObject(w, r)
+
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/identity/globalIds/"):
+		id := strings.Split(strings.TrimPrefix(r.URL.Path, "/identity/globalIds/"), "/")[0]
+		s.createIdentity(w, r, id)
+
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
+		s.assignChild(w, r)
+
 	case strings.HasPrefix(r.URL.Path, "/identity/globalIds/"):
 		// /identity/globalIds/<id>/externalIds
 		id := strings.Split(strings.TrimPrefix(r.URL.Path, "/identity/globalIds/"), "/")[0]
@@ -206,6 +286,172 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// selfLink is the URL this server would report for one of its own objects.
+//
+// It points at the server itself, as a real tenant's does. That is what makes an
+// export taken from here identifiable later as having come from here, which is
+// what the same-tenant check relies on.
+func (s *Server) selfLink(id string) string {
+	return s.Server.URL + "/inventory/managedObjects/" + id
+}
+
+// nextID allocates from one counter shared by every kind of created thing, the
+// way a real tenant does.
+func (s *Server) nextID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.counter == 0 {
+		s.counter = 1000
+	}
+	s.counter++
+	return strconv.Itoa(s.counter)
+}
+
+func (s *Server) createManagedObject(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	if s.failCreateSet && len(s.created) >= s.failCreateAfter {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+		s.writeJSON(w, map[string]any{
+			"error":   "inventory/Internal Server Error",
+			"message": "refused by the test fixture",
+		})
+		return
+	}
+	s.mu.Unlock()
+
+	id := s.nextID()
+
+	s.mu.Lock()
+	if s.created == nil {
+		s.created = map[string][]byte{}
+	}
+	s.created[id] = body
+	s.mu.Unlock()
+
+	// Echo the request back with the id the platform assigned, which is what a
+	// real create returns.
+	var object map[string]any
+	if err := json.Unmarshal(body, &object); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	object["id"] = id
+	object["self"] = s.selfLink(id)
+
+	w.WriteHeader(http.StatusCreated)
+	s.writeJSON(w, object)
+}
+
+func (s *Server) createIdentity(w http.ResponseWriter, r *http.Request, deviceID string) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var request struct {
+		Type       string `json:"type"`
+		ExternalID string `json:"externalId"`
+	}
+	_ = json.Unmarshal(body, &request)
+
+	// An external id the tenant already knows is a 409, which is the failure
+	// import has to survive rather than abort on.
+	s.mu.Lock()
+	for _, existing := range s.identities {
+		if existing.Type == request.Type && existing.ExternalID == request.ExternalID {
+			s.mu.Unlock()
+			w.WriteHeader(http.StatusConflict)
+			s.writeJSON(w, map[string]any{
+				"error":   "identity/Duplicate External ID",
+				"message": "External ID already exists",
+			})
+			return
+		}
+	}
+	s.identities = append(s.identities, CreatedIdentity{
+		DeviceID: deviceID, Type: request.Type, ExternalID: request.ExternalID,
+	})
+	s.mu.Unlock()
+
+	w.WriteHeader(http.StatusCreated)
+	s.writeJSON(w, map[string]any{
+		"externalId":    request.ExternalID,
+		"type":          request.Type,
+		"managedObject": map[string]any{"id": deviceID},
+	})
+}
+
+func (s *Server) assignChild(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/inventory/managedObjects/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+
+	var childType string
+	switch parts[1] {
+	case "childAssets":
+		childType = "asset"
+	case "childDevices":
+		childType = "device"
+	case "childAdditions":
+		childType = "addition"
+	default:
+		http.NotFound(w, r)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// A managedObjectReference: {"managedObject":{"id":"..."}}
+	childID := gjsonID(body)
+
+	s.mu.Lock()
+	s.links = append(s.links, Link{ParentID: parts[0], ChildType: childType, ChildID: childID})
+	s.mu.Unlock()
+
+	w.WriteHeader(http.StatusCreated)
+	s.writeJSON(w, map[string]any{"managedObject": map[string]any{"id": childID}})
+}
+
+// gjsonID pulls the child id out of a managedObjectReference without caring how
+// the client chose to nest it.
+func gjsonID(body []byte) string {
+	var reference struct {
+		ManagedObject struct {
+			ID any `json:"id"`
+		} `json:"managedObject"`
+		ID any `json:"id"`
+	}
+	_ = json.Unmarshal(body, &reference)
+	if id := stringify(reference.ManagedObject.ID); id != "" {
+		return id
+	}
+	return stringify(reference.ID)
+}
+
+func stringify(v any) string {
+	switch value := v.(type) {
+	case string:
+		return value
+	case float64:
+		return strconv.FormatInt(int64(value), 10)
+	default:
+		return ""
+	}
+}
+
 func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 	encoded, err := json.Marshal(v)
 	if err != nil {
@@ -220,6 +466,20 @@ func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 // expected to strip. The shape mirrors what tests/fake/c8y emits, so the two
 // implementations see the same bytes.
 func (s *Server) writeManagedObject(w http.ResponseWriter, id string) {
+	// An object this run created lives in the target tenant, which is a
+	// different id space from the source fixture.
+	s.mu.Lock()
+	createdBody, wasCreated := s.created[id]
+	s.mu.Unlock()
+	if wasCreated {
+		var object map[string]any
+		_ = json.Unmarshal(createdBody, &object)
+		object["id"] = id
+		object["self"] = s.selfLink(id)
+		s.writeJSON(w, object)
+		return
+	}
+
 	if body, ok := s.objectBodies[id]; ok {
 		_, _ = w.Write(body)
 		return
@@ -234,7 +494,7 @@ func (s *Server) writeManagedObject(w http.ResponseWriter, id string) {
 
 	object := map[string]any{
 		"id":           id,
-		"self":         "https://example.cumulocity.com/inventory/managedObjects/" + id,
+		"self":         s.selfLink(id),
 		"lastUpdated":  "2026-01-01T00:00:00.000Z",
 		"creationTime": "2025-01-01T00:00:00.000Z",
 		"owner":        "service_test",
@@ -281,7 +541,7 @@ func (s *Server) writeChildren(w http.ResponseWriter, id, childType, property st
 	// The library reads references.#.managedObject, so the property name is not
 	// where the array goes.
 	s.writeJSON(w, map[string]any{
-		"self":       "https://example.cumulocity.com/inventory/managedObjects/" + id + "/" + property,
+		"self":       s.selfLink(id) + "/" + property,
 		"references": references,
 		"statistics": map[string]any{
 			"pageSize":      2000,
@@ -300,13 +560,13 @@ func (s *Server) writeExternalIDs(w http.ResponseWriter, id string) {
 		externalIDs = append(externalIDs, map[string]any{
 			"externalId":    identity.ExternalID,
 			"type":          identity.Type,
-			"self":          "https://example.cumulocity.com/identity/externalIds/" + identity.Type + "/" + identity.ExternalID,
+			"self":          s.Server.URL + "/identity/externalIds/" + identity.Type + "/" + identity.ExternalID,
 			"managedObject": map[string]any{"id": id},
 		})
 	}
 
 	s.writeJSON(w, map[string]any{
-		"self":        "https://example.cumulocity.com/identity/globalIds/" + id + "/externalIds",
+		"self":        s.Server.URL + "/identity/globalIds/" + id + "/externalIds",
 		"externalIds": externalIDs,
 	})
 }

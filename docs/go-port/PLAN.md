@@ -154,13 +154,22 @@ Nothing is printed about which session was chosen, because `commands/export`
 prints nothing either and the two outputs are compared byte for byte. `preflight`
 is where you go to see what a session resolves to.
 
+Increment 2 is implemented: `import` of objects, external identities and
+relationships, with the mapping written after every created object, the marker
+fragment, and the same-tenant refusal. `internal/jsonraw` edits managed object
+bodies as raw text with sjson, so numbers and nulls survive.
+
+Two things came out of building it. `Identity.Create` in the library calls
+`IgnoreConflict()`, so a duplicate external id arrives as a success and had to be
+detected through `StatusDuplicate` — see the contract. And the same-tenant guard
+found that `commands/import` has the same gap, so it should be added there too.
+
 ## Later increments
 
 Each is independently shippable and each extends the differential test.
 
 | # | Scope |
 | --- | --- |
-| 2 | `import` metadata: create objects, identities, final-pass linking, incremental mapping writes, marker fragment, and the same-tenant refusal below. Introduces `internal/jsonraw` and the number-preservation constraint. |
 | 3 | `revert`: mapping and `--runId` via a `fragmentType` query, batched delete, outcome established by re-reading. |
 | 4 | Device data both ways: measurements/events/alarms, attachments, processing mode, batch sizes, and the rule that a failed record makes the import exit non-zero. |
 | 5 | `migrate`: chained, then `--incremental`, then `--resume` with the journal. |
