@@ -14,7 +14,6 @@ import (
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/importer"
-	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
@@ -27,12 +26,7 @@ func exportThenImport(t *testing.T, opts importer.Options) (*testfixture.Server,
 
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -247,11 +241,7 @@ func TestADuplicateExternalIdentityDoesNotStopTheImport(t *testing.T) {
 	// says nothing about the rest of the import.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -349,8 +339,7 @@ func TestRunIDCharsetIsEnforced(t *testing.T) {
 func TestAMissingInputDirectoryFailsCleanly(t *testing.T) {
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -406,11 +395,7 @@ func TestTheMappingIsCompleteWhenAnImportDiesPartWay(t *testing.T) {
 	// interrupt the import and read the file it left behind.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -466,8 +451,7 @@ func TestAFailureBeforeAnyObjectStillLeavesAMappingFile(t *testing.T) {
 	// than nothing at all.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)

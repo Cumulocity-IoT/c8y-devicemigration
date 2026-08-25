@@ -32,6 +32,12 @@ type Session struct {
 	Username string
 	Password string
 	Token    string
+
+	// InsecureSkipVerify accepts a certificate that does not verify. Set in Go
+	// by the test fixture, which serves TLS with a self-signed certificate.
+	// Read decodes a session file into its own private struct, so no session
+	// file can set this and a real migration always verifies.
+	InsecureSkipVerify bool
 }
 
 // Name is the file name, which is the part that says which tenant it is. A

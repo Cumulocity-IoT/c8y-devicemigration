@@ -640,3 +640,50 @@ do_data_migration() {
     assert_success
     refute_output --partial "Run id"
 }
+
+# --- iteration order must not depend on the locale --------------------------
+
+# How a locale orders the pair that the child index file names run into: '10_a'
+# first under C, because '0' sorts before '_', and '1_b' first wherever
+# punctuation is ignored at the primary level.
+collation_order() {
+    printf '1_b\n10_a\n' | LC_ALL="$1" sort | head -1
+}
+
+@test "import: relationships are assigned in the same order under any locale" {
+    # Bash orders a glob by the LOCALE's collation, and most locales ignore
+    # punctuation at the primary level: '1_child_asset.json' sorts before
+    # '10_child_device.json' under en_US and after it under C. That made the
+    # output order depend on the user's environment, which is how it was found -
+    # the same test passed locally and failed on a CI runner.
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+
+    # A locale that is not installed falls back to C, and then this test
+    # compares C against C three times and proves nothing. Keep only the
+    # locales that actually order the ambiguous pair differently.
+    local locales="C" candidate
+    for candidate in en_US.UTF-8 de_DE.UTF-8; do
+        if [[ "$(collation_order "$candidate")" != "$(collation_order C)" ]]; then
+            locales="$locales $candidate"
+        fi
+    done
+    if [[ "$locales" == "C" ]]; then
+        skip "no locale on this machine collates 1_x and 10_x differently from C"
+    fi
+
+    local first=""
+    for locale in $locales; do
+        LC_ALL="$locale" run_import --input-directory "$OUT" --force --noFlag \
+            --mapping "mapping-$locale.json"
+        assert_success
+
+        local order
+        order=$(printf '%s\n' "$output" | grep '^Assigned ' | sed 's/([0-9]*)//g')
+        if [[ -z "$first" ]]; then
+            first="$order"
+        else
+            assert_equal "$order" "$first"
+        fi
+    done
+}

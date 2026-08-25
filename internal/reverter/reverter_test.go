@@ -15,7 +15,6 @@ import (
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/importer"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/reverter"
-	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
@@ -27,11 +26,7 @@ func migrated(t *testing.T, runID string) (*testfixture.Server, *api.Client, str
 
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)

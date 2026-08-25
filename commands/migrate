@@ -576,7 +576,11 @@ migrate_incremental() {
     echo "Migrating data for $total $(plural "$total" device devices), one at a time" >&2
     report_interrupted_device
 
-    for deviceFile in "$metadataDirectory"/exported_device_*.json; do
+    # Sorted explicitly so the order is the file names' and not the locale's.
+    # These names hold ids, which are digits, and no locale reorders those - the
+    # glob that did bite is the child index one in import. Kept for consistency
+    # with that loop and with the Go tool, which iterates in byte order.
+    while IFS= read -r deviceFile; do
         [[ -f "$deviceFile" ]] || continue
 
         oldId=${deviceFile##*/exported_device_}
@@ -613,7 +617,7 @@ migrate_incremental() {
 
         # Discarded straight away: holding one device's data is the whole point
         rm -rf "$dataDirectory"
-    done
+    done < <(printf '%s\n' "$metadataDirectory"/exported_device_*.json | LC_ALL=C sort)
 }
 
 # Every __-prefixed variable below is assigned by the generated parser through

@@ -521,7 +521,9 @@ import_data_only() {
     local inputDirectory="$1"
     local dataDirectory oldId newId name
 
-    for dataDirectory in "$inputDirectory"/data/*; do
+    # Sorted for the same reason as the object files: these names are ids, so
+    # the locale cannot reorder them, but all three loops now agree.
+    while IFS= read -r dataDirectory; do
         [[ -d "$dataDirectory" ]] || continue
 
         oldId=$(basename "$dataDirectory")
@@ -536,7 +538,7 @@ import_data_only() {
 
         import_device_data "$inputDirectory" "$oldId" "$newId" "$name"
         dataDevices=$((dataDevices + 1))
-    done
+    done < <(printf '%s\n' "$inputDirectory"/data/* | LC_ALL=C sort)
 }
 
 import_devices() {
@@ -544,7 +546,10 @@ import_devices() {
     local workDirectory="$2"
     local deviceFile oldId newId name
 
-    for deviceFile in "$inputDirectory"/exported_device_*.json; do
+    # Byte order, for the same reason as link_children below. This one also
+    # decides which target id each object gets, so a locale-dependent order
+    # would make two runs of the same import disagree about that.
+    while IFS= read -r deviceFile; do
         [[ -e "$deviceFile" ]] || continue
 
         oldId=$(basename "$deviceFile" .json)
@@ -579,7 +584,7 @@ import_devices() {
 
         import_identities "$inputDirectory" "$oldId" "$newId" "$name"
         import_device_data "$inputDirectory" "$oldId" "$newId" "$name"
-    done
+    done < <(printf '%s\n' "$inputDirectory"/exported_device_*.json | LC_ALL=C sort)
 }
 
 # Recreate the external identities of one managed object against its new id.
@@ -612,7 +617,13 @@ link_children() {
     local childFile baseName oldParentId childType newParentId parentName
     local oldChildId newChildId childName existingChildren
 
-    for childFile in "$inputDirectory"/*_child_*.json; do
+    # Sorted explicitly, byte-wise, rather than left to the glob. Bash orders a
+    # glob by the LOCALE's collation, and most locales ignore punctuation at the
+    # primary level - so '1_child_asset.json' sorts before '10_child_device.json'
+    # under en_US and after it under C. That made the order relationships are
+    # assigned in depend on the user's locale, which is how this was found: the
+    # same test passed locally and failed on a CI runner with a different one.
+    while IFS= read -r childFile; do
         [[ -e "$childFile" ]] || continue
 
         baseName=$(basename "$childFile" .json)
@@ -661,7 +672,7 @@ link_children() {
                 --child "$newChildId" --nullInput "${forceArgs[@]}" > /dev/null
             echo "Assigned $childName ($newChildId) as $childType child of $parentName ($newParentId)" >&2
         done < <(jq -r '.[]' "$childFile")
-    done
+    done < <(printf '%s\n' "$inputDirectory"/*_child_*.json | LC_ALL=C sort)
 }
 
 # A staging directory with a name that says where it came from.

@@ -12,7 +12,6 @@ import (
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/importer"
-	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
@@ -30,11 +29,7 @@ func migrateWithData(t *testing.T, opts importer.Options) (*testfixture.Server, 
 
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -275,8 +270,7 @@ func TestAMissingAttachmentIsReportedButNotAFailure(t *testing.T) {
 	// that failed on this would loop forever.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -315,8 +309,7 @@ func TestARefusedRecordMakesTheImportFail(t *testing.T) {
 	// so, or migrate would journal a device as finished with records missing.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -367,8 +360,7 @@ func TestMeasurementsAreSplitIntoBatches(t *testing.T) {
 	// one batch's worth before the batching is observable at all.
 	server := testfixture.New(t, "many-measurements.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -420,8 +412,7 @@ func TestAFailedMeasurementBatchAloneFailsTheImport(t *testing.T) {
 	// without being counted.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -464,8 +455,7 @@ func TestDataOnlyAnnouncesNoRunID(t *testing.T) {
 	// lie, and an incremental migration would repeat it once per device.
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, _ := session.Read(sessionPath)
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)

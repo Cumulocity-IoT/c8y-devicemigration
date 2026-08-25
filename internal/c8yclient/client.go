@@ -59,6 +59,10 @@ func New(s *session.Session, passphrase string) (*api.Client, error) {
 		BaseURL: s.BaseURL(),
 		Auth:    auth,
 		Timeout: Timeout,
+		// A test fixture serves TLS with a self-signed certificate, which is
+		// the only reason this is here. Off by default, so a real migration
+		// still verifies the platform's certificate.
+		InsecureSkipVerify: s.InsecureSkipVerify,
 	}), nil
 }
 

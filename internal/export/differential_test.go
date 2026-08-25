@@ -12,7 +12,6 @@ import (
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
-	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
@@ -111,11 +110,7 @@ func runGoExport(t *testing.T, fixture string, opts export.Options) (string, str
 	}
 
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)

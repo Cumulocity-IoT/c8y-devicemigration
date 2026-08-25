@@ -26,11 +26,7 @@ func exportFrom(t *testing.T, server *testfixture.Server) (*session.Session, str
 	t.Helper()
 
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -120,11 +116,7 @@ func TestImportIntoAnotherTenantIsAllowed(t *testing.T) {
 
 	target := testfixture.New(t, "empty.json")
 	work := t.TempDir()
-	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
-	targetSession, err := session.Read(targetSessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	targetSession := target.ReadSession(t, work, "target.json")
 
 	if err := checkAgainst(t, targetSession, out, false); err != nil {
 		t.Fatalf("a different tenant must be allowed: %v", err)
@@ -140,11 +132,7 @@ func TestADifferentObjectAtTheSameIDIsAllowed(t *testing.T) {
 	// A tenant whose id 1 is a different object entirely.
 	target := testfixture.New(t, "many-measurements.json")
 	work := t.TempDir()
-	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
-	targetSession, err := session.Read(targetSessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	targetSession := target.ReadSession(t, work, "target.json")
 
 	if err := checkAgainst(t, targetSession, out, false); err != nil {
 		t.Fatalf("a different object at the same id must be allowed: %v", err)
@@ -186,11 +174,7 @@ func TestTheCheckCostsAtMostAHandfulOfRequests(t *testing.T) {
 
 	target := testfixture.New(t, "empty.json")
 	work := t.TempDir()
-	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
-	targetSession, err := session.Read(targetSessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	targetSession := target.ReadSession(t, work, "target.json")
 
 	if err := checkAgainst(t, targetSession, out, false); err != nil {
 		t.Fatal(err)
@@ -204,11 +188,7 @@ func TestTheCheckCostsAtMostAHandfulOfRequests(t *testing.T) {
 func TestAnExportWithNoObjectsIsNothingToCheck(t *testing.T) {
 	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, work, "fixture.json")
 
 	empty := filepath.Join(work, "empty-export")
 	if err := os.MkdirAll(empty, 0o755); err != nil {

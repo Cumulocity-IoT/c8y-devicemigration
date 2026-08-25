@@ -22,12 +22,7 @@ func run(t *testing.T, fixture string, opts export.Options) (string, string, err
 
 	server := testfixture.New(t, fixture)
 	dir := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, dir, "fixture.json")
-
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, dir, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -47,11 +42,7 @@ func runAgainst(t *testing.T, server *testfixture.Server, opts export.Options) (
 	t.Helper()
 
 	dir := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, dir, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, dir, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -300,11 +291,7 @@ func TestTwoParentNodeIsFetchedOnce(t *testing.T) {
 	// wasteful; writing it twice would be a bug.
 	server := testfixture.New(t, "hierarchy.json")
 	dir := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, dir, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, dir, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -355,11 +342,7 @@ func TestObjectBodyIsPassedThroughByteForByte(t *testing.T) {
 	server.SetObjectBody("1", []byte(body))
 
 	dir := t.TempDir()
-	sessionPath := server.WriteSessionFile(t, dir, "fixture.json")
-	s, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := server.ReadSession(t, dir, "fixture.json")
 	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -417,6 +400,9 @@ func TestExportUsesTheActiveSessionWhenNoneIsNamed(t *testing.T) {
 	if origin != session.OriginEnvironment {
 		t.Fatalf("origin = %v, want the active session", origin)
 	}
+	// The fixture serves TLS with a self-signed certificate. An environment
+	// session has no file to carry this, so the test sets it directly.
+	s.InsecureSkipVerify = true
 
 	client, err := c8yclient.New(s, "")
 	if err != nil {

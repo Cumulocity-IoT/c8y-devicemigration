@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Regenerates the command reference in README.md from the commands themselves.
+# Regenerates the command reference in docs/extension.md from the commands
+# themselves.
 #
 # The option lists live in the DOC string of each command, which is also what
 # --help prints and what the generated parser is checked against. Copying them
@@ -8,13 +9,15 @@
 # already in this repo's short life.
 #
 # Usage:
-#   tools/gen-command-docs.sh          rewrite README.md in place
-#   tools/gen-command-docs.sh --check  exit 1 if README.md is out of date
+#   tools/gen-command-docs.sh          rewrite docs/extension.md in place
+#   tools/gen-command-docs.sh --check  exit 1 if it is out of date
 
 set -e
 
 repoDirectory="$(cd "$(dirname "$0")/.." && pwd)"
-readme="$repoDirectory/README.md"
+# The reference documents the bash commands, so it lives with them: --help is
+# what it prints, and docs/extension.md is what documents that.
+readme="$repoDirectory/docs/extension.md"
 beginMarker="<!-- BEGIN COMMAND REFERENCE -->"
 endMarker="<!-- END COMMAND REFERENCE -->"
 
@@ -43,13 +46,13 @@ generate() {
 }
 
 if [[ ! -f "$readme" ]]; then
-    echo "No README at $readme" >&2
+    echo "No such file: $readme" >&2
     exit 1
 fi
 
 for marker in "$beginMarker" "$endMarker"; do
     if ! grep -qxF "$marker" "$readme"; then
-        echo "README.md is missing the line: $marker" >&2
+        echo "$readme is missing the line: $marker" >&2
         exit 1
     fi
 done
@@ -65,13 +68,13 @@ awk -v end="$endMarker" 'found { print } $0 == end { found = 1 }' "$readme" >> "
 
 if [[ "${1:-}" == "--check" ]]; then
     if cmp -s "$rebuilt" "$readme"; then
-        echo "README command reference: up to date"
+        echo "command reference: up to date"
         exit 0
     fi
-    echo "README command reference is out of date, run 'make docs'" >&2
+    echo "The command reference in $readme is out of date, run 'make docs'" >&2
     diff "$readme" "$rebuilt" | head -40 >&2
     exit 1
 fi
 
 cat "$rebuilt" > "$readme"
-echo "README command reference regenerated"
+echo "command reference regenerated in $readme"

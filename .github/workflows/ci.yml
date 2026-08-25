@@ -34,9 +34,9 @@ jobs:
       - name: Parser freshness
         run: make parser-freshness
 
-      # The README's command reference is generated from the same DOC strings.
-      # A hand-edited option list is exactly the kind of drift nobody notices
-      # until someone follows the README and it does not work.
+      # The command reference in docs/extension.md is generated from the same
+      # DOC strings. A hand-edited option list is exactly the kind of drift
+      # nobody notices until someone follows the docs and it does not work.
       - name: Command reference freshness
         run: make docs-freshness
 

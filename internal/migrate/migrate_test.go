@@ -15,7 +15,6 @@ import (
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/migrate"
-	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
@@ -65,17 +64,8 @@ func setup(t *testing.T, opts migrate.Options) *harness {
 func (h *harness) run(t *testing.T, stdin string) (string, error) {
 	t.Helper()
 
-	sourceSessionPath := h.source.WriteSessionFile(t, h.work, "source.json")
-	targetSessionPath := h.target.WriteSessionFile(t, h.work, "target.json")
-
-	sourceSession, err := session.Read(sourceSessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	targetSession, err := session.Read(targetSessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sourceSession := h.source.ReadSession(t, h.work, "source.json")
+	targetSession := h.target.ReadSession(t, h.work, "target.json")
 	sourceClient, err := c8yclient.New(sourceSession, "")
 	if err != nil {
 		t.Fatal(err)

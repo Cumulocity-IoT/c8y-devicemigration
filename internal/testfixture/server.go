@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"time"
 )
 
@@ -235,7 +237,11 @@ func New(t *testing.T, fixture string) *Server {
 	}
 
 	s := &Server{hierarchy: hierarchy}
-	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
+	// TLS, not plain HTTP. The library warns on every request when credentials
+	// travel over HTTP - "Using sensitive credentials in HTTP mode is not
+	// secure" - which buried the actual test output in thousands of lines. It is
+	// also what production looks like, so the client is exercised the same way.
+	s.Server = httptest.NewTLSServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.Server.Close)
 	return s
 }
@@ -1129,8 +1135,10 @@ func (s *Server) writeExternalIDs(w http.ResponseWriter, id string) {
 	})
 }
 
-// WriteSessionFile writes a session file pointing at this server, so the tool
-// under test reaches it the same way it reaches a real tenant.
+// WriteSessionFile writes a go-c8y-cli session file pointing at this server
+// and returns its path. Most callers want ReadSession instead - a session read
+// from this file cannot reach the server, because the certificate is
+// self-signed.
 func (s *Server) WriteSessionFile(t *testing.T, dir, name string) string {
 	t.Helper()
 
@@ -1149,4 +1157,19 @@ func (s *Server) WriteSessionFile(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// ReadSession writes a session file for this server, reads it back through the
+// real session loader, and marks the result as trusting this server's
+// self-signed certificate. That last part is why it exists: the flag is a Go
+// field with no session-file equivalent, so a fixture has to set it in code.
+func (s *Server) ReadSession(t *testing.T, dir, name string) *session.Session {
+	t.Helper()
+
+	sess, err := session.Read(s.WriteSessionFile(t, dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.InsecureSkipVerify = true
+	return sess
 }
