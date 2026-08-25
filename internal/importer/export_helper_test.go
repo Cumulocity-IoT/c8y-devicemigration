@@ -12,10 +12,17 @@ import (
 
 // runGoExportInto exports the default hierarchy into dir, so the import tests do
 // not each repeat the setup.
-func runGoExportInto(t *testing.T, client *api.Client, dir string) error {
+func runGoExportInto(t *testing.T, client *api.Client, dir string, withData bool) error {
 	t.Helper()
-	var discard bytes.Buffer
-	return export.New(client, &discard, export.Options{
+
+	opts := export.Options{
 		RootID: "1", OutputDirectory: dir, ChildTypes: export.DefaultChildTypes,
-	}).Run(context.Background())
+	}
+	if withData {
+		opts.DataTypes = allData
+		opts.Windows = wholeHistory()
+	}
+
+	var discard bytes.Buffer
+	return export.New(client, &discard, opts).Run(context.Background())
 }

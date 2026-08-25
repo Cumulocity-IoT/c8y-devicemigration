@@ -2,8 +2,8 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +19,10 @@ func newExportCommand(stderr io.Writer) *cobra.Command {
 		childTypes      string
 		noChildren      bool
 		dataTypes       string
+		dateFrom        string
+		dateTo          string
+		metadataOnly    bool
+		dataOnly        bool
 		ignoreLimits    bool
 		sessionValue    string
 	)
@@ -43,20 +47,24 @@ func newExportCommand(stderr io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Validated even though the data itself is not exported yet, so an
-			// unsupported value is refused here rather than silently ignored.
-			if _, err := export.ResolveDataTypes(dataTypes); err != nil {
+			resolvedDataTypes, err := export.ResolveDataTypes(dataTypes)
+			if err != nil {
 				return err
 			}
-			if dataTypes != "" {
-				return fmt.Errorf("--dataTypes is not implemented yet in this tool, use the c8y extension for data")
+			windows, err := export.ResolveWindows(dateFrom, dateTo, time.Now())
+			if err != nil {
+				return err
 			}
 
 			return runExport(cmd.Context(), stderr, sessionValue, home, export.Options{
 				RootID:          rootID,
 				OutputDirectory: outputDirectory,
 				ChildTypes:      resolvedChildTypes,
+				DataTypes:       resolvedDataTypes,
+				Windows:         windows,
 				IgnoreLimits:    ignoreLimits,
+				MetadataOnly:    metadataOnly,
+				DataOnly:        dataOnly,
 			})
 		},
 	}
@@ -68,6 +76,16 @@ func newExportCommand(stderr io.Writer) *cobra.Command {
 	cmd.Flags().BoolVar(&noChildren, "no-children", false, "Export only the root device")
 	cmd.Flags().StringVar(&dataTypes, "dataTypes", "",
 		"Comma separated device data to include: measurements, events, alarms")
+	cmd.Flags().StringVar(&dateFrom, "dateFrom", "",
+		"Only export data at or after this time, absolute or relative, e.g. "+
+			"2026-01-01T00:00:00Z or -30d. Measurements default to the last 14 days; "+
+			"events and alarms default to the whole history")
+	cmd.Flags().StringVar(&dateTo, "dateTo", "", "Only export data at or before this time")
+	cmd.Flags().BoolVar(&metadataOnly, "metadataOnly", false,
+		"Export managed objects and external identities only, skipping the data itself. "+
+			"The limits are still checked against whatever --dataTypes selects")
+	cmd.Flags().BoolVar(&dataOnly, "dataOnly", false,
+		"Export the data only, skipping external identities")
 	cmd.Flags().BoolVar(&ignoreLimits, "ignoreLimits", false, "Export even if a limit is exceeded")
 	cmd.Flags().StringVar(&sessionValue, "session", "",
 		"Session to read from: a path, a full file name including its extension, or a glob. "+
@@ -76,6 +94,7 @@ func newExportCommand(stderr io.Writer) *cobra.Command {
 	_ = cmd.MarkFlagRequired("rootId")
 	_ = cmd.MarkFlagRequired("output-directory")
 	cmd.MarkFlagsMutuallyExclusive("childTypes", "no-children")
+	cmd.MarkFlagsMutuallyExclusive("metadataOnly", "dataOnly")
 
 	return cmd
 }

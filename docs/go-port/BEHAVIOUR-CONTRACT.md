@@ -184,6 +184,66 @@ two of those defaults change observable behaviour:
   rather than an error, which is the property a resume needs. Left as is,
   deliberately.
 
+## Refusing an import into the source tenant
+
+`migrate` compares its two sessions, but nothing stops `export` and `import`
+being run by hand with the same tenant on both sides — which duplicates the whole
+hierarchy inside its own tenant. `import` therefore refuses it, before creating
+anything, unless `--allowSameTenant` is given.
+
+**It works by looking up an exported object by its SOURCE id.** Managed object
+ids are tenant-scoped, so an id that resolves to an object with the same name,
+type *and* creation time is the same object, and therefore the same tenant. Up to
+three objects are tried, because the obvious way for one probe to miss is an
+object deleted from the source since the export.
+
+It deliberately does **not** compare the export's `self` host against the
+session's host. That was the first design and it was wrong: `self` carries
+whatever host the platform chose — a tenant-id domain rather than a friendly one,
+a custom domain, or in an anonymised export a host that was never real — so a
+mismatch says nothing. Gating the probe on a match made the check pass silently
+on exactly the imports it exists to stop.
+
+## Device data
+
+| Thing | Contract |
+| --- | --- |
+| batch size | 50 measurements per request. Smallest for measurements because they arrive in the largest numbers, and far inside Cumulocity's ~1 MB document, soft 1000-element array and hard five-minute request limits |
+| processing mode | `QUIESCENT` for measurements and events. **None for alarms**: it is documented as applying to measurements and events only, and alarm creation is PERSISTENT regardless, so asking would be a claim the platform does not honour |
+| ordering | oldest first, within each kind |
+| attachments | downloaded only for events carrying `c8y_IsBinary`; the file is named by the **source** event id and uploaded against the **new** one |
+| a missing attachment | reported, **not** counted as a failure: the export is what is incomplete, retrying cannot fix it, and a resume would loop forever |
+| a refused record | reported, counted, and the import **exits non-zero** after finishing the rest |
+
+Two orderings that are not cosmetic. `c8y_LatestMeasurements` on the managed
+object holds the last value *received*, not the newest by timestamp, so an
+out-of-order backfill leaves a device showing a stale reading as its latest. And
+Cumulocity de-duplicates alarms on source and type while one is ACTIVE or
+ACKNOWLEDGED, so a still-open alarm created before the cleared history of the
+same type would absorb it and only bump its count.
+
+### What the Go port had to add
+
+- **Date parsing.** The bash version handed `-14d` to c8y, which parsed it. The
+  library takes a `time.Time`, so `internal/export/window.go` parses the relative
+  and absolute forms and **refuses** anything else. Exporting the wrong window
+  quietly is worse than not starting.
+- **Retargeting `source`.** `c8y --device X` overwrites `source` client-side and
+  there is no equivalent here, so every record's `source` is rewritten to the new
+  device id explicitly. Without it each record would name a device in the tenant
+  the export came from.
+
+### Two ways the fixture server had to become stricter
+
+Both were found by the artefacts differing from the bash export, and both were
+the harness rather than the tool:
+
+- records are served as raw JSON, never decoded into `map[string]any`, or `22.0`
+  arrives as `22` and the tests that check numbers survive are checking nothing
+- `json.Marshal`'s HTML escaping is off, or `<!DOCTYPE html>` in the fixture's
+  alarm text arrives as `\u003c!DOCTYPE html\u003e` — valid JSON that decodes
+  identically, but not what the platform sends
+
 ## Finding a run's objects
 
 **`fragmentType` and `query` are mutually exclusive, and `query` wins.** Cumulocity

@@ -8,6 +8,7 @@
 package testfixture
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Hierarchy is the fixture shape: a map of id to device, plus a _comment array
@@ -91,6 +93,15 @@ type Server struct {
 	// refuseDelete models an object that will not go, which is what a
 	// permissions problem looks like from the outside.
 	refuseDelete map[string]bool
+
+	// totalOverride inflates what a count query reports, so a test can drive
+	// the export's limit checks without generating a million records. The bash
+	// harness does the same through FAKE_C8Y_TOTAL_*.
+	totalOverride    map[string]int
+	records          []CreatedRecord
+	uploadedBinaries []string
+	failDataSet      bool
+	failDataAfter    int
 }
 
 // CreatedIdentity is one external identity the server was asked to create.
@@ -142,6 +153,17 @@ func (s *Server) FailCreateAfter(n int) {
 	defer s.mu.Unlock()
 	s.failCreateSet = true
 	s.failCreateAfter = n
+}
+
+// HideFromHierarchy removes an object from the source side, which is what an
+// object deleted since the export looks like.
+func (s *Server) HideFromHierarchy(ids ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range ids {
+		delete(s.hierarchy, id)
+		delete(s.objectBodies, id)
+	}
 }
 
 // SetObjectBody makes the server return exactly these bytes for one managed
@@ -274,6 +296,26 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 	case r.Method == http.MethodPost && r.URL.Path == "/inventory/managedObjects":
 		s.createManagedObject(w, r)
+
+	// Device data. The fixture holds the records verbatim, so what the export
+	// writes is what the fixture says - which is what makes it comparable with
+	// the bash implementation reading the same file.
+	case r.Method == http.MethodGet && r.URL.Path == "/measurement/measurements":
+		s.listData(w, r, "measurements", "measurements")
+	case r.Method == http.MethodGet && r.URL.Path == "/event/events":
+		s.listData(w, r, "events", "events")
+	case r.Method == http.MethodGet && r.URL.Path == "/alarm/alarms":
+		s.listData(w, r, "alarms", "alarms")
+
+	case r.Method == http.MethodPost && r.URL.Path == "/measurement/measurements":
+		s.createMeasurements(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/event/events":
+		s.createRecord(w, r, "events")
+	case r.Method == http.MethodPost && r.URL.Path == "/alarm/alarms":
+		s.createRecord(w, r, "alarms")
+
+	case strings.HasPrefix(r.URL.Path, "/event/events/") && strings.HasSuffix(r.URL.Path, "/binaries"):
+		s.eventBinary(w, r)
 
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/identity/globalIds/"):
 		id := strings.Split(strings.TrimPrefix(r.URL.Path, "/identity/globalIds/"), "/")[0]
@@ -521,6 +563,268 @@ func (s *Server) selfLink(id string) string {
 	return s.Server.URL + "/inventory/managedObjects/" + id
 }
 
+// Records the server was asked to create, in arrival order.
+type CreatedRecord struct {
+	Kind           string
+	DeviceID       string
+	Body           []byte
+	BatchSize      int
+	ProcessingMode string
+}
+
+// CreatedRecords returns the data records the server accepted.
+func (s *Server) CreatedRecords() []CreatedRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]CreatedRecord(nil), s.records...)
+}
+
+// UploadedBinaries returns the event ids an attachment was uploaded for.
+func (s *Server) UploadedBinaries() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.uploadedBinaries...)
+}
+
+// SetReportedTotal makes a count query claim this many records of one kind,
+// whatever the fixture actually holds.
+func (s *Server) SetReportedTotal(kind string, total int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.totalOverride == nil {
+		s.totalOverride = map[string]int{}
+	}
+	s.totalOverride[kind] = total
+}
+
+// FailDataAfter refuses data creates once this many have been accepted, so a
+// test can interrupt a data import at a known point.
+func (s *Server) FailDataAfter(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failDataSet = true
+	s.failDataAfter = n
+}
+
+// listData answers a data collection query out of the fixture.
+//
+// dateFrom and dateTo are applied, because the export's whole windowing story
+// depends on them and a server that ignored them would make those tests
+// vacuous.
+func (s *Server) listData(w http.ResponseWriter, r *http.Request, field, property string) {
+	params := r.URL.Query()
+	deviceID := params.Get("source")
+
+	s.mu.Lock()
+	device := s.hierarchy[deviceID]
+	s.mu.Unlock()
+
+	var all []json.RawMessage
+	switch field {
+	case "measurements":
+		all = device.Measurements
+	case "events":
+		all = device.Events
+	case "alarms":
+		all = device.Alarms
+	}
+
+	from, hasFrom := parseTimeParam(params.Get("dateFrom"))
+	to, hasTo := parseTimeParam(params.Get("dateTo"))
+
+	var kept []json.RawMessage
+	for _, record := range all {
+		if hasFrom || hasTo {
+			stamp, ok := recordTime(record)
+			if ok {
+				if hasFrom && stamp.Before(from) {
+					continue
+				}
+				if hasTo && stamp.After(to) {
+					continue
+				}
+			}
+		}
+		kept = append(kept, record)
+	}
+
+	// A count query asks for one element and the statistics.
+	pageSize := 5
+	if raw := params.Get("pageSize"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			pageSize = parsed
+		}
+	}
+	page := kept
+	if len(page) > pageSize {
+		page = page[:pageSize]
+	}
+
+	// Passed through as raw JSON, never decoded into map[string]any. Decoding
+	// would render 22.0 as 22 and drop explicit nulls, so this server would be
+	// incapable of delivering the fixture's own numbers - and the tests that
+	// check the export and import preserve them would be checking nothing.
+	items := []json.RawMessage{}
+	items = append(items, page...)
+
+	total := len(kept)
+	s.mu.Lock()
+	if override, ok := s.totalOverride[field]; ok {
+		total = override
+	}
+	s.mu.Unlock()
+
+	totalPages := 1
+	if pageSize > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+	s.writeJSON(w, map[string]any{
+		"self":   s.Server.URL + r.URL.Path,
+		property: items,
+		"statistics": map[string]any{
+			"pageSize": pageSize, "currentPage": 1,
+			"totalElements": total, "totalPages": totalPages,
+		},
+	})
+}
+
+func parseTimeParam(value string) (time.Time, bool) {
+	if value == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.000Z0700"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func recordTime(record json.RawMessage) (time.Time, bool) {
+	var probe struct {
+		Time string `json:"time"`
+	}
+	if err := json.Unmarshal(record, &probe); err != nil {
+		return time.Time{}, false
+	}
+	return parseTimeParam(probe.Time)
+}
+
+// createMeasurements accepts the measurement collection, which is how a bulk
+// create arrives: one request holding many records.
+func (s *Server) createMeasurements(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var collection struct {
+		Measurements []json.RawMessage `json:"measurements"`
+	}
+	if err := json.Unmarshal(body, &collection); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	if s.refuseData(w, len(collection.Measurements)) {
+		return
+	}
+
+	mode := r.Header.Get("X-Cumulocity-Processing-Mode")
+	s.mu.Lock()
+	for _, record := range collection.Measurements {
+		s.records = append(s.records, CreatedRecord{
+			Kind:           "measurements",
+			DeviceID:       sourceIDOf(record),
+			Body:           record,
+			BatchSize:      len(collection.Measurements),
+			ProcessingMode: mode,
+		})
+	}
+	s.mu.Unlock()
+
+	w.WriteHeader(http.StatusCreated)
+	s.writeJSON(w, map[string]any{"measurements": []any{}})
+}
+
+func (s *Server) createRecord(w http.ResponseWriter, r *http.Request, kind string) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if s.refuseData(w, 1) {
+		return
+	}
+
+	id := s.nextID()
+	mode := r.Header.Get("X-Cumulocity-Processing-Mode")
+
+	s.mu.Lock()
+	s.records = append(s.records, CreatedRecord{
+		Kind: kind, DeviceID: sourceIDOf(body), Body: body, ProcessingMode: mode,
+	})
+	s.mu.Unlock()
+
+	var object map[string]any
+	_ = json.Unmarshal(body, &object)
+	object["id"] = id
+
+	w.WriteHeader(http.StatusCreated)
+	s.writeJSON(w, object)
+}
+
+// refuseData reports whether this create should be refused, and answers it.
+func (s *Server) refuseData(w http.ResponseWriter, n int) bool {
+	s.mu.Lock()
+	accepted := 0
+	for _, record := range s.records {
+		_ = record
+		accepted++
+	}
+	refuse := s.failDataSet && accepted >= s.failDataAfter
+	s.mu.Unlock()
+
+	if !refuse {
+		return false
+	}
+	w.WriteHeader(http.StatusInternalServerError)
+	_, _ = w.Write([]byte(`{"error":"test/Refused","message":"refused by the test fixture"}`))
+	return true
+}
+
+func (s *Server) eventBinary(w http.ResponseWriter, r *http.Request) {
+	trimmed := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/event/events/"), "/binaries")
+
+	switch r.Method {
+	case http.MethodGet:
+		// The attachment's bytes are synthesised from the event id, so the
+		// import can be checked to have uploaded the right file for the right
+		// event.
+		_, _ = w.Write([]byte("attachment of event " + trimmed + "\n"))
+	case http.MethodPost:
+		s.mu.Lock()
+		s.uploadedBinaries = append(s.uploadedBinaries, trimmed)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+		s.writeJSON(w, map[string]any{"self": s.Server.URL + r.URL.Path})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// sourceIDOf reads the device a record is attached to.
+func sourceIDOf(body []byte) string {
+	var probe struct {
+		Source struct {
+			ID any `json:"id"`
+		} `json:"source"`
+	}
+	_ = json.Unmarshal(body, &probe)
+	return stringify(probe.Source.ID)
+}
+
 // nextID allocates from one counter shared by every kind of created thing, the
 // way a real tenant does.
 func (s *Server) nextID() string {
@@ -679,12 +983,19 @@ func stringify(v any) string {
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, v any) {
-	encoded, err := json.Marshal(v)
-	if err != nil {
+	// HTML escaping off. json.Marshal turns < and > into \u003c and \u003e by
+	// default, which is valid JSON and decodes identically - but it is not what
+	// the platform sends, and the fixture's alarm text contains "<!DOCTYPE
+	// html>" precisely so that a re-encoding somewhere is visible.
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_, _ = w.Write(encoded)
+	// Encode appends a newline, which no API does.
+	_, _ = w.Write(bytes.TrimRight(buffer.Bytes(), "\n"))
 }
 
 // writeManagedObject emits a managed object shaped like a real one: the

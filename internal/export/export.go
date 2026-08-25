@@ -31,6 +31,11 @@ type Exporter struct {
 
 	objectCount   int
 	identityCount int
+
+	measurementCount int
+	eventCount       int
+	alarmCount       int
+	binaryCount      int
 }
 
 func New(client *api.Client, stderr io.Writer, opts Options) *Exporter {
@@ -97,9 +102,12 @@ func (e *Exporter) exportRecursive(ctx context.Context, id, dir string) error {
 
 	name := displayName(object.Name())
 
-	identities, err := e.exportIdentities(ctx, id, dir)
-	if err != nil {
-		return err
+	identities := 0
+	if !e.opts.DataOnly {
+		identities, err = e.exportIdentities(ctx, id, dir)
+		if err != nil {
+			return err
+		}
 	}
 
 	var summary strings.Builder
@@ -127,6 +135,14 @@ func (e *Exporter) exportRecursive(ctx context.Context, id, dir string) error {
 
 	if identities > 0 {
 		fmt.Fprintf(&summary, ", %d %s", identities, plural(identities, "identity", "identities"))
+	}
+
+	if !e.opts.MetadataOnly {
+		dataSummary, dataErr := e.exportDeviceData(ctx, id, dir)
+		if dataErr != nil {
+			return dataErr
+		}
+		summary.WriteString(dataSummary)
 	}
 
 	e.objectCount++
@@ -212,9 +228,38 @@ func (e *Exporter) listChildren(ctx context.Context, id string, childType ChildT
 }
 
 func (e *Exporter) reportTotals(destination string) {
-	line := fmt.Sprintf("Exported %d %s and %d %s to %s",
+	if e.opts.DataOnly {
+		// A single device's totals can only restate the per-device line above,
+		// so they are left out. Across several devices they still add something.
+		if e.objectCount <= 1 {
+			return
+		}
+		line := fmt.Sprintf("Exported %d %s, %d %s and %d %s",
+			e.measurementCount, plural(e.measurementCount, "measurement", "measurements"),
+			e.eventCount, plural(e.eventCount, "event", "events"),
+			e.alarmCount, plural(e.alarmCount, "alarm", "alarms"))
+		if e.binaryCount > 0 {
+			line += fmt.Sprintf(" including %d %s",
+				e.binaryCount, plural(e.binaryCount, "attachment", "attachments"))
+		}
+		fmt.Fprintf(e.stderr, "%s to %s\n", line, destination)
+		return
+	}
+
+	line := fmt.Sprintf("Exported %d %s and %d %s",
 		e.objectCount, plural(e.objectCount, "managed object", "managed objects"),
-		e.identityCount, plural(e.identityCount, "external identity", "external identities"),
-		destination)
-	fmt.Fprintln(e.stderr, line)
+		e.identityCount, plural(e.identityCount, "external identity", "external identities"))
+
+	if len(e.opts.DataTypes) > 0 && !e.opts.MetadataOnly {
+		line += fmt.Sprintf(", with %d %s, %d %s and %d %s",
+			e.measurementCount, plural(e.measurementCount, "measurement", "measurements"),
+			e.eventCount, plural(e.eventCount, "event", "events"),
+			e.alarmCount, plural(e.alarmCount, "alarm", "alarms"))
+		if e.binaryCount > 0 {
+			line += fmt.Sprintf(" including %d %s",
+				e.binaryCount, plural(e.binaryCount, "attachment", "attachments"))
+		}
+	}
+
+	fmt.Fprintf(e.stderr, "%s to %s\n", line, destination)
 }

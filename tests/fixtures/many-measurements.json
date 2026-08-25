@@ -1,0 +1,1934 @@
+{
+  "_comment": [
+    "One device with 120 measurements, which is more than one measurement",
+    "batch holds. The shared hierarchy fixture has three, so a broken batch",
+    "size is invisible there: three records fit in one batch either way."
+  ],
+  "1": {
+    "name": "Busy Sensor",
+    "type": "c8y_Sensor",
+    "children": {},
+    "measurements": [
+      {
+        "id": "m0",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:00:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 20.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m1",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:01:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 21.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m2",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:02:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 22.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m3",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:03:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 23.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m4",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:04:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 24.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m5",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:05:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 25.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m6",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:06:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 26.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m7",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:07:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 27.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m8",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:08:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 28.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m9",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:09:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 29.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m10",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:10:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 30.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m11",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:11:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 31.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m12",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:12:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 32.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m13",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:13:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 33.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m14",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:14:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 34.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m15",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:15:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 35.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m16",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:16:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 36.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m17",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:17:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 37.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m18",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:18:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 38.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m19",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:19:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 39.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m20",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:20:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 40.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m21",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:21:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 41.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m22",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:22:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 42.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m23",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:23:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 43.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m24",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:24:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 44.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m25",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:25:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 45.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m26",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:26:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 46.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m27",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:27:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 47.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m28",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:28:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 48.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m29",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:29:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 49.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m30",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:30:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 50.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m31",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:31:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 51.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m32",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:32:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 52.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m33",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:33:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 53.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m34",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:34:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 54.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m35",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:35:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 55.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m36",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:36:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 56.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m37",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:37:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 57.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m38",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:38:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 58.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m39",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:39:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 59.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m40",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:40:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 60.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m41",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:41:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 61.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m42",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:42:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 62.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m43",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:43:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 63.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m44",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:44:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 64.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m45",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:45:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 65.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m46",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:46:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 66.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m47",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:47:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 67.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m48",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:48:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 68.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m49",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:49:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 69.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m50",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:50:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 70.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m51",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:51:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 71.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m52",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:52:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 72.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m53",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:53:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 73.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m54",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:54:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 74.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m55",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:55:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 75.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m56",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:56:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 76.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m57",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:57:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 77.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m58",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:58:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 78.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m59",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T00:59:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 79.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m60",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:00:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 80.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m61",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:01:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 81.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m62",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:02:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 82.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m63",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:03:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 83.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m64",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:04:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 84.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m65",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:05:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 85.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m66",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:06:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 86.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m67",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:07:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 87.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m68",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:08:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 88.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m69",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:09:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 89.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m70",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:10:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 90.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m71",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:11:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 91.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m72",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:12:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 92.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m73",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:13:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 93.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m74",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:14:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 94.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m75",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:15:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 95.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m76",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:16:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 96.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m77",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:17:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 97.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m78",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:18:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 98.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m79",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:19:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 99.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m80",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:20:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 100.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m81",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:21:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 101.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m82",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:22:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 102.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m83",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:23:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 103.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m84",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:24:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 104.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m85",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:25:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 105.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m86",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:26:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 106.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m87",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:27:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 107.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m88",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:28:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 108.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m89",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:29:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 109.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m90",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:30:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 110.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m91",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:31:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 111.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m92",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:32:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 112.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m93",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:33:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 113.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m94",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:34:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 114.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m95",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:35:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 115.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m96",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:36:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 116.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m97",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:37:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 117.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m98",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:38:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 118.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m99",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:39:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 119.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m100",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:40:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 120.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m101",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:41:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 121.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m102",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:42:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 122.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m103",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:43:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 123.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m104",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:44:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 124.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m105",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:45:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 125.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m106",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:46:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 126.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m107",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:47:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 127.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m108",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:48:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 128.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m109",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:49:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 129.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m110",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:50:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 130.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m111",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:51:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 131.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m112",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:52:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 132.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m113",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:53:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 133.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m114",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:54:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 134.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m115",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:55:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 135.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m116",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:56:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 136.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m117",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:57:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 137.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m118",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:58:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 138.0,
+            "unit": "C"
+          }
+        }
+      },
+      {
+        "id": "m119",
+        "self": "x",
+        "source": {
+          "id": "1",
+          "self": "x"
+        },
+        "time": "2026-01-01T01:59:00.000Z",
+        "type": "c8y_Temperature",
+        "c8y_Temperature": {
+          "T": {
+            "value": 139.0,
+            "unit": "C"
+          }
+        }
+      }
+    ]
+  }
+}

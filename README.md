@@ -932,9 +932,15 @@ It reads the same session files go-c8y-cli writes, including encrypted ones —
 a session to be active first, and it refuses a `--session` glob that matches more
 than one file rather than silently taking the first.
 
-**What is implemented so far**: `preflight`, `export`, `import` and `revert` of
-the hierarchy, its external identities and its relationships, including the run
-marker fragment. Device data and `migrate` are still bash-only.
+**What is implemented so far**: `preflight`, `export`, `import` and `revert`,
+covering the hierarchy, its external identities, its relationships, the run
+marker fragment, and device data — measurements, events, alarms and event
+attachments. Only `migrate` is still bash-only.
+
+Dates work as they do in the extension, including relative forms like `-30d`,
+with one difference worth knowing: the bash version handed them to `c8y` to
+parse, so this one parses them itself and **refuses** a form it does not
+understand rather than guessing at a window.
 
 `revert` prints its plan and asks once before deleting anything, where the bash
 version leans on c8y's own per-request dialog; `--force` skips the question in
@@ -962,10 +968,11 @@ bash side builds them with jq and the Go side edits the raw document with sjson 
 whitespace in a request body is not behaviour.
 
 `import` also refuses to import back into the tenant the export came from, which
-`migrate` guards but the separate commands never did. It reads the source host
-out of the exported `self` links, and when that matches the target it confirms
-with a single lookup before refusing, so two tenants sharing a host are not
-blocked. `--allowSameTenant` overrides it.
+`migrate` guards but the separate commands never did. It looks up an exported
+object by its **source** id: ids are tenant-scoped, so an id that resolves to an
+object with the same name, type and creation time is the same object, and so the
+same tenant. It does not compare hostnames, because `self` carries whatever host
+the platform chose and a mismatch says nothing. `--allowSameTenant` overrides it.
 
 One thing the differential test cannot see, and a separate test therefore asserts
 directly:

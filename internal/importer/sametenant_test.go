@@ -20,12 +20,11 @@ import (
 // export and import being run by hand with the same tenant on both sides. The
 // result is the whole hierarchy duplicated inside its own tenant.
 
-// exportFixture exports the fixture and returns the directory, the server and a
-// client pointed at it.
-func exportFixture(t *testing.T) (*testfixture.Server, *session.Session, string) {
+// exportFrom exports the fixture and returns the server, its session and the
+// export directory.
+func exportFrom(t *testing.T, server *testfixture.Server) (*session.Session, string) {
 	t.Helper()
 
-	server := testfixture.New(t, "hierarchy.json")
 	work := t.TempDir()
 	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
 	s, err := session.Read(sessionPath)
@@ -44,87 +43,31 @@ func exportFixture(t *testing.T) (*testfixture.Server, *session.Session, string)
 	}).Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	return server, s, out
+	return s, out
 }
 
-func TestSourceHostIsReadFromTheExport(t *testing.T) {
-	// The source host is recoverable because every exported object carries
-	// `self`. The source tenant id is not recorded anywhere, which is why the
-	// check needs a second step.
-	server, _, out := exportFixture(t)
+func checkAgainst(t *testing.T, s *session.Session, inputDirectory string,
+	allowSameTenant bool) error {
+	t.Helper()
 
-	host, err := importer.SourceHost(out)
+	client, err := c8yclient.New(s, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := session.NormalisedHost(server.URL)
-	if host != want {
-		t.Fatalf("source host = %q, want %q from the exported self links", host, want)
-	}
-}
-
-func TestImportIntoAnotherTenantIsAllowed(t *testing.T) {
-	// The common case: a different host is a different tenant, decided without
-	// a single request.
-	_, _, out := exportFixture(t)
-
-	target := testfixture.New(t, "hierarchy.json")
-	work := t.TempDir()
-	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
-	targetSession, err := session.Read(targetSessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client, err := c8yclient.New(targetSession, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	var stderr bytes.Buffer
 	imp := importer.New(client, &stderr, importer.Options{
-		InputDirectory: out,
-		MappingFile:    filepath.Join(work, "id_mapping.json"),
+		InputDirectory:  inputDirectory,
+		MappingFile:     filepath.Join(t.TempDir(), "id_mapping.json"),
+		AllowSameTenant: allowSameTenant,
 	})
-	if err := imp.CheckNotSameTenant(context.Background(), targetSession); err != nil {
-		t.Fatalf("a different host must be allowed: %v", err)
-	}
+	return imp.CheckNotSameTenant(context.Background(), s)
 }
 
 func TestImportBackIntoTheSourceTenantIsRefused(t *testing.T) {
-	// Same host, and the exported object's source id resolves in the target to
-	// exactly the object the export recorded. That is the source tenant.
-	server, _, out := exportFixture(t)
+	server := testfixture.New(t, "hierarchy.json")
+	s, out := exportFrom(t, server)
 
-	// A session whose host matches the self links in the export, pointing at
-	// the same server, so the confirming lookup finds the source objects.
-	work := t.TempDir()
-	sessionPath := filepath.Join(work, "same.json")
-	body := `{"host":"` + server.URL + `","tenant":"t-fixture","username":"u","password":"p"}`
-	if err := os.WriteFile(sessionPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	same, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Rewrite the exported self links to this server's host, which is what an
-	// export taken from it would really hold. The fixture server hands out
-	// example.cumulocity.com links, so without this the hosts never match.
-	rewriteSelfHost(t, out, server.URL)
-
-	client, err := c8yclient.New(same, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var stderr bytes.Buffer
-	imp := importer.New(client, &stderr, importer.Options{
-		InputDirectory: out,
-		MappingFile:    filepath.Join(work, "id_mapping.json"),
-	})
-
-	err = imp.CheckNotSameTenant(context.Background(), same)
+	err := checkAgainst(t, s, out, false)
 	if err == nil {
 		t.Fatal("importing back into the source tenant must be refused")
 	}
@@ -136,104 +79,175 @@ func TestImportBackIntoTheSourceTenantIsRefused(t *testing.T) {
 	for _, want := range []string{
 		"came from the tenant this session points at",
 		"duplicate the hierarchy inside its own tenant",
-		"same.json",
+		"fixture.json",
+		"evidence: managed object 1 is already Plant Berlin",
 		"--allowSameTenant",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal is missing %q:\n%s", want, err.Error())
 		}
 	}
-	// nothing was created: the check runs before the first write
 	if len(server.Created()) != 0 {
 		t.Error("the refusal still created objects")
+	}
+}
+
+func TestRefusedEvenWhenTheSelfHostDoesNotMatch(t *testing.T) {
+	// The bug this check had. `self` carries whatever host the platform felt
+	// like using - a tenant-id domain, a custom domain, or in an anonymised
+	// export something that was never real - so comparing it against the
+	// session's host and only then probing meant the check silently passed on
+	// exactly the imports it exists to stop.
+	server := testfixture.New(t, "hierarchy.json")
+	s, out := exportFrom(t, server)
+
+	rewriteSelfHost(t, out, server.URL, "https://somewhere-else.example.com")
+
+	err := checkAgainst(t, s, out, false)
+	if err == nil {
+		t.Fatal("a mismatched self host must not stop the check: the objects are still here")
+	}
+	var sameTenant *importer.SameTenantError
+	if !errors.As(err, &sameTenant) {
+		t.Fatalf("got %T, want *importer.SameTenantError", err)
+	}
+}
+
+func TestImportIntoAnotherTenantIsAllowed(t *testing.T) {
+	// A tenant that has never seen those ids, which is the normal case.
+	source := testfixture.New(t, "hierarchy.json")
+	_, out := exportFrom(t, source)
+
+	target := testfixture.New(t, "empty.json")
+	work := t.TempDir()
+	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
+	targetSession, err := session.Read(targetSessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkAgainst(t, targetSession, out, false); err != nil {
+		t.Fatalf("a different tenant must be allowed: %v", err)
+	}
+}
+
+func TestADifferentObjectAtTheSameIDIsAllowed(t *testing.T) {
+	// Two tenants can use overlapping ids. What matters is whether the object
+	// there is the one the export recorded, not whether the id resolves.
+	source := testfixture.New(t, "hierarchy.json")
+	_, out := exportFrom(t, source)
+
+	// A tenant whose id 1 is a different object entirely.
+	target := testfixture.New(t, "many-measurements.json")
+	work := t.TempDir()
+	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
+	targetSession, err := session.Read(targetSessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkAgainst(t, targetSession, out, false); err != nil {
+		t.Fatalf("a different object at the same id must be allowed: %v", err)
 	}
 }
 
 func TestAllowSameTenantOverridesTheRefusal(t *testing.T) {
 	// Duplicating a hierarchy within one tenant is unusual but real. The flag
 	// makes it a decision rather than an accident.
-	server, _, out := exportFixture(t)
+	server := testfixture.New(t, "hierarchy.json")
+	s, out := exportFrom(t, server)
 
-	work := t.TempDir()
-	sessionPath := filepath.Join(work, "same.json")
-	body := `{"host":"` + server.URL + `","tenant":"t-fixture","username":"u","password":"p"}`
-	if err := os.WriteFile(sessionPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	same, err := session.Read(sessionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	client, err := c8yclient.New(same, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var stderr bytes.Buffer
-	imp := importer.New(client, &stderr, importer.Options{
-		InputDirectory:  out,
-		MappingFile:     filepath.Join(work, "id_mapping.json"),
-		AllowSameTenant: true,
-	})
-	if err := imp.CheckNotSameTenant(context.Background(), same); err != nil {
+	if err := checkAgainst(t, s, out, true); err != nil {
 		t.Fatalf("--allowSameTenant must permit it: %v", err)
 	}
 }
 
-func TestASharedHostWithADifferentTenantIsAllowed(t *testing.T) {
-	// Several tenants can sit behind one host, so host equality alone is not
-	// enough to refuse. The confirming lookup is what tells them apart: here
-	// the source ids do not resolve in the target at all.
-	_, _, out := exportFixture(t)
+func TestTheCheckSurvivesADeletedFirstObject(t *testing.T) {
+	// The obvious way for the probe to miss is an object that has been deleted
+	// from the source since the export, which is why more than one is tried.
+	server := testfixture.New(t, "hierarchy.json")
+	s, out := exportFrom(t, server)
+
+	// Hide the object the first probe would look at. The fixture server serves
+	// the source hierarchy, so removing it from the fixture is what "deleted
+	// since the export" looks like.
+	server.HideFromHierarchy("1")
+
+	err := checkAgainst(t, s, out, false)
+	if err == nil {
+		t.Fatal("one deleted object must not blind the check")
+	}
+}
+
+func TestTheCheckCostsAtMostAHandfulOfRequests(t *testing.T) {
+	// It runs before every import, so it must not walk the whole export.
+	source := testfixture.New(t, "hierarchy.json")
+	_, out := exportFrom(t, source)
 
 	target := testfixture.New(t, "empty.json")
 	work := t.TempDir()
-
-	// Same host as the export's self links, but a tenant that has never seen
-	// those ids.
-	rewriteSelfHost(t, out, target.URL)
-	sessionPath := filepath.Join(work, "sibling.json")
-	body := `{"host":"` + target.URL + `","tenant":"t-sibling","username":"u","password":"p"}`
-	if err := os.WriteFile(sessionPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sibling, err := session.Read(sessionPath)
+	targetSessionPath := target.WriteSessionFile(t, work, "target.json")
+	targetSession, err := session.Read(targetSessionPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	client, err := c8yclient.New(sibling, "")
+	if err := checkAgainst(t, targetSession, out, false); err != nil {
+		t.Fatal(err)
+	}
+	// nine objects in the export, at most three looked up
+	if got := target.CountRequests("/inventory/managedObjects/"); got > 3 {
+		t.Errorf("the check made %d lookups, want at most 3", got)
+	}
+}
+
+func TestAnExportWithNoObjectsIsNothingToCheck(t *testing.T) {
+	server := testfixture.New(t, "hierarchy.json")
+	work := t.TempDir()
+	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
+	s, err := session.Read(sessionPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var stderr bytes.Buffer
-	imp := importer.New(client, &stderr, importer.Options{
-		InputDirectory: out,
-		MappingFile:    filepath.Join(work, "id_mapping.json"),
-	})
-	if err := imp.CheckNotSameTenant(context.Background(), sibling); err != nil {
-		t.Fatalf("a different tenant on the same host must be allowed: %v", err)
+	empty := filepath.Join(work, "empty-export")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkAgainst(t, s, empty, false); err != nil {
+		t.Fatalf("an export with no objects has nothing to check: %v", err)
 	}
 }
 
 // rewriteSelfHost points the exported self links at a different host, which is
-// what an export actually taken from that host would hold.
-func rewriteSelfHost(t *testing.T, dir, baseURL string) {
+// what an anonymised export or a tenant with a custom domain looks like.
+//
+// A plain substitution of the host, deliberately: an earlier version matched on
+// `"self": "https://` and so did nothing at all against the compact JSON the
+// fixture server emits, which made the test that depends on it vacuous.
+func rewriteSelfHost(t *testing.T, dir, from, to string) {
 	t.Helper()
 
-	host := strings.TrimPrefix(strings.TrimPrefix(baseURL, "https://"), "http://")
+	fromHost := strings.TrimPrefix(strings.TrimPrefix(from, "https://"), "http://")
+	toHost := strings.TrimPrefix(strings.TrimPrefix(to, "https://"), "http://")
+
 	files, err := importer.ObjectFiles(dir)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no exported objects to rewrite")
 	}
 	for _, file := range files {
 		raw, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		updated := strings.ReplaceAll(string(raw), "example.cumulocity.com", host)
+		if !strings.Contains(string(raw), fromHost) {
+			t.Fatalf("%s does not mention %q, so rewriting it would prove nothing",
+				filepath.Base(file), fromHost)
+		}
+		updated := strings.ReplaceAll(string(raw), fromHost, toHost)
 		if err := os.WriteFile(file, []byte(updated), 0o644); err != nil {
 			t.Fatal(err)
 		}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
@@ -242,6 +243,32 @@ func TestDifferentialSubtreeWithAwkwardNames(t *testing.T) {
 	bashDir, bashErr := runBashExport(t, "hierarchy.json", "--rootId", "2")
 	goDir, goErr := runGoExport(t, "hierarchy.json", export.Options{
 		RootID: "2", ChildTypes: export.DefaultChildTypes})
+
+	compareDirectories(t, bashDir, goDir)
+
+	if got, want := normaliseStderr(goErr, goDir), normaliseStderr(bashErr, bashDir); got != want {
+		t.Errorf("stderr differs\nbash:\n%s\ngo:\n%s", want, got)
+	}
+}
+
+func TestDifferentialExportWithData(t *testing.T) {
+	// The data files are the artefacts that matter most: they are what the
+	// import replays, and a difference here is a difference in what reaches the
+	// target tenant.
+	requireBashAndJq(t)
+
+	bashDir, bashErr := runBashExport(t, "hierarchy.json",
+		"--rootId", "1", "--dataTypes", "measurements,events,alarms", "--dateFrom", "-3650d")
+	goDir, goErr := runGoExport(t, "hierarchy.json", export.Options{
+		RootID:     "1",
+		ChildTypes: export.DefaultChildTypes,
+		DataTypes:  allData,
+		Windows: map[export.DataType]export.Window{
+			export.DataMeasurements: {From: time.Now().AddDate(0, 0, -3650)},
+			export.DataEvents:       {From: time.Now().AddDate(0, 0, -3650)},
+			export.DataAlarms:       {From: time.Now().AddDate(0, 0, -3650)},
+		},
+	})
 
 	compareDirectories(t, bashDir, goDir)
 

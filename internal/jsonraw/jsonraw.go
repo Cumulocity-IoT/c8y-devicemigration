@@ -58,9 +58,32 @@ func AddFragment(body []byte, name string) ([]byte, error) {
 	return out, nil
 }
 
+// Delete removes one top-level field, leaving every other byte untouched.
+func Delete(body []byte, key string) ([]byte, error) {
+	out, err := sjson.DeleteBytes(body, escapePath(key))
+	if err != nil {
+		return nil, fmt.Errorf("cannot remove %s: %w", key, err)
+	}
+	return out, nil
+}
+
+// SetRaw replaces one top-level field with a raw JSON value.
+func SetRaw(body []byte, key string, value []byte) ([]byte, error) {
+	out, err := sjson.SetRawBytes(body, escapePath(key), value)
+	if err != nil {
+		return nil, fmt.Errorf("cannot set %s: %w", key, err)
+	}
+	return out, nil
+}
+
 // Name reads a managed object's name, or "" when it has none.
 func Name(body []byte) string {
 	return gjson.GetBytes(body, "name").String()
+}
+
+// Has reports whether a top-level field is present.
+func Has(body []byte, key string) bool {
+	return gjson.GetBytes(body, escapePath(key)).Exists()
 }
 
 // String reads any top-level string field.

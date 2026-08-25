@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -43,7 +45,7 @@ func requireBashAndJqForImport(t *testing.T) {
 // bashImport runs commands/export then commands/import against the fake, and
 // returns the export directory, the mapping file, the fake's record directory
 // and the import's stderr.
-func bashImport(t *testing.T, extra ...string) (mappingPath, rec, stderr string) {
+func bashImport(t *testing.T, withData bool, extra ...string) (mappingPath, rec, stderr string) {
 	t.Helper()
 
 	repo := testfixture.RepoRoot()
@@ -60,8 +62,13 @@ func bashImport(t *testing.T, extra ...string) (mappingPath, rec, stderr string)
 		"FAKE_C8Y_HIERARCHY="+testfixture.FixturePath("hierarchy.json"),
 	)
 
-	exportCmd := exec.Command("bash", filepath.Join(repo, "commands", "export"),
-		"--rootId", "1", "--output-directory", out)
+	exportArgs := []string{filepath.Join(repo, "commands", "export"),
+		"--rootId", "1", "--output-directory", out}
+	if withData {
+		exportArgs = append(exportArgs,
+			"--dataTypes", "measurements,events,alarms", "--dateFrom", "-3650d")
+	}
+	exportCmd := exec.Command("bash", exportArgs...)
 	exportCmd.Dir = work
 	exportCmd.Env = env
 	if output, err := exportCmd.CombinedOutput(); err != nil {
@@ -85,7 +92,7 @@ func bashImport(t *testing.T, extra ...string) (mappingPath, rec, stderr string)
 
 // goImport runs the Go export and import against a server replaying the fake's
 // object bodies, so both sides start from identical artefacts.
-func goImport(t *testing.T, opts importer.Options) (mappingPath string, server *testfixture.Server, stderr string) {
+func goImport(t *testing.T, withData bool, opts importer.Options) (mappingPath string, server *testfixture.Server, stderr string) {
 	t.Helper()
 
 	server = testfixture.New(t, "hierarchy.json")
@@ -105,7 +112,7 @@ func goImport(t *testing.T, opts importer.Options) (mappingPath string, server *
 	}
 
 	out := filepath.Join(work, "export")
-	if err := runGoExportInto(t, client, out); err != nil {
+	if err := runGoExportInto(t, client, out, withData); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,8 +134,8 @@ func TestDifferentialImportMappingAndOutput(t *testing.T) {
 	// Both sides generate a run id when none is given, and two runs would
 	// generate different ones. --noFlag takes marking out of the comparison
 	// entirely; the marker itself is compared in its own test below.
-	bashMapping, rec, bashErr := bashImport(t, "--noFlag")
-	goMapping, server, goErr := goImport(t, importer.Options{NoFlag: true})
+	bashMapping, rec, bashErr := bashImport(t, false, "--noFlag")
+	goMapping, server, goErr := goImport(t, false, importer.Options{NoFlag: true})
 
 	// The mapping is an artefact, so it is compared byte for byte.
 	bashBytes, err := os.ReadFile(bashMapping)
@@ -163,8 +170,8 @@ func TestDifferentialImportMappingAndOutput(t *testing.T) {
 func TestDifferentialImportCreatesTheSameBodies(t *testing.T) {
 	requireBashAndJqForImport(t)
 
-	_, rec, _ := bashImport(t, "--noFlag")
-	_, server, _ := goImport(t, importer.Options{NoFlag: true})
+	_, rec, _ := bashImport(t, false, "--noFlag")
+	_, server, _ := goImport(t, false, importer.Options{NoFlag: true})
 
 	bashBodies := bashCreatedBodies(t, rec)
 	goBodies := map[string]any{}
@@ -196,8 +203,8 @@ func TestDifferentialImportWithARunMarker(t *testing.T) {
 	requireBashAndJqForImport(t)
 
 	const runID = "20260825T101530Z_a1b2c3"
-	bashMapping, rec, bashErr := bashImport(t, "--runId", runID)
-	goMapping, server, goErr := goImport(t, importer.Options{RunID: runID})
+	bashMapping, rec, bashErr := bashImport(t, false, "--runId", runID)
+	goMapping, server, goErr := goImport(t, false, importer.Options{RunID: runID})
 
 	if got, want := normalise(goErr, goMapping), normalise(bashErr, bashMapping); got != want {
 		t.Errorf("stderr differs\nbash:\n%s\ngo:\n%s", want, got)
@@ -372,4 +379,76 @@ func reverseMapping(t *testing.T, mappingPath string) map[string]string {
 		reverse[newID] = oldID
 	}
 	return reverse
+}
+
+func TestDifferentialImportWithData(t *testing.T) {
+	// The records, the batching, the attachment and the per-device reporting,
+	// compared against the implementation that has been doing this in
+	// production.
+	requireBashAndJqForImport(t)
+
+	bashMapping, rec, bashErr := bashImport(t, true, "--noFlag")
+	goMapping, server, goErr := goImport(t, true, importer.Options{NoFlag: true})
+
+	if got, want := normalise(goErr, goMapping), normalise(bashErr, bashMapping); got != want {
+		t.Errorf("stderr differs\nbash:\n%s\ngo:\n%s", want, got)
+	}
+
+	// How many of each kind reached the tenant, by source device on both sides.
+	if got, want := goDataCounts(t, goMapping, server), bashDataCounts(t, rec, bashMapping); got != want {
+		t.Errorf("delivered records differ\nbash: %s\ngo:   %s", want, got)
+	}
+}
+
+// bashDataCounts reads the fake's data logs and counts records per kind.
+func bashDataCounts(t *testing.T, rec, mappingPath string) string {
+	t.Helper()
+
+	counts := map[string]int{}
+	// measurements arrive through createBulk, which the fake records as
+	// "<device> <recordCount> <batchSize>"
+	if raw, err := os.ReadFile(filepath.Join(rec, "measurements.log")); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			if line == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) == 3 {
+				if n, convErr := strconv.Atoi(fields[1]); convErr == nil {
+					counts["measurements"] += n
+				}
+			}
+		}
+	}
+	for _, kind := range []string{"events", "alarms"} {
+		if raw, err := os.ReadFile(filepath.Join(rec, kind+".log")); err == nil {
+			for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+				if line != "" {
+					counts[kind]++
+				}
+			}
+		}
+	}
+	binaries := 0
+	if raw, err := os.ReadFile(filepath.Join(rec, "binaries-uploaded.log")); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			if line != "" {
+				binaries++
+			}
+		}
+	}
+	return fmt.Sprintf("measurements=%d events=%d alarms=%d attachments=%d",
+		counts["measurements"], counts["events"], counts["alarms"], binaries)
+}
+
+func goDataCounts(t *testing.T, mappingPath string, server *testfixture.Server) string {
+	t.Helper()
+
+	counts := map[string]int{}
+	for _, record := range server.CreatedRecords() {
+		counts[record.Kind]++
+	}
+	return fmt.Sprintf("measurements=%d events=%d alarms=%d attachments=%d",
+		counts["measurements"], counts["events"], counts["alarms"],
+		len(server.UploadedBinaries()))
 }

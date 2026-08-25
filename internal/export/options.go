@@ -47,7 +47,23 @@ type Options struct {
 
 	ChildTypes []ChildType
 
+	// DataTypes selects which device data to include. Empty means none, which
+	// is the default: a plain export stays fast, and a device can hold years of
+	// measurements.
+	DataTypes []DataType
+
+	// Windows is the time range per data type, from ResolveWindows.
+	Windows map[DataType]Window
+
 	IgnoreLimits bool
+
+	// MetadataOnly writes objects and identities but no data, while still
+	// checking the limits against whatever DataTypes selects - so an oversized
+	// migration is refused before anything is created.
+	MetadataOnly bool
+
+	// DataOnly writes the data and skips the external identities.
+	DataOnly bool
 }
 
 // ResolveChildTypes parses a --childTypes value.
@@ -88,23 +104,23 @@ func ResolveChildTypes(value string, noChildren bool) ([]ChildType, error) {
 
 // ResolveDataTypes parses a --dataTypes value.
 //
-// Data export itself is not implemented yet, but the validation is, because the
-// refusal messages are part of the contract and operations get their own
-// explanation rather than a generic "unsupported".
-func ResolveDataTypes(value string) ([]string, error) {
+// Operations get their own explanation rather than a generic "unsupported",
+// because wanting them is reasonable and the reason they are excluded is not
+// obvious.
+func ResolveDataTypes(value string) ([]DataType, error) {
 	if strings.TrimSpace(value) == "" {
 		return nil, nil
 	}
 
-	var resolved []string
+	var resolved []DataType
 	for _, token := range strings.Split(value, ",") {
 		token = strings.TrimSpace(token)
 		if token == "" {
 			continue
 		}
-		switch token {
-		case "measurements", "events", "alarms":
-			resolved = append(resolved, token)
+		switch DataType(token) {
+		case DataMeasurements, DataEvents, DataAlarms:
+			resolved = append(resolved, DataType(token))
 		case "operations":
 			return nil, errors.New(
 				"Operations are not migrated: they cannot be created with a status, so every\n" +

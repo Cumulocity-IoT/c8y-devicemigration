@@ -174,13 +174,23 @@ the c8y binary's per-request dialog and its "Yes to All"; and the deletes are
 separate requests, because batching them in bash was only ever a way to make
 that dialog answerable once.
 
+Increment 4 is implemented: measurements, events and alarms both ways, event
+attachments, the processing modes, the batch size, the per-device record limits
+and the rule that a failed record makes the import exit non-zero.
+
+Two things this increment had to solve that the bash version never faced. Dates
+like `-14d` were passed straight to c8y, which parsed them; the library takes a
+`time.Time`, so `internal/export/window.go` parses them now and refuses a value
+it does not understand rather than guessing at a window. And `--device` does not
+exist here, so each record's `source` is rewritten explicitly - without it every
+record would name a device in the tenant the export came from.
+
 ## Later increments
 
 Each is independently shippable and each extends the differential test.
 
 | # | Scope |
 | --- | --- |
-| 4 | Device data both ways: measurements/events/alarms, attachments, processing mode, batch sizes, and the rule that a failed record makes the import exit non-zero. |
 | 5 | `migrate`: chained, then `--incremental`, then `--resume` with the journal. |
 
 ## `import` must refuse the tenant the export came from

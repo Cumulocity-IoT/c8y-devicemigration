@@ -56,6 +56,17 @@ type Importer struct {
 
 	identitiesCreated int
 	identitiesFailed  int
+
+	measurementsCreated int
+	eventsCreated       int
+	alarmsCreated       int
+	binariesCreated     int
+
+	// dataFailures counts records that were meant to arrive and did not. The
+	// import keeps going - one bad record should not cost a whole migration -
+	// but the exit code has to say so, or migrate would journal a device as
+	// finished with records missing.
+	dataFailures int
 }
 
 func New(client *api.Client, stderr io.Writer, opts Options) *Importer {
@@ -135,8 +146,28 @@ func (i *Importer) Run(ctx context.Context) error {
 		i.identitiesCreated, plural(i.identitiesCreated, "external identity", "external identities"),
 		i.opts.MappingFile)
 
+	if i.measurementsCreated > 0 || i.eventsCreated > 0 || i.alarmsCreated > 0 {
+		line := fmt.Sprintf("Imported %d %s, %d %s and %d %s",
+			i.measurementsCreated, plural(i.measurementsCreated, "measurement", "measurements"),
+			i.eventsCreated, plural(i.eventsCreated, "event", "events"),
+			i.alarmsCreated, plural(i.alarmsCreated, "alarm", "alarms"))
+		if i.binariesCreated > 0 {
+			line += fmt.Sprintf(", including %d %s",
+				i.binariesCreated, plural(i.binariesCreated, "attachment", "attachments"))
+		}
+		fmt.Fprintln(i.stderr, line)
+	}
+
 	if i.identitiesFailed > 0 {
 		fmt.Fprintf(i.stderr, "%d external identities could not be created\n", i.identitiesFailed)
+	}
+
+	// Last, and it fails: everything above has already said what did land, and
+	// a caller that read a zero exit code here would treat a part-delivered
+	// device as finished.
+	if i.dataFailures > 0 {
+		return fmt.Errorf("%d %s could not be imported, so this import is incomplete",
+			i.dataFailures, plural(i.dataFailures, "record", "records"))
 	}
 	return nil
 }
@@ -201,6 +232,9 @@ func (i *Importer) importDevices(ctx context.Context) error {
 		fmt.Fprintf(i.stderr, "Imported %s (%s -> %s)\n", name, oldID, newID)
 
 		if err := i.importIdentities(ctx, oldID, newID, name); err != nil {
+			return err
+		}
+		if err := i.importDeviceData(ctx, i.opts.InputDirectory, oldID, newID, name); err != nil {
 			return err
 		}
 	}
@@ -326,14 +360,16 @@ func parseChildIndexName(path string) (parent, childType string, ok bool) {
 	return parent, childType, ok
 }
 
-// Get is only used by the same-tenant check, and is here so that check can be
-// tested without reaching into the client.
-func (i *Importer) Get(ctx context.Context, id string) (string, bool) {
+// getObject fetches one managed object, or reports that it is not there.
+//
+// Used by the same-tenant check, and returning the raw body rather than a field
+// keeps the comparison in one place.
+func (i *Importer) getObject(ctx context.Context, id string) ([]byte, bool) {
 	result := i.client.ManagedObjects.Get(ctx, id, managedobjects.GetOptions{})
-	if result.Err != nil {
-		return "", false
+	if result.Err != nil || result.IsNotFound() {
+		return nil, false
 	}
-	return result.Data.Self(), true
+	return result.Data.Bytes(), true
 }
 
 func plural(n int, singular, many string) string {

@@ -41,6 +41,30 @@ func run(t *testing.T, fixture string, opts export.Options) (string, string, err
 	return out, stderr.String(), err
 }
 
+// runAgainst is run() for a server the caller has already configured, e.g. with
+// an inflated record count.
+func runAgainst(t *testing.T, server *testfixture.Server, opts export.Options) (string, string, error) {
+	t.Helper()
+
+	dir := t.TempDir()
+	sessionPath := server.WriteSessionFile(t, dir, "fixture.json")
+	s, err := session.Read(sessionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := c8yclient.New(s, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(dir, "out")
+	opts.OutputDirectory = out
+
+	var stderr bytes.Buffer
+	err = export.New(client, &stderr, opts).Run(context.Background())
+	return out, stderr.String(), err
+}
+
 // exportedIDs lists the ids that got an object file, sorted numerically-ish.
 func exportedIDs(t *testing.T, dir string) []string {
 	t.Helper()
