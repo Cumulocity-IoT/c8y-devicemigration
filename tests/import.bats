@@ -576,3 +576,67 @@ do_data_migration() {
     assert_success
     refute_output --partial "could not be imported"
 }
+
+# --- announcing the run id ---------------------------------------------------
+#
+# Announced by whatever applies it, so the id ends up in the log of the run that
+# used it. Otherwise the only way to recover it is to read it back off a
+# migrated object's fragments, which is a poor thing to discover during an
+# incident.
+
+@test "import: the run id is announced when objects are marked" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force --runId RUN_ABC
+    assert_success
+    assert_line "Run id RUN_ABC, marking created objects with c8y_DeviceMigration_RUN_ABC"
+}
+
+@test "import: the run id is announced before the first object is created" {
+    # so an import that dies part way still reported which run it was
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force --runId RUN_ABC
+    assert_success
+
+    local runIdLine firstImport
+    runIdLine=$(printf '%s\n' "$output" | grep -n '^Run id ' | head -1 | cut -d: -f1)
+    firstImport=$(printf '%s\n' "$output" | grep -n '^Imported ' | head -1 | cut -d: -f1)
+    assert [ "$runIdLine" -lt "$firstImport" ]
+}
+
+@test "import: a run id is generated and reported when none is given" {
+    # Without this the only record of an import is its mapping file, and a lost
+    # mapping means a lost migration.
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+    assert_line --regexp '^Run id [0-9]{8}T[0-9]{6}Z_[0-9a-f]{6}, marking created objects with c8y_DeviceMigration_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{6}$'
+
+    # and the reported id really is the one on the objects
+    local reported
+    reported=$(printf '%s\n' "$output" | sed -n 's/^Run id \([^,]*\),.*/\1/p')
+    assert_equal "$(grep -l "c8y_DeviceMigration_$reported" "$REC"/payloads/*.json | grep -c '')" "9"
+}
+
+@test "import: --noFlag marks nothing and announces nothing" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    run_import --input-directory "$OUT" --force --noFlag
+    assert_success
+    refute_output --partial "Run id"
+    assert_equal "$(jq -r '[keys[] | select(startswith("c8y_DeviceMigration_"))] | length' \
+        "$REC"/payloads/1001.json)" "0"
+}
+
+@test "import: --dataOnly announces no run id, because it marks nothing" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements
+    assert_success
+    run_import --input-directory "$OUT" --force --runId RUN_ABC
+    assert_success
+
+    run_import --input-directory "$OUT" --force --runId RUN_ABC --dataOnly
+    assert_success
+    refute_output --partial "Run id"
+}

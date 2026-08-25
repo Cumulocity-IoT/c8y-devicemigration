@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,6 +62,11 @@ type Server struct {
 	mu       sync.Mutex
 	requests []string
 
+	// queries keeps the query string too. A filter that never reaches the
+	// server is invisible when only paths are recorded, which is exactly how a
+	// revert once planned to delete a whole tenant.
+	queries []string
+
 	// The target tenant this server also stands in for. Ids come from one
 	// counter shared with identities, as a real platform's do, so a test cannot
 	// accidentally depend on them being contiguous per kind.
@@ -77,6 +83,14 @@ type Server struct {
 	created    map[string][]byte
 	identities []CreatedIdentity
 	links      []Link
+	deleted    []string
+
+	// cascade models group propagation: deleting a key also removes its values.
+	cascade map[string][]string
+
+	// refuseDelete models an object that will not go, which is what a
+	// permissions problem looks like from the outside.
+	refuseDelete map[string]bool
 }
 
 // CreatedIdentity is one external identity the server was asked to create.
@@ -224,6 +238,13 @@ func (s *Server) CountExact(path string) int {
 	return n
 }
 
+// Queries returns every request with its query string.
+func (s *Server) Queries() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.queries...)
+}
+
 // CountRequests returns how many requests matched a path prefix.
 func (s *Server) CountRequests(prefix string) int {
 	n := 0
@@ -238,6 +259,11 @@ func (s *Server) CountRequests(prefix string) int {
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.requests = append(s.requests, r.URL.Path)
+	if r.URL.RawQuery != "" {
+		s.queries = append(s.queries, r.URL.Path+"?"+r.URL.RawQuery)
+	} else {
+		s.queries = append(s.queries, r.URL.Path)
+	}
 	s.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -255,6 +281,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
 		s.assignChild(w, r)
+
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
+		s.deleteManagedObject(w, strings.TrimPrefix(r.URL.Path, "/inventory/managedObjects/"))
+
+	// The marker query.
+	case r.Method == http.MethodGet && r.URL.Path == "/inventory/managedObjects":
+		s.findManagedObjects(w, r.URL.Query())
 
 	case strings.HasPrefix(r.URL.Path, "/identity/globalIds/"):
 		// /identity/globalIds/<id>/externalIds
@@ -284,6 +317,199 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// Cascade models Cumulocity propagating a deletion to an object's children, so
+// a test can exercise the case where an object is already gone by the time its
+// own request is sent.
+func (s *Server) Cascade(parentID string, childIDs ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cascade == nil {
+		s.cascade = map[string][]string{}
+	}
+	s.cascade[parentID] = append(s.cascade[parentID], childIDs...)
+}
+
+// Remove takes objects out behind the caller's back, so a test can model a
+// tenant that changed since the mapping was written.
+func (s *Server) Remove(ids ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range ids {
+		delete(s.created, id)
+	}
+}
+
+// RefuseDelete makes an object survive a delete request.
+func (s *Server) RefuseDelete(ids ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refuseDelete == nil {
+		s.refuseDelete = map[string]bool{}
+	}
+	for _, id := range ids {
+		s.refuseDelete[id] = true
+	}
+}
+
+// Deleted returns the ids the server was asked to delete, in order, including
+// requests for objects that were already gone.
+func (s *Server) Deleted() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.deleted...)
+}
+
+func (s *Server) deleteManagedObject(w http.ResponseWriter, id string) {
+	s.mu.Lock()
+	s.deleted = append(s.deleted, id)
+
+	if s.refuseDelete[id] {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"inventory/Forbidden","message":"not allowed"}`))
+		return
+	}
+
+	if _, exists := s.created[id]; !exists {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"inventory/Not Found","message":"managed object not found"}`))
+		return
+	}
+	delete(s.created, id)
+	// Propagation takes the children with it, as a real group deletion does.
+	for _, childID := range s.cascade[id] {
+		delete(s.created, childID)
+	}
+	s.mu.Unlock()
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// findManagedObjects answers an inventory search over the created objects.
+//
+// ASSUMPTION, and the reason this is fussier than it looks: Cumulocity IGNORES
+// fragmentType, type, owner and the other simple filters when a `query`
+// parameter is present. The two are mutually exclusive, and a caller that sets
+// both silently gets the query alone.
+//
+// Modelling that is what makes this fake worth having. An earlier version
+// honoured fragmentType regardless, so a revert that sent both - which is what
+// the library's paging does, since it adds its own query for the id keyset -
+// passed every test here and then planned to delete an entire tenant.
+func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
+	query := params.Get("query")
+	fragmentType := params.Get("fragmentType")
+
+	var required []string
+	var afterID string
+	if query != "" {
+		// query wins: whatever fragmentType said is discarded, exactly as the
+		// platform discards it.
+		fragmentType = ""
+		required = hasTerms(query)
+		afterID = idCursor(query)
+	}
+	if fragmentType != "" {
+		required = append(required, fragmentType)
+	}
+
+	s.mu.Lock()
+	type found struct {
+		id   string
+		body []byte
+	}
+	var matches []found
+	for id, body := range s.created {
+		if !matchesAll(body, required) {
+			continue
+		}
+		if afterID != "" && id <= afterID {
+			continue
+		}
+		matches = append(matches, found{id: id, body: body})
+	}
+	s.mu.Unlock()
+
+	// Sorted, so a test can compare without caring about map iteration order.
+	sort.Slice(matches, func(i, j int) bool { return matches[i].id < matches[j].id })
+
+	objects := []any{}
+	for _, match := range matches {
+		var object map[string]any
+		_ = json.Unmarshal(match.body, &object)
+		object["id"] = match.id
+		object["self"] = s.selfLink(match.id)
+		objects = append(objects, object)
+	}
+
+	s.writeJSON(w, map[string]any{
+		"self":           s.Server.URL + "/inventory/managedObjects",
+		"managedObjects": objects,
+		"statistics": map[string]any{
+			"pageSize": 2000, "currentPage": 1,
+			"totalElements": len(objects), "totalPages": 1,
+		},
+	})
+}
+
+// hasTerms pulls the fragment names out of every has(...) in a query.
+func hasTerms(query string) []string {
+	var terms []string
+	rest := query
+	for {
+		start := strings.Index(rest, "has(")
+		if start < 0 {
+			return terms
+		}
+		rest = rest[start+len("has("):]
+		end := strings.Index(rest, ")")
+		if end < 0 {
+			return terms
+		}
+		if name := strings.TrimSpace(rest[:end]); name != "" {
+			terms = append(terms, name)
+		}
+		rest = rest[end+1:]
+	}
+}
+
+// idCursor pulls the keyset bound out of "_id gt '<id>'", which is how the
+// library pages the inventory.
+func idCursor(query string) string {
+	const marker = "_id gt '"
+	start := strings.Index(query, marker)
+	if start < 0 {
+		return ""
+	}
+	rest := query[start+len(marker):]
+	end := strings.Index(rest, "'")
+	if end < 0 {
+		return ""
+	}
+	if value := rest[:end]; value != "0" {
+		return value
+	}
+	return ""
+}
+
+// matchesAll reports whether every named top-level fragment is present.
+func matchesAll(body []byte, fragments []string) bool {
+	if len(fragments) == 0 {
+		return true
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(body, &object); err != nil {
+		return false
+	}
+	for _, fragment := range fragments {
+		if _, present := object[fragment]; !present {
+			return false
+		}
+	}
+	return true
 }
 
 // selfLink is the URL this server would report for one of its own objects.

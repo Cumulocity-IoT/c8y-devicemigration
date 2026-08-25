@@ -318,7 +318,7 @@ Limits:
 Import devices and their data into Cumulocity
 
 Usage:
-  import (--input-compressed <filename> | --input-directory <directory>) [--mapping <filename>] [--force] [--session <file>] [--runId <id>] [--dataOnly | --resume]
+  import (--input-compressed <filename> | --input-directory <directory>) [--mapping <filename>] [--force] [--session <file>] [--runId <id> | --noFlag] [--dataOnly | --resume]
 
 Options:
     --input-compressed filename
@@ -333,10 +333,14 @@ Options:
                         name including its extension, or a glob matched against
                         the session home. A bare name without the extension does
                         not resolve
+    --noFlag            Do not mark created managed objects at all. Without a
+                        marker the objects can only be found again through the
+                        mapping file, so a lost mapping means a lost migration
     --runId id          Mark every created managed object with an empty
                         c8y_DeviceMigration_<id> fragment, so the objects of one
                         migration can be found with a single --fragmentType
-                        query. Must be letters, digits and underscores only
+                        query. Must be letters, digits and underscores only.
+                        One is generated and reported if this is not given
     --resume            Continue an import that stopped part way through, using
                         the mapping file as the record of what was already
                         created. Objects listed there are not created again, and
@@ -448,6 +452,13 @@ run:
 
 ```json
 "c8y_DeviceMigration_20260821T091422Z_7f3a9c": {}
+```
+
+`import` announces the run id before it creates anything, so it ends up in that
+run's log rather than having to be read back off an object afterwards:
+
+```
+Run id 20260821T091422Z_7f3a9c, marking created objects with c8y_DeviceMigration_20260821T091422Z_7f3a9c
 ```
 
 The identity is in the fragment *name*, so one indexed query finds everything a
@@ -921,9 +932,15 @@ It reads the same session files go-c8y-cli writes, including encrypted ones —
 a session to be active first, and it refuses a `--session` glob that matches more
 than one file rather than silently taking the first.
 
-**What is implemented so far**: `preflight`, `export` and `import` of the
-hierarchy, its external identities and its relationships, including the run
-marker fragment. Device data, `revert` and `migrate` are still bash-only. `docs/go-port/PLAN.md` records the increments and
+**What is implemented so far**: `preflight`, `export`, `import` and `revert` of
+the hierarchy, its external identities and its relationships, including the run
+marker fragment. Device data and `migrate` are still bash-only.
+
+`revert` prints its plan and asks once before deleting anything, where the bash
+version leans on c8y's own per-request dialog; `--force` skips the question in
+both. It establishes what actually happened by re-reading every object rather
+than trusting the delete responses, so propagation from a parent group and a
+declined confirmation are both reported correctly. `docs/go-port/PLAN.md` records the increments and
 `docs/go-port/BEHAVIOUR-CONTRACT.md` records what the two implementations have to
 agree on, down to the trailing newline.
 

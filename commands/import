@@ -5,7 +5,7 @@ set -e
 DOC="Import devices and their data into Cumulocity
 
 Usage:
-  import (--input-compressed <filename> | --input-directory <directory>) [--mapping <filename>] [--force] [--session <file>] [--runId <id>] [--dataOnly | --resume]
+  import (--input-compressed <filename> | --input-directory <directory>) [--mapping <filename>] [--force] [--session <file>] [--runId <id> | --noFlag] [--dataOnly | --resume]
 
 Options:
     --input-compressed filename
@@ -20,10 +20,14 @@ Options:
                         name including its extension, or a glob matched against
                         the session home. A bare name without the extension does
                         not resolve
+    --noFlag            Do not mark created managed objects at all. Without a
+                        marker the objects can only be found again through the
+                        mapping file, so a lost mapping means a lost migration
     --runId id          Mark every created managed object with an empty
                         c8y_DeviceMigration_<id> fragment, so the objects of one
                         migration can be found with a single --fragmentType
-                        query. Must be letters, digits and underscores only
+                        query. Must be letters, digits and underscores only.
+                        One is generated and reported if this is not given
     --resume            Continue an import that stopped part way through, using
                         the mapping file as the record of what was already
                         created. Objects listed there are not created again, and
@@ -97,27 +101,28 @@ value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
 stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
 <<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
 "$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
-trimmed_doc=${DOC:0:1891};usage=${DOC:47:170};digest=8903c;options=(' --input-'\
+trimmed_doc=${DOC:0:2214};usage=${DOC:47:181};digest=830e7;options=(' --input-'\
 'compressed 1' ' --input-directory 1' ' --mapping 1' ' --force 0' ' --session '\
-'1' ' --runId 1' ' --dataOnly 0' ' --resume 0');node_0(){ value \
+'1' ' --runId 1' ' --noFlag 0' ' --dataOnly 0' ' --resume 0');node_0(){ value \
 __input_compressed 0;};node_1(){ value __input_directory 1;};node_2(){ value \
 __mapping 2;};node_3(){ switch __force 3;};node_4(){ value __session 4;}
-node_5(){ value __runId 5;};node_6(){ switch __dataOnly 6;};node_7(){ switch \
-__resume 7;};node_8(){ choice 0 1;};node_9(){ optional 2;};node_10(){ optional 3
-};node_11(){ optional 4;};node_12(){ optional 5;};node_13(){ optional 14;}
-node_14(){ choice 6 7;};node_15(){ sequence 8 9 10 11 12 13;};cat <<<' \
-docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" \
-"${DOC:47:170}" >&2;exit 1;}';local varnames=(__input_compressed \
-__input_directory __mapping __force __session __runId __dataOnly __resume) \
-varname;for varname in "${varnames[@]}"; do unset "var_$varname";done;parse 15 \
-"$@";local p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset \
-"$p$varname";done;eval $p'__input_compressed=${var___input_compressed:-};'$p'_'\
-'_input_directory=${var___input_directory:-};'$p'__mapping=${var___mapping:-id'\
-'_mapping.json};'$p'__force=${var___force:-false};'$p'__session=${var___sessio'\
-'n:-};'$p'__runId=${var___runId:-};'$p'__dataOnly=${var___dataOnly:-false};'\
-$p'__resume=${var___resume:-false};';local docopt_i=1;[[ $BASH_VERSION =~ ^4.3 \
-]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for varname in \
-"${varnames[@]}"; do declare -p "$p$varname";done;done;}
+node_5(){ value __runId 5;};node_6(){ switch __noFlag 6;};node_7(){ switch \
+__dataOnly 7;};node_8(){ switch __resume 8;};node_9(){ choice 0 1;};node_10(){
+optional 2;};node_11(){ optional 3;};node_12(){ optional 4;};node_13(){
+optional 14;};node_14(){ choice 5 6;};node_15(){ optional 16;};node_16(){
+choice 7 8;};node_17(){ sequence 9 10 11 12 13 15;};cat <<<' docopt_exit() {
+[[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" "${DOC:47:181}" >&2;exit 1
+}';local varnames=(__input_compressed __input_directory __mapping __force \
+__session __runId __noFlag __dataOnly __resume) varname;for varname in \
+"${varnames[@]}"; do unset "var_$varname";done;parse 17 "$@";local \
+p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset "$p$varname"
+done;eval $p'__input_compressed=${var___input_compressed:-};'$p'__input_direct'\
+'ory=${var___input_directory:-};'$p'__mapping=${var___mapping:-id_mapping.json'\
+'};'$p'__force=${var___force:-false};'$p'__session=${var___session:-};'$p'__ru'\
+'nId=${var___runId:-};'$p'__noFlag=${var___noFlag:-false};'$p'__dataOnly=${var'\
+'___dataOnly:-false};'$p'__resume=${var___resume:-false};';local docopt_i=1;[[ \
+$BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for \
+varname in "${varnames[@]}"; do declare -p "$p$varname";done;done;}
 # docopt parser above, complete command for generating this parser is `docopt.sh import`
 
 # Server managed properties which must not be sent back when recreating a
@@ -161,6 +166,9 @@ dataDevices=0
 # --fragmentType query instead of a scan.
 markerFragment=""
 
+# The run id actually in effect, which is either --runId or a generated one
+markerRunId=""
+
 # Device data recreated in the target tenant
 measurementsCreated=0
 eventsCreated=0
@@ -194,10 +202,24 @@ DATA_PROCESSING_MODE=QUIESCENT
 # characters, so the run id has to be letters, digits and underscores. Checked
 # here rather than trusted, because a rejected name would fail on every single
 # object rather than once.
-resolve_marker_fragment() {
-    local runId="$1"
+# A run id is generated when none was given, so every import can be found again
+# by its marker rather than only through the mapping file. --noFlag opts out.
+generate_run_id() {
+    local stamp random
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    random=$(LC_ALL=C tr -dc 'a-f0-9' < /dev/urandom | head -c 6)
+    printf '%s_%s' "$stamp" "$random"
+}
 
-    [[ -n "$runId" ]] || return 0
+resolve_marker_fragment() {
+    local runId="$1" noFlag="$2"
+
+    if [[ "$noFlag" == "true" ]]; then
+        return 0
+    fi
+    if [[ -z "$runId" ]]; then
+        runId=$(generate_run_id)
+    fi
 
     case "$runId" in
         *[!A-Za-z0-9_]*)
@@ -207,6 +229,7 @@ resolve_marker_fragment() {
             ;;
     esac
 
+    markerRunId="$runId"
     markerFragment="c8y_DeviceMigration_$runId"
 }
 
@@ -468,7 +491,12 @@ prune_deleted_from_mapping() {
 
     local live kept oldId newId name dropped=0
 
-    live=$(c8y inventory find --fragmentType "$markerFragment" --select id --nullInput | jq -r '.id')
+    # --includeAll because c8y's default page size is 5. Without it only the
+    # first handful of live objects would be seen, every other mapping entry
+    # would look deleted, and a resume would recreate them - duplicating most of
+    # the hierarchy instead of repairing it.
+    live=$(c8y inventory find --fragmentType "$markerFragment" --select id \
+        --includeAll --nullInput | jq -r '.id')
 
     kept="$idMap.kept"
     : > "$kept"
@@ -675,7 +703,7 @@ run_import() {
     eval "$(docopt "$@")"
 
     use_session "${__session:-}"
-    resolve_marker_fragment "${__runId:-}"
+    resolve_marker_fragment "${__runId:-}" "${__noFlag:-}"
 
     dataOnly="$__dataOnly"
     resume="$__resume"
@@ -711,6 +739,13 @@ run_import() {
     if [[ ! -d "$inputDirectory" ]]; then
         echo "Input directory does not exist: $inputDirectory" >&2
         exit 1
+    fi
+
+    # Announced by whatever actually applies it, so the id is in the log of the
+    # run that used it. Not under --dataOnly: that creates no objects, so there
+    # is nothing to mark and saying otherwise would be a lie.
+    if [[ -n "$markerFragment" && "$dataOnly" != "true" ]]; then
+        echo "Run id ${markerRunId}, marking created objects with $markerFragment" >&2
     fi
 
     if [[ "$dataOnly" == "true" ]]; then

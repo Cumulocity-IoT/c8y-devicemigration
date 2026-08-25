@@ -47,6 +47,20 @@
 #      plaintext in them even when `password` and `token` are encrypted, so that
 #      needs no passphrase, no network and no active session. This fake models
 #      `settings list` so the session home can be pointed at a temp directory.
+#   9. `fragmentType` is IGNORED whenever a `query` parameter is present. The two
+#      are mutually exclusive and the query wins. DISPROVED against a live
+#      tenant, expensively: the Go port sent both - its paging adds a query for
+#      the id keyset - and `revert --runId` planned to delete 811 objects for a
+#      nine-object import, because the filter was silently discarded and the
+#      search returned the whole tenant. `c8y inventory find --fragmentType X`
+#      avoids this by putting the condition inside the query as
+#      `$filter=has(X)`, which is what both implementations now send.
+#  10. c8y's default page size is FIVE, so a find without --includeAll returns
+#      only the first page. This fake used to return everything regardless,
+#      which hid two truncations: `revert --runId` planned a fraction of a run,
+#      and the resume prune saw a fraction of the live objects and so recreated
+#      the rest, duplicating most of a hierarchy instead of repairing it.
+#
 #   8. Ambient C8Y_* variables win over --session for at least some commands: a
 #      loaded session exports C8Y_HOST and C8Y_TENANT, which is how the wrong
 #      tenant gets talked to. Every command here clears them and sets C8Y_SESSION
@@ -118,6 +132,10 @@ nullInput=no
 force=no
 silentExit=no
 countQuery=no
+# Initialised here, before the scan below sets it. Declaring it after the scan
+# would reset it, which is a good way to spend ten minutes wondering why a flag
+# has no effect.
+includeAll=no
 for a in "${argv[@]}"; do
     if [[ "$a" == "--nullInput" || "$a" == "-n" ]]; then
         nullInput=yes
@@ -130,6 +148,12 @@ for a in "${argv[@]}"; do
     # where GetSilentExit() nils the returned error unconditionally.
     if [[ "$a" == "--silentExit" ]]; then
         silentExit=yes
+    fi
+    # Paging. c8y's default page size is FIVE, so a find that does not ask for
+    # every page silently returns only the first handful. Modelled because it
+    # was not, and two commands were quietly truncating their results.
+    if [[ "$a" == "--includeAll" ]]; then
+        includeAll=yes
     fi
     # a count query rather than a data fetch
     if [[ "$a" == "--withTotalElements" || "$a" == "--withTotalPages" ]]; then
@@ -165,6 +189,7 @@ id=""; child=""; childType=""
 fragmentType=""; outputFileRaw=""; template=""
 device=""; externalType=""; externalId=""; ids=()
 file=""; batchSize=""; processingMode=""; data=""; session=""
+pageSize=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --id) id="$2"; ids+=("$2"); shift 2 ;;
@@ -178,6 +203,7 @@ while [[ $# -gt 0 ]]; do
         --name) externalId="$2"; shift 2 ;;
         --file) file="$2"; shift 2 ;;
         --batchSize) batchSize="$2"; shift 2 ;;
+        --pageSize) pageSize="$2"; shift 2 ;;
         --processingMode) processingMode="$2"; shift 2 ;;
         --data|-d) data="$2"; shift 2 ;;
         --session) session="$2"; shift 2 ;;
@@ -310,13 +336,30 @@ case "$subcommand" in
         ;;
 
     "inventory find"*)
-        # --fragmentType is a first-class inventory filter, so this searches
-        # only the objects this run created: the target tenant. A run marker is
-        # never in the source hierarchy fixture, which is the point of it.
+        # Searches the objects this run created: the target tenant. A run marker
+        # is never in the source hierarchy fixture, which is the point of it.
+        #
+        # PAGED, deliberately. c8y's default page size is 5, so a caller that
+        # does not pass --includeAll gets only the first page. Returning
+        # everything regardless - which this used to do - hid the fact that both
+        # `revert --runId` and the resume prune were truncating their results.
+        limit=0
+        if [[ "$includeAll" != "yes" ]]; then
+            limit=${pageSize:-5}
+        fi
+
+        emitted=0
         for stored in "$FAKE_C8Y_REC"/objects/*.json; do
             [[ -e "$stored" ]] || continue
-            jq -r --arg f "$fragmentType" \
-                'select(has($f)) | {id, name: (.name // null)} | tojson' "$stored"
+            if [[ "$limit" -gt 0 && "$emitted" -ge "$limit" ]]; then
+                break
+            fi
+            matched=$(jq -r --arg f "$fragmentType" \
+                'select(has($f)) | {id, name: (.name // null)} | tojson' "$stored")
+            if [[ -n "$matched" ]]; then
+                printf '%s\n' "$matched"
+                emitted=$((emitted + 1))
+            fi
         done
         ;;
 

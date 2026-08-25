@@ -329,3 +329,17 @@ live_objects() { ls "$REC/objects" 2>/dev/null | grep -c '' | tr -d ' '; }
     assert_success
     assert_no_call_drained_stdin
 }
+
+@test "migrate: the run id is reported exactly once" {
+    # import announces it now, so migrate must not say it a second time: two
+    # identical lines in one run read like a bug.
+    migrate_both
+    assert_success
+    assert_equal "$(printf '%s\n' "$output" | grep -c '^Run id ')" "1"
+}
+
+@test "migrate: an incremental run reports the run id once, not per device" {
+    migrate_both --incremental --dataTypes measurements
+    assert_success
+    assert_equal "$(printf '%s\n' "$output" | grep -c '^Run id ')" "1"
+}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api"
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/identity"
@@ -28,8 +29,15 @@ type Options struct {
 	InputDirectory string
 	MappingFile    string
 
-	// RunID, when set, becomes part of the marker fragment name.
+	// RunID, when set, becomes part of the marker fragment name. When it is
+	// empty and NoFlag is false, one is generated and reported, so every import
+	// can be found again by its marker rather than only through the mapping.
 	RunID string
+
+	// NoFlag opts out of marking entirely. Without a marker the objects can
+	// only be found again through the mapping file, so a lost mapping means a
+	// lost migration.
+	NoFlag bool
 
 	// AllowSameTenant permits importing back into the tenant the export came
 	// from. Off by default: that duplicates a hierarchy inside itself.
@@ -84,12 +92,23 @@ func (i *Importer) Run(ctx context.Context) error {
 	if err := ValidateRunID(i.opts.RunID); err != nil {
 		return err
 	}
-	if i.opts.RunID != "" {
+	if !i.opts.NoFlag {
+		if i.opts.RunID == "" {
+			i.opts.RunID = GenerateRunID(time.Now())
+		}
 		i.markerFragment = MarkerPrefix + i.opts.RunID
 	}
 
 	if info, err := os.Stat(i.opts.InputDirectory); err != nil || !info.IsDir() {
 		return fmt.Errorf("Input directory does not exist: %s", i.opts.InputDirectory)
+	}
+
+	// Announced by whatever actually applies it, so the id is in the log of the
+	// run that used it - and so it can be recovered later without reading it
+	// back off an object's fragments.
+	if i.markerFragment != "" {
+		fmt.Fprintf(i.stderr, "Run id %s, marking created objects with %s\n",
+			i.opts.RunID, i.markerFragment)
 	}
 
 	// An empty mapping up front, so an immediate failure still leaves a file

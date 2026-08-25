@@ -632,7 +632,9 @@ run_migrate() {
 
     if [[ "$__noFlag" != "true" ]]; then
         markerRunId="$runId"
-        echo "Run id $runId, marking created objects with c8y_DeviceMigration_$runId" >&2
+        # Not announced here: import announces it when it starts applying it,
+        # which is also the first moment it matters. Saying it twice in one run
+        # would read like a bug.
     elif [[ "$incremental" == "true" ]]; then
         # Unmarked, but the id still has to be reportable or the run could never
         # be resumed
@@ -666,7 +668,13 @@ run_migrate() {
     # useless.
     importArgs+=(--force)
     [[ -n "$__mapping" ]] && importArgs+=(--mapping "$__mapping")
-    [[ -n "$markerRunId" ]] && importArgs+=(--runId "$markerRunId")
+    if [[ -n "$markerRunId" ]]; then
+        importArgs+=(--runId "$markerRunId")
+    else
+        # import now generates a run id when it is not given one, so --noFlag
+        # has to be passed on explicitly or it would quietly start marking.
+        importArgs+=(--noFlag)
+    fi
 
     if [[ "$incremental" == "true" ]]; then
         migrate_incremental

@@ -143,7 +143,11 @@ build_plan_from_marker() {
     local fragment="c8y_DeviceMigration_$runId"
     local found line id name
 
-    found=$(c8y inventory find --fragmentType "$fragment" --select id,name --nullInput)
+    # --includeAll because c8y's default page size is 5. Without it a run of more
+    # than five objects would be planned only in part, and the revert would
+    # report success having deleted a fraction of it.
+    found=$(c8y inventory find --fragmentType "$fragment" --select id,name \
+        --includeAll --nullInput)
 
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue

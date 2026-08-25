@@ -164,13 +164,22 @@ Two things came out of building it. `Identity.Create` in the library calls
 detected through `StatusDuplicate` — see the contract. And the same-tenant guard
 found that `commands/import` has the same gap, so it should be added there too.
 
+Increment 3 is implemented: `revert` from a mapping file or by `--runId`, with
+the plan printed before anything is touched, the outcome established by
+re-reading every object, and `--force` to skip the confirmation.
+
+Two deliberate differences from the bash version, both recorded in the contract:
+it asks **once** about a plan it has just printed in full, rather than relying on
+the c8y binary's per-request dialog and its "Yes to All"; and the deletes are
+separate requests, because batching them in bash was only ever a way to make
+that dialog answerable once.
+
 ## Later increments
 
 Each is independently shippable and each extends the differential test.
 
 | # | Scope |
 | --- | --- |
-| 3 | `revert`: mapping and `--runId` via a `fragmentType` query, batched delete, outcome established by re-reading. |
 | 4 | Device data both ways: measurements/events/alarms, attachments, processing mode, batch sizes, and the rule that a failed record makes the import exit non-zero. |
 | 5 | `migrate`: chained, then `--incremental`, then `--resume` with the journal. |
 

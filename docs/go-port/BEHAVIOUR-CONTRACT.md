@@ -184,6 +184,86 @@ two of those defaults change observable behaviour:
   rather than an error, which is the property a resume needs. Left as is,
   deliberately.
 
+## Finding a run's objects
+
+**`fragmentType` and `query` are mutually exclusive, and `query` wins.** Cumulocity
+ignores `fragmentType`, `type`, `owner` and the other simple filters whenever a
+`query` parameter is present. So the marker condition has to go *inside* the
+query:
+
+```
+query=$filter=has(c8y_DeviceMigration_<runId>)
+```
+
+which is exactly what `c8y inventory find --fragmentType X` sends. Confirmed with
+`c8y ... --dry`.
+
+This matters more in the Go port than it looks, because paging the inventory
+*adds* a query: the library ANDs an `_id gt '<last>'` keyset into it to walk
+pages in order. Setting `FragmentType` alongside that means the filter is
+silently dropped and the search returns the whole tenant — which is not
+hypothetical. It planned to delete **811 objects for a nine-object import**.
+
+Two consequences for anything that queries by marker, including `--resume` when
+it arrives:
+
+- express the condition as `Query: "$filter=has(<fragment>)"`, never as
+  `FragmentType`
+- page it. c8y's default page size is **5**, and the bash implementation was
+  truncating both `revert --runId` and the resume prune because neither passed
+  `--includeAll`. The truncated prune is the worse of the two: every mapping
+  entry past the first five looks deleted, so a resume recreates it.
+
+`internal/testfixture` models both rules — the query/fragmentType exclusivity and
+the page limit — because it modelled neither before, which is why the tests were
+green while the tool was wrong.
+
+## Announcing the run id
+
+`import` prints, once, before it creates anything:
+
+```
+Run id RUN_ABC, marking created objects with c8y_DeviceMigration_RUN_ABC
+```
+
+Only when a marker is in effect, and never under `--dataOnly`, which creates no
+objects and so marks nothing. Before the first object, so an import that dies
+part way through has still said which run it was.
+
+Announced by whatever applies it, which is why **`migrate` no longer says it
+itself**. Two identical lines in one run read like a bug, and the import's line
+lands at the first moment the id matters. `migrate` still reports it on the
+`--noFlag` incremental path — nothing is marked there, but the id is needed to
+resume, so it has to come from somewhere.
+
+Both implementations do this. Without it, the only way to recover a run id was to
+read it back off a migrated object's fragments, which is a poor thing to have to
+work out during an incident. There is still no way to *enumerate* the run ids in
+a tenant: `fragmentType` matches a fragment name exactly, with no prefix search.
+
+## Confirmation, and why revert asks differently
+
+`commands/revert` batches every deletion into one `c8y inventory delete`
+invocation, because c8y's "Yes to All" answer is held in-process: one call means
+one answer covers the whole revert (`revert:196`).
+
+The Go tool has no such dialog, so the reason for batching disappears. It prints
+the plan in full, asks **once**, and then deletes each object with its own
+request. `--force` skips the question, and the differential test runs both sides
+with it so the outputs are comparable.
+
+Everything else about the flow is preserved, including the part that matters
+most: the outcome is established by **re-reading every object**, never by
+trusting the delete response. That is what makes the report correct whether an
+object was deleted on request, taken by propagation from its parent, or left
+alone because the confirmation was declined. `Delete` in the library already
+treats a 404 as success, so trusting it would report an object that was never
+there as deleted.
+
+`import` has no confirmation at all: the bash `--force` exists only to suppress
+c8y's prompt on POST, and there is nothing to suppress here. Creating objects is
+also recoverable through `revert`, which deleting is not.
+
 ## Session resolution in the Go tool
 
 `--session` is optional on `export`. The order is:

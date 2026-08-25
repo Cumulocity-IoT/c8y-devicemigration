@@ -66,6 +66,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newExportCommand(stderr))
 	root.AddCommand(newImportCommand(stderr))
 	root.AddCommand(newPreflightCommand(stderr))
+	root.AddCommand(newRevertCommand(stderr))
 
 	return root
 }

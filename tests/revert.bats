@@ -338,10 +338,14 @@ do_marked_import() {
     assert_equal "$(live_objects)" "9"
 }
 
-@test "revert: --runId cannot reach objects imported without a marker" {
-    # an import run with --noFlag leaves nothing to find, which is worth saying
-    # out loud rather than discovering during an incident
-    do_full_import
+@test "revert: --runId cannot reach objects imported with --noFlag" {
+    # --noFlag leaves nothing to find, which is worth saying out loud rather
+    # than discovering during an incident. Note this needs --noFlag now: an
+    # import with no --runId generates one and marks with it.
+    run_export --rootId 1 --output-directory "$OUT"
+    [ "$status" -eq 0 ]
+    run_import --input-directory "$OUT" --force --noFlag
+    [ "$status" -eq 0 ]
     run_revert --runId TESTRUN_1 --force
     assert_success
     assert_output --partial "nothing to revert"
@@ -359,4 +363,14 @@ do_marked_import() {
 @test "revert: neither --mapping nor --runId is refused" {
     run_revert --force
     assert_failure
+}
+
+@test "revert: --runId asks for every page, not just the first" {
+    # c8y's default page size is 5. Without --includeAll a run of more than five
+    # objects is planned only in part, and the revert reports success having
+    # deleted a fraction of it.
+    do_marked_import
+    FAKE_C8Y_CONFIRM=no run_revert --runId TESTRUN_1
+    assert_output --partial "9 managed objects will be deleted"
+    assert_flag_on_all_calls "--includeAll" "inventory find"
 }

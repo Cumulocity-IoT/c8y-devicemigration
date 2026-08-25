@@ -124,8 +124,11 @@ func goImport(t *testing.T, opts importer.Options) (mappingPath string, server *
 func TestDifferentialImportMappingAndOutput(t *testing.T) {
 	requireBashAndJqForImport(t)
 
-	bashMapping, rec, bashErr := bashImport(t)
-	goMapping, server, goErr := goImport(t, importer.Options{})
+	// Both sides generate a run id when none is given, and two runs would
+	// generate different ones. --noFlag takes marking out of the comparison
+	// entirely; the marker itself is compared in its own test below.
+	bashMapping, rec, bashErr := bashImport(t, "--noFlag")
+	goMapping, server, goErr := goImport(t, importer.Options{NoFlag: true})
 
 	// The mapping is an artefact, so it is compared byte for byte.
 	bashBytes, err := os.ReadFile(bashMapping)
@@ -160,8 +163,8 @@ func TestDifferentialImportMappingAndOutput(t *testing.T) {
 func TestDifferentialImportCreatesTheSameBodies(t *testing.T) {
 	requireBashAndJqForImport(t)
 
-	_, rec, _ := bashImport(t)
-	_, server, _ := goImport(t, importer.Options{})
+	_, rec, _ := bashImport(t, "--noFlag")
+	_, server, _ := goImport(t, importer.Options{NoFlag: true})
 
 	bashBodies := bashCreatedBodies(t, rec)
 	goBodies := map[string]any{}

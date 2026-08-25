@@ -27,7 +27,11 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 .PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness \
 	go-build go-test go-lint bootstrap clean
 
-check: lint parser-freshness docs-freshness go-lint go-test test
+# go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
+# survive a green `make check`, and the next person to run the binary tests code
+# that no longer exists - which happened once, with a bug that had already been
+# fixed in the source.
+check: lint parser-freshness docs-freshness go-lint go-build go-test test
 
 bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
 

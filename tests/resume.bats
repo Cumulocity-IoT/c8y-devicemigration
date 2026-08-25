@@ -261,3 +261,21 @@ interrupted_data() {
     assert_output --partial "This attempt created nothing"
     refute_output --partial "stopped part way through"
 }
+
+@test "resume: the live-object query asks for every page" {
+    # The pruning query decides which mapping entries are still real. Truncated
+    # at c8y's default page size of 5, every entry past the first five looks
+    # deleted and a resume recreates them - duplicating most of the hierarchy
+    # instead of repairing it.
+    migrate_incremental
+    assert_success
+    local objects
+    objects=$(live_objects)
+
+    run_migrate --rootId 1 --sourceSession source.json --targetSession target.json \
+        --force --resume "$(run_id)"
+    assert_success
+    assert_flag_on_all_calls "--includeAll" "inventory find"
+    assert_equal "$(live_objects)" "$objects"
+    assert_equal "$(duplicate_links)" "0"
+}

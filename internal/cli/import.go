@@ -17,6 +17,7 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 		inputDirectory  string
 		mappingFile     string
 		runID           string
+		noFlag          bool
 		allowSameTenant bool
 		sessionValue    string
 	)
@@ -31,6 +32,10 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 			"managed objects, so importing the same export twice produces two copies.\n" +
 			"Importing back into the tenant the export came from is refused unless\n" +
 			"--allowSameTenant is given.\n\n" +
+			"Every created object is marked with an empty c8y_DeviceMigration_<runId>\n" +
+			"fragment, and the run id is reported, so the objects of one import can be\n" +
+			"found again with a single --fragmentType query even if the mapping is lost.\n" +
+			"Pass --runId to choose it, or --noFlag to mark nothing.\n\n" +
 			"Without --session the active go-c8y-cli session is used.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -39,6 +44,7 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 				InputDirectory:  inputDirectory,
 				MappingFile:     mappingFile,
 				RunID:           runID,
+				NoFlag:          noFlag,
 				AllowSameTenant: allowSameTenant,
 			})
 		},
@@ -50,7 +56,11 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 		"File to write the old ID to new ID mapping to")
 	cmd.Flags().StringVar(&runID, "runId", "",
 		"Mark every created managed object with an empty c8y_DeviceMigration_<id> "+
-			"fragment. Letters, digits and underscores only")
+			"fragment. Letters, digits and underscores only. One is generated and "+
+			"reported if this is not given")
+	cmd.Flags().BoolVar(&noFlag, "noFlag", false,
+		"Do not mark created managed objects at all. Without a marker the objects "+
+			"can only be found again through the mapping file")
 	cmd.Flags().BoolVar(&allowSameTenant, "allowSameTenant", false,
 		"Import even when the export came from this same tenant")
 	cmd.Flags().StringVar(&sessionValue, "session", "",
@@ -58,6 +68,7 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 			"Defaults to the active session")
 
 	_ = cmd.MarkFlagRequired("input-directory")
+	cmd.MarkFlagsMutuallyExclusive("runId", "noFlag")
 
 	return cmd
 }

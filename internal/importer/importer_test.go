@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
@@ -313,15 +315,15 @@ func TestMarkerFragmentIsAppliedWithAnEmptyBody(t *testing.T) {
 	}
 }
 
-func TestNoMarkerWithoutARunID(t *testing.T) {
-	server, _, _ := exportThenImport(t, importer.Options{})
+func TestNoFlagLeavesTheObjectsUnmarked(t *testing.T) {
+	server, _, _ := exportThenImport(t, importer.Options{NoFlag: true})
 
 	for id, body := range server.Created() {
 		var object map[string]any
 		_ = json.Unmarshal(body, &object)
 		for key := range object {
 			if strings.HasPrefix(key, importer.MarkerPrefix) {
-				t.Errorf("object %s was marked despite no run id: %s", id, key)
+				t.Errorf("object %s was marked despite --noFlag: %s", id, key)
 			}
 		}
 	}
@@ -497,5 +499,69 @@ func TestAFailureBeforeAnyObjectStillLeavesAMappingFile(t *testing.T) {
 	}
 	if len(server.Created()) != 0 {
 		t.Fatal("something was created despite every create being refused")
+	}
+}
+
+func TestTheRunIDIsAnnounced(t *testing.T) {
+	// So it ends up in the log of the run that used it, rather than having to be
+	// read back off an object's fragments afterwards.
+	_, _, stderr := exportThenImport(t, importer.Options{RunID: "RUN_ABC"})
+
+	want := "Run id RUN_ABC, marking created objects with c8y_DeviceMigration_RUN_ABC"
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr does not announce the run id:\n%s", stderr)
+	}
+	// once, not per object
+	if got := strings.Count(stderr, "Run id "); got != 1 {
+		t.Errorf("the run id was announced %d times, want 1:\n%s", got, stderr)
+	}
+	// and before anything was created, so an interrupted run still reported it
+	if strings.Index(stderr, want) > strings.Index(stderr, "Imported ") {
+		t.Errorf("the run id was announced after the first object:\n%s", stderr)
+	}
+}
+
+func TestNothingIsAnnouncedUnderNoFlag(t *testing.T) {
+	_, _, stderr := exportThenImport(t, importer.Options{NoFlag: true})
+
+	if strings.Contains(stderr, "Run id") {
+		t.Errorf("a run id was announced despite --noFlag:\n%s", stderr)
+	}
+}
+
+func TestARunIDIsGeneratedAndReportedWhenNoneIsGiven(t *testing.T) {
+	// The reason this exists: without a generated id, the only record of an
+	// import is its mapping file, and a lost mapping means a lost migration.
+	server, _, stderr := exportThenImport(t, importer.Options{})
+
+	line := regexp.MustCompile(
+		`Run id ([0-9]{8}T[0-9]{6}Z_[0-9a-f]{6}), marking created objects with c8y_DeviceMigration_([0-9]{8}T[0-9]{6}Z_[0-9a-f]{6})`)
+	found := line.FindStringSubmatch(stderr)
+	if found == nil {
+		t.Fatalf("no generated run id was reported:\n%s", stderr)
+	}
+	if found[1] != found[2] {
+		t.Errorf("the reported id and the fragment disagree: %s vs %s", found[1], found[2])
+	}
+
+	// and it really is on the objects, so the reported id can find them
+	fragment := importer.MarkerPrefix + found[1]
+	for id, body := range server.Created() {
+		var object map[string]any
+		_ = json.Unmarshal(body, &object)
+		if _, present := object[fragment]; !present {
+			t.Fatalf("object %s does not carry the reported marker %s", id, fragment)
+		}
+	}
+}
+
+func TestGeneratedRunIDsAreFragmentSafe(t *testing.T) {
+	// It becomes part of a fragment name, so an ISO timestamp cannot be used
+	// verbatim: no dashes, no colons.
+	for i := 0; i < 50; i++ {
+		id := importer.GenerateRunID(time.Now())
+		if err := importer.ValidateRunID(id); err != nil {
+			t.Fatalf("generated %q, which is not a valid fragment name: %v", id, err)
+		}
 	}
 }
