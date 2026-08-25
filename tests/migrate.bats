@@ -128,14 +128,14 @@ live_objects() { ls "$REC/objects" 2>/dev/null | grep -c '' | tr -d ' '; }
     run bash -c "bash '$REPO_DIR/commands/migrate' \\
         --rootId 1 --sourceSession source.json --targetSession target.json < /dev/null 2>&1"
     assert_failure
-    assert_output --partial "pass --force to migrate without being asked"
+    assert_output --partial "pass --force to continue without being asked"
     assert_equal "$(live_objects)" "0"
 }
 
 @test "migrate: --force skips the confirmation" {
     migrate_both
     assert_success
-    refute_output --partial 'Type "yes"'
+    refute_output --partial "Confirm (job: 1)"
 }
 
 # --- the migration itself ----------------------------------------------------
@@ -342,4 +342,14 @@ live_objects() { ls "$REC/objects" 2>/dev/null | grep -c '' | tr -d ' '; }
     migrate_both --incremental --dataTypes measurements
     assert_success
     assert_equal "$(printf '%s\n' "$output" | grep -c '^Run id ')" "1"
+}
+
+@test "migrate: a root id containing a path separator is refused before the pre-flight" {
+    # The pre-flight makes authenticated calls to both tenants, so a mistyped id
+    # should not cost them.
+    run_migrate --rootId ./1 --sourceSession source.json --targetSession target.json --force
+    assert_failure
+    assert_output --partial "an id cannot contain a path separator"
+    refute_output --partial "Migrating from"
+    assert_equal "$(live_objects)" "0"
 }

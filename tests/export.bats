@@ -690,3 +690,54 @@ setup() { setup_common; }
     assert_failure
     refute_output --partial "Try --dateFrom"
 }
+
+# --- the root id is a file name component ------------------------------------
+
+@test "export: a root id containing a path separator is refused" {
+    # The id ends up in every artefact file name, so '../x' would write outside
+    # the output directory. It is also the only id a caller supplies.
+    run_export --rootId ./1 --output-directory "$OUT"
+    assert_failure
+    assert_output --partial "an id cannot contain a path separator"
+    assert_output --partial "Did you mean '1'?"
+    refute [ -d "$OUT" ]
+}
+
+@test "export: a root id that is a path is refused before any c8y call" {
+    run_export --rootId ../escaped --output-directory "$OUT"
+    assert_failure
+    assert_equal "$(count_calls "inventory")" "0"
+}
+
+@test "export: a plain root id is still accepted" {
+    run_export --rootId 1 --output-directory "$OUT"
+    assert_success
+    assert_equal "$(exported_ids "$OUT")" "1 2 3 4 5 6 7 10 11"
+}
+
+@test "export: --dataTypes all is a shortcut for every kind" {
+    # Asking for all three is the common case, and spelling them out invites a
+    # typo that silently narrows the migration.
+    run_export --rootId 2 --output-directory "$OUT" --dataTypes all --dateFrom -3650d
+    assert_success
+    assert [ -f "$OUT/data/2/measurements.jsonl" ]
+    assert [ -f "$OUT/data/2/events.jsonl" ]
+    assert [ -f "$OUT/data/2/alarms.jsonl" ]
+}
+
+@test "export: --dataTypes all matches the explicit list exactly" {
+    run_export --rootId 2 --output-directory "$OUT/a" --dataTypes all --dateFrom -3650d
+    assert_success
+    run_export --rootId 2 --output-directory "$OUT/b" \
+        --dataTypes measurements,events,alarms --dateFrom -3650d
+    assert_success
+    run diff -r "$OUT/a" "$OUT/b"
+    assert_success
+}
+
+@test "export: 'all' cannot be combined with named data types" {
+    run_export --rootId 2 --output-directory "$OUT" --dataTypes all,events
+    assert_failure
+    assert_output --partial "cannot be combined with other data types"
+    refute [ -d "$OUT" ]
+}

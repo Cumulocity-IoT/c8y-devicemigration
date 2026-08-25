@@ -25,7 +25,7 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
 
 .PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness \
-	go-build go-test go-lint bootstrap clean
+	go-build go-test go-lint install install-completion bootstrap clean
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
@@ -105,7 +105,8 @@ parser-freshness:
 # --- the Go port -------------------------------------------------------------
 #
 # A second implementation of the same commands on the go-c8y v2 library, living
-# beside the bash one rather than replacing it. See docs/go-port/PLAN.md.
+# beside the bash one rather than replacing it. What the two have to agree on is
+# recorded in docs/go-port/BEHAVIOUR-CONTRACT.md.
 #
 # go-test includes the differential test, which runs BOTH implementations against
 # the same fixture and diffs the artefacts and stderr. It needs bash and jq and
@@ -121,6 +122,29 @@ go-build:
 
 go-test:
 	go test ./... -timeout $(GO_TIMEOUT)
+
+# Where `make install` puts the binary. Shell completion needs it on PATH under
+# its own name: the generated script is keyed to the bare command name and calls
+# the binary back to compute completions, so `./bin/c8y-devicemigration` on its
+# own completes nothing.
+INSTALL_DIR ?= $(HOME)/.local/bin
+
+# Where `make install-completion` puts the zsh completion. The default is the
+# Homebrew site-functions directory, which is already on zsh's fpath here.
+ZSH_COMPLETION_DIR ?= $(shell brew --prefix 2>/dev/null)/share/zsh/site-functions
+
+install: go-build
+	@mkdir -p "$(INSTALL_DIR)"
+	install -m 0755 bin/c8y-devicemigration "$(INSTALL_DIR)/"
+	@echo "installed $(INSTALL_DIR)/c8y-devicemigration"
+	@command -v c8y-devicemigration >/dev/null 2>&1 \
+		|| echo "note: $(INSTALL_DIR) is not on PATH, so completion will not fire"
+
+install-completion: install
+	@mkdir -p "$(ZSH_COMPLETION_DIR)"
+	c8y-devicemigration completion zsh > "$(ZSH_COMPLETION_DIR)/_c8y-devicemigration"
+	@echo "installed $(ZSH_COMPLETION_DIR)/_c8y-devicemigration"
+	@echo "start a new shell, or: rm -f ~/.zcompdump*; exec zsh"
 
 go-lint:
 	@unformatted=$$(gofmt -l cmd internal); \

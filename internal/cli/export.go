@@ -75,7 +75,7 @@ func newExportCommand(stderr io.Writer) *cobra.Command {
 		"Comma separated child relationship types to follow: asset, device, addition")
 	cmd.Flags().BoolVar(&noChildren, "no-children", false, "Export only the root device")
 	cmd.Flags().StringVar(&dataTypes, "dataTypes", "",
-		"Comma separated device data to include: measurements, events, alarms")
+		"Comma separated device data to include: measurements, events, alarms, or all")
 	cmd.Flags().StringVar(&dateFrom, "dateFrom", "",
 		"Only export data at or after this time, absolute or relative, e.g. "+
 			"2026-01-01T00:00:00Z or -30d. Measurements default to the last 14 days; "+

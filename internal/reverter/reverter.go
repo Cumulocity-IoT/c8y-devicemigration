@@ -1,7 +1,6 @@
 package reverter
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api"
+
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/confirm"
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/inventory/managedobjects"
 )
 
@@ -80,7 +81,7 @@ func (r *Reverter) Run(ctx context.Context) error {
 
 	confirmed := true
 	if !r.opts.Force {
-		confirmed = r.confirm()
+		confirmed = r.confirm(presentCount)
 	}
 
 	if confirmed {
@@ -147,28 +148,16 @@ func (r *Reverter) printPlan(plan *Plan) int {
 	return present
 }
 
-// confirm asks once, rather than per object.
+// confirm asks once, rather than per object, in the shape c8y asks.
 //
-// A deliberate difference from commands/revert, which relies on the c8y
-// binary's own per-request dialog and its "Yes to All". There is no such layer
+// One question rather than c8y's per-request dialog: there is no such layer
 // here, and asking once about a plan that has just been printed in full is
-// clearer than asking N times.
-func (r *Reverter) confirm() bool {
-	fmt.Fprint(r.stderr, "Type \"yes\" to delete these managed objects: ")
-
-	if r.stdin == nil {
-		fmt.Fprintln(r.stderr, "")
-		fmt.Fprintln(r.stderr, "No confirmation received on stdin, pass --force to delete without being asked")
-		return false
-	}
-
-	scanner := bufio.NewScanner(r.stdin)
-	if !scanner.Scan() {
-		fmt.Fprintln(r.stderr, "")
-		fmt.Fprintln(r.stderr, "No confirmation received on stdin, pass --force to delete without being asked")
-		return false
-	}
-	return strings.TrimSpace(scanner.Text()) == "yes"
+// clearer than asking N times. The answer keys are c8y's, so they mean what
+// someone used to c8y expects.
+func (r *Reverter) confirm(presentCount int) bool {
+	action := fmt.Sprintf("Delete %d %s",
+		presentCount, plural(presentCount, "managed object", "managed objects"))
+	return confirm.Ask(r.stderr, r.stdin, action) == confirm.Yes
 }
 
 // deletePlanned deletes each object, tolerating one that has already gone.
@@ -230,6 +219,13 @@ func (r *Reverter) reportOutcome(ctx context.Context, plan *Plan) (deleted, fail
 		fmt.Fprintf(r.stderr, "Deleted %s (%s)\n", o.entry.Name, o.entry.TargetID)
 	}
 	return deleted, failed
+}
+
+func plural(n int, singular, many string) string {
+	if n == 1 {
+		return singular
+	}
+	return many
 }
 
 // displayName mirrors read_name in the bash commands.

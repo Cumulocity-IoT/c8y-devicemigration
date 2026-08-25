@@ -184,6 +184,37 @@ two of those defaults change observable behaviour:
   rather than an error, which is the property a resume needs. Left as is,
   deliberately.
 
+## migrate
+
+The phases, and the lines that name them:
+
+| Phase | Chained | Incremental |
+| --- | --- | --- |
+| export | `Exporting from the source tenant` | `Exporting the hierarchy from the source tenant` |
+| import | `Importing into the target tenant` | `Importing the hierarchy into the target tenant`, or `Reconciling the hierarchy in the target tenant` on a resume |
+| data | part of the one import | `Migrating data for N devices, one at a time`, then `Device N of M` per device |
+
+The run id is announced by the import that applies it, never by migrate itself,
+and **not** by the per-device `--dataOnly` imports: those create no objects, so
+they mark nothing, and saying otherwise would repeat the line once per device.
+
+`--resume` is validated **first**, before any network call and before a staging
+directory exists, so a wrong run id costs nothing. It reads the run from the
+journal rather than trusting the caller.
+
+On a resume the hierarchy is re-imported rather than skipped. That import is
+idempotent — objects in the mapping are left alone and only the relationships the
+target is missing are assigned — and it is what repairs a hierarchy that stopped
+half way or that an object was deleted from.
+
+### What a failure says
+
+The staging directory is kept on failure, so a retry does not have to read the
+source tenant again, and the exact `revert` command is printed. `importStarted`
+distinguishes *this attempt created nothing* from *stopped part way through*, so a
+failure before the first import does not report an earlier attempt's objects as
+this one's leftovers.
+
 ## Refusing an import into the source tenant
 
 `migrate` compares its two sessions, but nothing stops `export` and `import`

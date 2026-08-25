@@ -27,8 +27,8 @@ Options:
                         [default: asset,device]
     --no-children       Migrate only the root device
     --dataTypes types   Comma separated list of device data to include, one or
-                        more of measurements, events and alarms. Defaults to
-                        none
+                        more of measurements, events and alarms, or 'all' for
+                        every kind. Defaults to none
     --dateFrom date     Only include data at or after this time. Measurements
                         default to the last 14 days
     --dateTo date       Only include data at or before this time
@@ -111,7 +111,7 @@ value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
 stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
 <<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
 "$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
-trimmed_doc=${DOC:0:2774};usage=${DOC:379:293};digest=a5059;options=(' --rootI'\
+trimmed_doc=${DOC:0:2799};usage=${DOC:379:293};digest=8552d;options=(' --rootI'\
 'd 1' ' --sourceSession 1' ' --targetSession 1' ' --childTypes 1' ' --no-child'\
 'ren 0' ' --dataTypes 1' ' --dateFrom 1' ' --dateTo 1' ' --ignoreLimits 0' ' -'\
 '-mapping 1' ' --incremental 0' ' --resume 1' ' --keepStaging 0' ' --noFlag 0' \
@@ -155,6 +155,12 @@ runId=""
 # not have to reach into the parser's variables
 mappingFile="id_mapping.json"
 targetSession=""
+
+# Set by the pre-flight so the confirmation dialog can name both tenants
+preflightSourceHost=""
+preflightSourceTenant=""
+preflightTargetHost=""
+preflightTargetTenant=""
 journalFile=""
 
 # The session files the arguments actually resolved to. Every c8y call goes
@@ -335,6 +341,12 @@ preflight() {
 
     # What was matched, not what was typed: a glob that resolved to something
     # unexpected is the failure this is here to make visible.
+    # kept for the confirmation dialog, which names both tenants
+    preflightSourceHost="$sourceHost"
+    preflightSourceTenant="$sourceTenant"
+    preflightTargetHost="$targetHost"
+    preflightTargetTenant="$targetTenant"
+
     echo "Migrating from $sourceHost ($sourceTenant)" >&2
     echo "               to $targetHost ($targetTenant)" >&2
     echo "  source session: $(basename "$sourceSessionFile")" >&2
@@ -352,18 +364,36 @@ preflight() {
     fi
 }
 
+# Asked in the shape c8y asks, because these commands sit next to c8y in the
+# same workflows: someone who has answered its dialog a hundred times should not
+# have to read a different one here. The real dialog, verified against a live
+# tenant, is
+#
+#   Confirm (job: 1)
+#   Delete on https://.../inventory/managedObjects/359973220
+#   [y] Yes  [a] Yes to All  [n] No  [l] No to All
+#
+# and it is rendered on stderr, which is why this is too.
 confirm_migration() {
-    local reply
+    local rootId="$1" reply
 
-    printf 'Type "yes" to migrate: ' >&2
+    echo "Confirm (job: 1)" >&2
+    echo "Migrate $rootId from $preflightSourceHost ($preflightSourceTenant) to $preflightTargetHost ($preflightTargetTenant)" >&2
+    echo "[y] Yes  [a] Yes to All  [n] No  [l] No to All" >&2
+
     if ! read -r reply; then
-        echo "No confirmation received on stdin, pass --force to migrate without being asked" >&2
+        echo "No answer received on stdin, pass --force to continue without being asked" >&2
         exit 1
     fi
-    if [[ "$reply" != "yes" ]]; then
-        echo "Aborted, nothing was migrated" >&2
-        exit 1
-    fi
+    # Anything else declines, including an empty line: the safe answer is the
+    # default, and a typo must never be read as consent.
+    case "$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')" in
+        y | yes | a | yestoall) ;;
+        *)
+            echo "Aborted, nothing was migrated" >&2
+            exit 1
+            ;;
+    esac
 }
 
 # The journal records which devices' data has arrived. The mapping is already
@@ -600,6 +630,17 @@ run_migrate() {
     # set again by preflight, to the file the argument resolved to
     targetSession="$__targetSession"
 
+    # Checked before the pre-flight, so a mistyped id does not cost two
+    # authenticated calls. export refuses it too, but only after them.
+    case "$__rootId" in
+        "" | . | .. | */* | *\\*)
+            echo "Invalid --rootId '$__rootId': an id cannot contain a path separator." >&2
+            echo "This looks like a path rather than an id, which shell completion of a" >&2
+            echo "directory name usually explains. Did you mean '${__rootId##*/}'?" >&2
+            exit 1
+            ;;
+    esac
+
     incremental="$__incremental"
     if [[ -n "$__resume" ]]; then
         # Resuming is only exact on the per-device path, so it selects it
@@ -616,7 +657,7 @@ run_migrate() {
     targetSession="$targetSessionFile"
 
     if [[ "$__force" != "true" ]]; then
-        confirm_migration
+        confirm_migration "$__rootId"
     fi
 
     keepStaging="$__keepStaging"

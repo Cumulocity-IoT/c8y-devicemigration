@@ -1061,10 +1061,31 @@ func (s *Server) writeManagedObject(w http.ResponseWriter, id string) {
 }
 
 func (s *Server) writeChildren(w http.ResponseWriter, id, childType, property string) {
+	// Two id spaces, as for a single managed object: an id this run created is
+	// in the target tenant, so its children are the ones actually assigned
+	// there. Reading the source fixture for a target id would return nothing,
+	// which is worse than it sounds - it makes every existing relationship look
+	// missing, so a resume assigns all of them a second time.
+	s.mu.Lock()
+	_, wasCreated := s.created[id]
+	var assigned []string
+	if wasCreated {
+		for _, link := range s.links {
+			if link.ParentID == id && link.ChildType == childType {
+				assigned = append(assigned, link.ChildID)
+			}
+		}
+	}
 	device := s.hierarchy[id]
+	s.mu.Unlock()
+
+	childIDs := device.Children[childType]
+	if wasCreated {
+		childIDs = assigned
+	}
 
 	references := []any{}
-	for _, childID := range device.Children[childType] {
+	for _, childID := range childIDs {
 		child := s.hierarchy[childID]
 		managedObject := map[string]any{"id": childID, "type": child.Type}
 		if child.Name != "" {

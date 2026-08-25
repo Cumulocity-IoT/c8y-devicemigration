@@ -65,8 +65,15 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 
 	root.AddCommand(newExportCommand(stderr))
 	root.AddCommand(newImportCommand(stderr))
+	root.AddCommand(newMigrateCommand(stderr))
 	root.AddCommand(newPreflightCommand(stderr))
 	root.AddCommand(newRevertCommand(stderr))
+
+	// Value completion for the flags with a knowable set of values. Attached
+	// here rather than in each constructor so no command can forget it.
+	for _, command := range root.Commands() {
+		registerCompletions(command)
+	}
 
 	return root
 }

@@ -391,3 +391,133 @@ func TestIgnoreLimitsExportsDataAnyway(t *testing.T) {
 		t.Errorf("stderr:\n%s", stderr)
 	}
 }
+
+func TestARootIDThatIsAPathIsRefused(t *testing.T) {
+	// The id ends up in every artefact file name, so one containing a path
+	// separator does not merely produce an odd name: '../x' would write outside
+	// the output directory. It is also the only id a caller supplies.
+	for _, tc := range []struct {
+		id       string
+		contains string
+	}{
+		{"./1399229", "Did you mean '1399229'?"},
+		{"../escaped", "cannot contain a path separator"},
+		{"a/b", "cannot contain a path separator"},
+		{`a\b`, "cannot contain a path separator"},
+		{".", "that is a path, not an id"},
+		{"..", "that is a path, not an id"},
+		{" 1399229", "leading or trailing whitespace"},
+		{"", "No root id given"},
+	} {
+		err := export.ValidateRootID(tc.id)
+		if err == nil {
+			t.Errorf("%q should be refused", tc.id)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.contains) {
+			t.Errorf("%q: message is %q, want it to mention %q", tc.id, err.Error(), tc.contains)
+		}
+	}
+}
+
+func TestAPlainRootIDIsAccepted(t *testing.T) {
+	// Including the resolver forms the platform accepts, which refusing
+	// anything but digits would have taken away.
+	for _, id := range []string{"1399229", "1", "name:My Device", "ext:c8y_Serial:ABC-123"} {
+		if err := export.ValidateRootID(id); err != nil {
+			t.Errorf("%q should be accepted: %v", id, err)
+		}
+	}
+}
+
+func TestABadRootIDIsRefusedBeforeAnyRequest(t *testing.T) {
+	server := testfixture.New(t, "hierarchy.json")
+	_, _, err := runAgainst(t, server, export.Options{
+		RootID: "./1", ChildTypes: export.DefaultChildTypes,
+	})
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	// Measured from after the client was built, which fetches a token of its own.
+	if got := len(server.Requests()) - requestsBefore; got != 0 {
+		t.Errorf("the export made %d requests before refusing, want 0", got)
+	}
+}
+
+func TestAllIsAShortcutForEveryDataType(t *testing.T) {
+	// Asking for all three is the common case, and spelling them out invites a
+	// typo that silently narrows the migration.
+	got, err := export.ResolveDataTypes("all")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := export.AllDataTypes()
+	if len(got) != len(want) {
+		t.Fatalf("all resolved to %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("all resolved to %v, want %v", got, want)
+		}
+	}
+	// and it is the same set an explicit list gives, in the same order
+	explicit, err := export.ResolveDataTypes("measurements,events,alarms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range explicit {
+		if explicit[i] != got[i] {
+			t.Fatalf("all (%v) and the explicit list (%v) differ", got, explicit)
+		}
+	}
+}
+
+func TestAllIsCaseInsensitiveAndTolerantOfSpace(t *testing.T) {
+	for _, value := range []string{"all", "ALL", "All", "  all  "} {
+		got, err := export.ResolveDataTypes(value)
+		if err != nil {
+			t.Errorf("%q: %v", value, err)
+			continue
+		}
+		if len(got) != 3 {
+			t.Errorf("%q resolved to %v", value, got)
+		}
+	}
+}
+
+func TestAllCannotBeCombinedWithNamedTypes(t *testing.T) {
+	// Ambiguous: does "all,events" mean all, or is one of them a mistake?
+	// Refusing says which.
+	for _, value := range []string{"all,events", "measurements,all", "all,all"} {
+		_, err := export.ResolveDataTypes(value)
+		if err == nil {
+			t.Errorf("%q should be refused", value)
+			continue
+		}
+		if !strings.Contains(err.Error(), "cannot be combined with other data types") {
+			t.Errorf("%q: unhelpful message %q", value, err.Error())
+		}
+	}
+}
+
+func TestAllExportsEveryKind(t *testing.T) {
+	resolved, err := export.ResolveDataTypes("all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, stderr, err := run(t, "hierarchy.json", export.Options{
+		RootID: "2", ChildTypes: export.DefaultChildTypes,
+		DataTypes: resolved, Windows: wholeHistory(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, file := range []string{"measurements.jsonl", "events.jsonl", "alarms.jsonl"} {
+		if _, statErr := os.Stat(filepath.Join(dir, "data", "2", file)); statErr != nil {
+			t.Errorf("%s was not written: %v", file, statErr)
+		}
+	}
+	if !strings.Contains(stderr, "3 measurements, 2 events, 1 attachment, 3 alarms") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}

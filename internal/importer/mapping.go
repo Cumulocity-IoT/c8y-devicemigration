@@ -48,6 +48,25 @@ func (m *Mapping) Name(oldID string) string { return m.names[oldID] }
 // Len is how many objects have been created.
 func (m *Mapping) Len() int { return len(m.order) }
 
+// Retain keeps only the entries the predicate accepts and returns how many were
+// dropped, preserving the order of what remains.
+func (m *Mapping) Retain(keep func(oldID, newID, name string) bool) int {
+	var kept []string
+	dropped := 0
+
+	for _, oldID := range m.order {
+		if keep(oldID, m.newID[oldID], m.names[oldID]) {
+			kept = append(kept, oldID)
+			continue
+		}
+		delete(m.newID, oldID)
+		delete(m.names, oldID)
+		dropped++
+	}
+	m.order = kept
+	return dropped
+}
+
 // Write saves the mapping.
 //
 // Called after every created object, not once at the end: an import that dies

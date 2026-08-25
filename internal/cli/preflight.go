@@ -57,6 +57,8 @@ func runPreflight(ctx context.Context, stderr io.Writer, sourceValue, targetValu
 	fmt.Fprintf(stderr, "Both sessions authenticate. Reported tenants: %s and %s\n",
 		result.SourceTenant, result.TargetTenant)
 	return nil
+	// note: migrate calls preflight() directly, so this closing line belongs to
+	// the preflight command alone
 }
 
 // preflight mirrors commands/migrate:283-353.

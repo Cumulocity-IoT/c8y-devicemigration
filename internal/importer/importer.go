@@ -39,6 +39,17 @@ type Options struct {
 	// lost migration.
 	NoFlag bool
 
+	// Resume continues an import that stopped part way through, using the
+	// mapping as the record of what already exists. Objects listed there are
+	// not created again, and only the relationships the target is missing are
+	// assigned.
+	Resume bool
+
+	// DataOnly imports measurements, events and alarms only, resolving each
+	// device through an existing mapping. It creates no managed objects and no
+	// relationships, so it can add data to a hierarchy migrated earlier.
+	DataOnly bool
+
 	// AllowSameTenant permits importing back into the tenant the export came
 	// from. Off by default: that duplicates a hierarchy inside itself.
 	AllowSameTenant bool
@@ -67,6 +78,9 @@ type Importer struct {
 	// but the exit code has to say so, or migrate would journal a device as
 	// finished with records missing.
 	dataFailures int
+
+	// dataDevices is how many devices DataOnly actually imported data for.
+	dataDevices int
 }
 
 func New(client *api.Client, stderr io.Writer, opts Options) *Importer {
@@ -117,15 +131,42 @@ func (i *Importer) Run(ctx context.Context) error {
 	// Announced by whatever actually applies it, so the id is in the log of the
 	// run that used it - and so it can be recovered later without reading it
 	// back off an object's fragments.
-	if i.markerFragment != "" {
+	//
+	// Not under DataOnly: that creates no objects, so it marks nothing, and
+	// saying otherwise would be a lie repeated once per device.
+	if i.markerFragment != "" && !i.opts.DataOnly {
 		fmt.Fprintf(i.stderr, "Run id %s, marking created objects with %s\n",
 			i.opts.RunID, i.markerFragment)
 	}
 
-	// An empty mapping up front, so an immediate failure still leaves a file
-	// rather than nothing at all.
-	if err := i.mapping.Write(); err != nil {
-		return err
+	if i.opts.DataOnly {
+		// The mapping is pure input in this mode. It must never be rewritten:
+		// an earlier version of this truncated it to {} at startup and took the
+		// revert record with it.
+		if err := i.LoadMapping(i.opts.MappingFile, i.opts.InputDirectory); err != nil {
+			return err
+		}
+		if err := i.importDataOnly(ctx); err != nil {
+			return err
+		}
+		return i.reportData()
+	}
+
+	if i.opts.Resume {
+		// The mapping is the input here, so it must be read before anything
+		// writes over it.
+		if err := i.LoadMapping(i.opts.MappingFile, i.opts.InputDirectory); err != nil {
+			return err
+		}
+		if err := i.PruneDeletedFromMapping(ctx); err != nil {
+			return err
+		}
+	} else {
+		// An empty mapping up front, so an immediate failure still leaves a
+		// file rather than nothing at all.
+		if err := i.mapping.Write(); err != nil {
+			return err
+		}
 	}
 
 	if err := i.importDevices(ctx); err != nil {
@@ -146,6 +187,20 @@ func (i *Importer) Run(ctx context.Context) error {
 		i.identitiesCreated, plural(i.identitiesCreated, "external identity", "external identities"),
 		i.opts.MappingFile)
 
+	if err := i.reportData(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// reportData prints the data totals and turns a failed record into a failure.
+func (i *Importer) reportData() error {
+	// A single device's totals can only restate the per-device lines above, so
+	// they are left out. Across several devices they still add something.
+	if i.opts.DataOnly && i.dataDevices <= 1 {
+		return i.dataFailure()
+	}
+
 	if i.measurementsCreated > 0 || i.eventsCreated > 0 || i.alarmsCreated > 0 {
 		line := fmt.Sprintf("Imported %d %s, %d %s and %d %s",
 			i.measurementsCreated, plural(i.measurementsCreated, "measurement", "measurements"),
@@ -161,13 +216,51 @@ func (i *Importer) Run(ctx context.Context) error {
 	if i.identitiesFailed > 0 {
 		fmt.Fprintf(i.stderr, "%d external identities could not be created\n", i.identitiesFailed)
 	}
+	return i.dataFailure()
+}
 
-	// Last, and it fails: everything above has already said what did land, and
-	// a caller that read a zero exit code here would treat a part-delivered
-	// device as finished.
+// dataFailure is last, and it fails: everything else has already said what did
+// land, and a caller that read a nil error here would treat a part-delivered
+// device as finished.
+func (i *Importer) dataFailure() error {
 	if i.dataFailures > 0 {
 		return fmt.Errorf("%d %s could not be imported, so this import is incomplete",
 			i.dataFailures, plural(i.dataFailures, "record", "records"))
+	}
+	return nil
+}
+
+// importDataOnly adds data to devices that already exist in the target.
+//
+// This is what lets a large migration move data one device at a time instead of
+// staging all of it first.
+func (i *Importer) importDataOnly(ctx context.Context) error {
+	entries, err := filepath.Glob(filepath.Join(i.opts.InputDirectory, "data", "*"))
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		info, statErr := os.Stat(entry)
+		if statErr != nil || !info.IsDir() {
+			continue
+		}
+		oldID := filepath.Base(entry)
+
+		newID := i.mapping.NewID(oldID)
+		if newID == "" {
+			fmt.Fprintf(i.stderr, "Skipping data for (%s), it is not in the mapping\n", oldID)
+			continue
+		}
+		name := i.mapping.Name(oldID)
+		if name == "" {
+			name = "device " + oldID
+		}
+
+		if err := i.importDeviceData(ctx, i.opts.InputDirectory, oldID, newID, name); err != nil {
+			return err
+		}
+		i.dataDevices++
 	}
 	return nil
 }
@@ -201,6 +294,16 @@ func (i *Importer) importDevices(ctx context.Context) error {
 
 		oldID := SourceID(file)
 		name := displayName(jsonraw.Name(body))
+
+		// On a resume the mapping is the record of what already exists.
+		// Anything listed there is left alone, which is what stops a resume
+		// from creating a second copy of every object the first attempt made.
+		if i.opts.Resume {
+			if existing := i.mapping.NewID(oldID); existing != "" {
+				fmt.Fprintf(i.stderr, "Already imported %s (%s -> %s)\n", name, oldID, existing)
+				continue
+			}
+		}
 
 		stripped, err := jsonraw.StripServerManaged(body)
 		if err != nil {
@@ -315,6 +418,14 @@ func (i *Importer) linkChildren(ctx context.Context) error {
 			return fmt.Errorf("%s: %w", file, err)
 		}
 
+		var assigned map[string]bool
+		if i.opts.Resume {
+			assigned, err = i.alreadyAssigned(ctx, newParentID, childType)
+			if err != nil {
+				return err
+			}
+		}
+
 		for _, oldChildID := range childIDs {
 			newChildID := i.mapping.NewID(oldChildID)
 			if newChildID == "" {
@@ -324,6 +435,12 @@ func (i *Importer) linkChildren(ctx context.Context) error {
 				continue
 			}
 			childName := i.mapping.Name(oldChildID)
+
+			if assigned[newChildID] {
+				fmt.Fprintf(i.stderr, "Already assigned %s (%s) as %s child of %s (%s)\n",
+					childName, newChildID, childType, parentName, newParentID)
+				continue
+			}
 
 			if err := i.assign(ctx, newParentID, childType, newChildID); err != nil {
 				return err

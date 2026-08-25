@@ -161,20 +161,38 @@ func TestForceDeletesEverythingInThePlan(t *testing.T) {
 func TestYesAtThePromptDeletes(t *testing.T) {
 	server, client, mapping := migrated(t, "")
 
-	out, err := revert(t, client, "yes\n", reverter.Options{MappingFile: mapping})
+	out, err := revert(t, client, "y\n", reverter.Options{MappingFile: mapping})
 	if err != nil {
 		t.Fatalf("unexpected error: %v\n%s", err, out)
 	}
 	if got := len(server.Created()); got != 0 {
 		t.Fatalf("%d objects survived", got)
 	}
-	if !strings.Contains(out, "Type \"yes\" to delete these managed objects:") {
-		t.Errorf("no prompt was shown:\n%s", out)
+	for _, want := range []string{
+		"Confirm (job: 1)",
+		"Delete 9 managed objects",
+		"[y] Yes  [a] Yes to All  [n] No  [l] No to All",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the dialog is missing %q:\n%s", want, out)
+		}
 	}
 }
 
-func TestAnythingButYesDeclines(t *testing.T) {
-	for _, answer := range []string{"no\n", "y\n", "YES\n", "\n", ""} {
+func TestTheDialogAcceptsWhatC8yAccepts(t *testing.T) {
+	for _, answer := range []string{"y\n", "Y\n", "yes\n", "a\n", "yestoall\n"} {
+		server, client, mapping := migrated(t, "")
+		if _, err := revert(t, client, answer, reverter.Options{MappingFile: mapping}); err != nil {
+			t.Errorf("answer %q should delete: %v", answer, err)
+		}
+		if len(server.Created()) != 0 {
+			t.Errorf("answer %q did not delete", answer)
+		}
+	}
+}
+
+func TestAnythingElseDeclines(t *testing.T) {
+	for _, answer := range []string{"no\n", "n\n", "l\n", "maybe\n", "\n", ""} {
 		server, client, mapping := migrated(t, "")
 		out, err := revert(t, client, answer, reverter.Options{MappingFile: mapping})
 		if !errors.Is(err, reverter.ErrIncomplete) {

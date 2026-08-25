@@ -49,6 +49,13 @@ func New(client *api.Client, stderr io.Writer, opts Options) *Exporter {
 
 // Run checks the limits, then writes the hierarchy.
 func (e *Exporter) Run(ctx context.Context) error {
+	// Before the limits and before any request: the id ends up in every file
+	// name this writes, so an unsafe one has to be refused rather than
+	// discovered when the first write fails.
+	if err := ValidateRootID(e.opts.RootID); err != nil {
+		return err
+	}
+
 	if e.opts.IgnoreLimits {
 		e.warnIgnoringLimits()
 	}

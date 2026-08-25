@@ -60,10 +60,19 @@ func runAgainst(t *testing.T, server *testfixture.Server, opts export.Options) (
 	out := filepath.Join(dir, "out")
 	opts.OutputDirectory = out
 
+	// Building the client makes a request of its own - it fetches a token and
+	// resolves the tenant - so a caller counting requests has to measure from
+	// here rather than from zero.
+	requestsBefore = len(server.Requests())
+
 	var stderr bytes.Buffer
 	err = export.New(client, &stderr, opts).Run(context.Background())
 	return out, stderr.String(), err
 }
+
+// requestsBefore is how many requests the server had seen when the last
+// runAgainst built its client.
+var requestsBefore int
 
 // exportedIDs lists the ids that got an object file, sorted numerically-ish.
 func exportedIDs(t *testing.T, dir string) []string {

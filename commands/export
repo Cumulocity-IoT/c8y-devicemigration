@@ -19,8 +19,9 @@ Options:
     --no-children       Export only the root device without following any
                         child relationships
     --dataTypes types   Comma separated list of device data to include, one or
-                        more of measurements, events and alarms. Defaults to
-                        none, so no data is exported unless asked for
+                        more of measurements, events and alarms, or 'all' for
+                        every kind. Defaults to none, so no data is exported
+                        unless asked for
     --dateFrom date     Only export data at or after this time, absolute or
                         relative, e.g. 2026-01-01T00:00:00Z or -30d.
                         Measurements default to the last 14 days; events and
@@ -112,7 +113,7 @@ value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
 stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
 <<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
 "$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
-trimmed_doc=${DOC:0:2713};usage=${DOC:47:262};digest=9e520;options=(' --rootId'\
+trimmed_doc=${DOC:0:2762};usage=${DOC:47:262};digest=66b30;options=(' --rootId'\
 ' 1' ' --output-compressed 1' ' --output-directory 1' ' --childTypes 1' ' --no'\
 '-children 0' ' --dataTypes 1' ' --dateFrom 1' ' --dateTo 1' ' --ignoreLimits '\
 '0' ' --metadataOnly 0' ' --dataOnly 0' ' --session 1');node_0(){ value \
@@ -213,6 +214,21 @@ resolve_data_types() {
     local requested dataType
 
     requested="${__dataTypes:-}"
+
+    # "all" is a shortcut for every kind: asking for all three is the common
+    # case, and spelling them out invites a typo that silently narrows the
+    # migration. Mixing it with names would be ambiguous, so that is refused.
+    case "$requested" in
+        all | ALL | All)
+            dataTypes="measurements events alarms"
+            return 0
+            ;;
+        *all,* | *,all)
+            echo "'all' cannot be combined with other data types, use either 'all'" >&2
+            echo "or a list of measurements, events and alarms" >&2
+            exit 1
+            ;;
+    esac
     if [[ -z "${requested// /}" ]]; then
         dataTypes=""
         return 0
@@ -230,7 +246,7 @@ resolve_data_types() {
                 exit 1
                 ;;
             *)
-                echo "Unsupported data type '$dataType', expected measurements, events or alarms" >&2
+                echo "Unsupported data type '$dataType', expected measurements, events, alarms or all" >&2
                 exit 1
                 ;;
         esac
@@ -318,6 +334,34 @@ plural() {
     else
         printf '%s' "$3"
     fi
+}
+
+# The root id ends up in every file name the export writes, so one containing a
+# path separator does not merely produce an odd name: --rootId ../x would write
+# outside the output directory. It is also the only id a caller supplies; every
+# other one comes from the platform.
+#
+# Deliberately narrow rather than digits-only: the id is passed to c8y's own
+# resolver, which also accepts forms like 'name:My Device'.
+validate_root_id() {
+    local id="$1"
+
+    case "$id" in
+        "")
+            echo "No root id given" >&2
+            exit 1
+            ;;
+        . | ..)
+            echo "Invalid --rootId '$id': that is a path, not an id" >&2
+            exit 1
+            ;;
+        */* | *\\*)
+            echo "Invalid --rootId '$id': an id cannot contain a path separator." >&2
+            echo "This looks like a path rather than an id, which shell completion of a" >&2
+            echo "directory name usually explains. Did you mean '${id##*/}'?" >&2
+            exit 1
+            ;;
+    esac
 }
 
 # The __* variables are set by the generated parser through eval, which
@@ -843,6 +887,7 @@ run_export() {
 
     use_session "${__session:-}"
 
+    validate_root_id "$__rootId"
     resolve_child_types
     resolve_data_types
     resolve_date_args

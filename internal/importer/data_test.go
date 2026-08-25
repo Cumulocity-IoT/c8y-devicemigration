@@ -458,3 +458,46 @@ func TestAFailedMeasurementBatchAloneFailsTheImport(t *testing.T) {
 		t.Error("measurements were delivered despite being refused")
 	}
 }
+
+func TestDataOnlyAnnouncesNoRunID(t *testing.T) {
+	// It creates no objects, so it marks nothing. Saying otherwise would be a
+	// lie, and an incremental migration would repeat it once per device.
+	server := testfixture.New(t, "hierarchy.json")
+	work := t.TempDir()
+	sessionPath := server.WriteSessionFile(t, work, "fixture.json")
+	s, _ := session.Read(sessionPath)
+	client, err := c8yclient.New(s, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(work, "export")
+	var discard bytes.Buffer
+	if err := export.New(client, &discard, export.Options{
+		RootID: "1", OutputDirectory: out, ChildTypes: export.DefaultChildTypes,
+		DataTypes: allData, Windows: wholeHistory(),
+	}).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	mapping := filepath.Join(work, "id_mapping.json")
+	var first bytes.Buffer
+	if err := importer.New(client, &first, importer.Options{
+		InputDirectory: out, MappingFile: mapping,
+		RunID: "RUN_ABC", AllowSameTenant: true,
+	}).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var second bytes.Buffer
+	if err := importer.New(client, &second, importer.Options{
+		InputDirectory: out, MappingFile: mapping,
+		RunID: "RUN_ABC", DataOnly: true, AllowSameTenant: true,
+	}).Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, second.String())
+	}
+
+	if strings.Contains(second.String(), "Run id") {
+		t.Errorf("--dataOnly announced a run id:\n%s", second.String())
+	}
+}

@@ -33,6 +33,14 @@ const (
 	ChildAddition ChildType = "addition"
 )
 
+// DataAll is the shortcut for every kind of device data.
+const DataAll DataType = "all"
+
+// AllDataTypes is what "all" expands to, in the order the export reports them.
+func AllDataTypes() []DataType {
+	return []DataType{DataMeasurements, DataEvents, DataAlarms}
+}
+
 // DefaultChildTypes matches the bash default of "asset,device": additions are
 // left out because they reach configuration and firmware objects that are not
 // part of a device hierarchy.
@@ -112,11 +120,24 @@ func ResolveDataTypes(value string) ([]DataType, error) {
 		return nil, nil
 	}
 
+	// "all" is a shortcut for every kind, because asking for all three is the
+	// common case and spelling them out invites a typo that silently narrows the
+	// migration.
+	if strings.EqualFold(strings.TrimSpace(value), string(DataAll)) {
+		return AllDataTypes(), nil
+	}
+
 	var resolved []DataType
 	for _, token := range strings.Split(value, ",") {
 		token = strings.TrimSpace(token)
 		if token == "" {
 			continue
+		}
+		if DataType(token) == DataAll {
+			// Mixing it with names would be ambiguous: does "all,events" mean
+			// all, or is one of them a mistake? Refusing says which.
+			return nil, fmt.Errorf(
+				"'all' cannot be combined with other data types, use either 'all' or a list of measurements, events and alarms")
 		}
 		switch DataType(token) {
 		case DataMeasurements, DataEvents, DataAlarms:
@@ -127,7 +148,7 @@ func ResolveDataTypes(value string) ([]DataType, error) {
 					"recreated operation would be PENDING and the target device would execute it")
 		default:
 			return nil, fmt.Errorf(
-				"Unsupported data type '%s', expected measurements, events or alarms", token)
+				"Unsupported data type '%s', expected measurements, events, alarms or all", token)
 		}
 	}
 	if len(resolved) == 0 {
@@ -144,4 +165,50 @@ func plural(n int, singular, many string) string {
 		return singular
 	}
 	return many
+}
+
+// ValidateRootID refuses a root id that cannot safely be part of an artefact
+// file name.
+//
+// The id is embedded in every file the export writes, so one containing a path
+// separator does not merely produce an odd name: `--rootId ../x` would write
+// outside the output directory entirely. It is also the only id a caller
+// supplies - every other one comes from the platform - so this is the only place
+// that needs checking.
+//
+// Deliberately narrow rather than "digits only": the id is passed to the
+// platform's own resolver, which also accepts forms like `name:My Device`, and
+// refusing those would remove something the bash implementation can do.
+func ValidateRootID(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("No root id given")
+	}
+	if id != strings.TrimSpace(id) {
+		return fmt.Errorf("Invalid --rootId %q: it has leading or trailing whitespace", id)
+	}
+	if id == "." || id == ".." {
+		return fmt.Errorf("Invalid --rootId %q: that is a path, not an id", id)
+	}
+	for _, r := range id {
+		if r == '/' || r == '\\' {
+			return fmt.Errorf(
+				"Invalid --rootId '%s': an id cannot contain a path separator.\n"+
+					"This looks like a path rather than an id, which shell completion of a\n"+
+					"directory name usually explains. Did you mean '%s'?",
+				id, lastSegment(id))
+		}
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("Invalid --rootId %q: it contains a control character", id)
+		}
+	}
+	return nil
+}
+
+// lastSegment is the part after the final separator, which is what the caller
+// almost certainly meant.
+func lastSegment(id string) string {
+	if index := strings.LastIndexAny(id, `/\`); index >= 0 {
+		return id[index+1:]
+	}
+	return id
 }
