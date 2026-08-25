@@ -26,6 +26,15 @@ require_real_c8y() {
 load "$TESTS_DIR/vendor/bats-support/load.bash"
 load "$TESTS_DIR/vendor/bats-assert/load.bash"
 
+# A session file shaped like a real one: host and tenant plaintext, credentials
+# encrypted. That split is the whole reason the identity can be read locally.
+write_session() {
+    local name="$1" host="$2" tenant="$3"
+    jq -n --arg host "$host" --arg tenant "$tenant" \
+        '{host: $host, tenant: $tenant, password: "{encrypted}xxx", token: "{encrypted}yyy"}' \
+        > "$SESSION_HOME/$name"
+}
+
 setup_common() {
     WORK="$BATS_TEST_TMPDIR/work"
     REC="$BATS_TEST_TMPDIR/rec"
@@ -35,6 +44,19 @@ setup_common() {
 
     export FAKE_C8Y_REC="$REC"
     export FAKE_C8Y_HIERARCHY="$TESTS_DIR/fixtures/hierarchy.json"
+
+    # Real session files in a temp session home. migrate resolves --session
+    # against these itself and reads host and tenant out of them, because
+    # `sessions get` reports the ACTIVE session and ignores --session - see
+    # assumption 7 in tests/fake/c8y. A test that let the fake invent an
+    # identity from the session name could not have caught that.
+    SESSION_HOME="$BATS_TEST_TMPDIR/sessions"
+    mkdir -p "$SESSION_HOME"
+    # deliberately mismatched schemes: real session files disagree about this,
+    # and the host comparison has to see through it
+    write_session source.json "https://source.example.com" "t_source"
+    write_session target.json "target.example.com" "t_target"
+    export FAKE_C8Y_SESSION_HOME="$SESSION_HOME"
     # the fake shadows any real c8y for the duration of the test
     PATH="$TESTS_DIR/fake:$PATH"
     export PATH
@@ -246,6 +268,29 @@ assert_template_fields_quoted() {
     if [[ -n "$bare" ]]; then
         printf 'template has unquoted field names, which breaks on jsonnet keywords:\n%s\nin: %s\n' \
             "$bare" "$template" >&2
+        return 1
+    fi
+}
+
+# Which tenant a group of calls went to. The session reaches c8y either as a
+# --session flag or as C8Y_SESSION, so asserting on the argv alone would miss it.
+# The commands pass the session file they resolved the argument to, so the
+# recorded value is a path. Compared by file name, which is the part that says
+# which tenant it is.
+assert_session_on_calls() {
+    local session="$1" subcommand="$2" wrong
+    wrong=$(awk -F'\t' -v s="$subcommand" -v want="$session" \
+        'index($1, s) == 1 {
+             n = split($4, parts, "/")
+             if (parts[n] != want) print $1 " -> " $4
+         }' "$REC/calls.log")
+    if [[ -n "$wrong" ]]; then
+        printf '%s calls did not use session %s:\n%s\n' "$subcommand" "$session" "$wrong" >&2
+        return 1
+    fi
+    # and the group must be non-empty, or this passes vacuously
+    if [[ "$(count_calls "$subcommand")" -eq 0 ]]; then
+        printf 'no %s calls were made at all\n' "$subcommand" >&2
         return 1
     fi
 }

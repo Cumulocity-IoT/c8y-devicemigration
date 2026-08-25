@@ -5,11 +5,20 @@ set -e
 DOC="Revert an import by deleting the managed objects it created
 
 Usage:
-  revert (--mapping <filename>) [--force]
+  revert (--mapping <filename> | --runId <id>) [--force] [--session <file>]
 
 Options:
-    --mapping filename  ID mapping file written by import (required)
+    --mapping filename  ID mapping file written by import
+    --runId id          Find the objects by their c8y_DeviceMigration_<id>
+                        marker fragment instead of a mapping file, for when the
+                        mapping was lost or never written. Only finds objects
+                        that were marked, so an import run with --noFlag cannot
+                        be reverted this way
     --force             Delete without asking for confirmation
+    --session file      Session to use for this command: a path, a full file
+                        name including its extension, or a glob matched against
+                        the session home. A bare name without the extension does
+                        not resolve
   "
 # docopt parser below, refresh this parser with `docopt.sh revert`
 # shellcheck disable=2016,2086,2329,1075
@@ -53,31 +62,40 @@ argv=("${argv[@]:1}");fi;done;if ! "node_$root_idx" || [ ${#params[@]} -gt 0 \
 node_idx;: $((testdepth++));for node_idx in "$@"; do if ! "node_$node_idx"; then
 params=("${initial_params[@]}");: $((testdepth--));return 1;fi;done;if [[ \
 $((--testdepth)) -eq 0 ]]; then params=("${initial_params[@]}");for node_idx \
-in "$@"; do "node_$node_idx";done;fi;return 0;};optional() { local node_idx
-for node_idx in "$@"; do "node_$node_idx";done;return 0;};switch() { local i \
-param;for i in "${!params[@]}"; do local param=${params[$i]};if [[ $param = \
-"$2" || $param = "$2":* ]]; then params=("${params[@]:0:$i}" \
-"${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && return 0;if [[ $3 = true ]]; \
-then eval "((var_$1++))" || true;else eval "var_$1=true";fi;return 0;elif [[ \
-$param = a:* && $2 = a:* ]]; then return 1;fi;done;return 1;};value() { local \
-i param;for i in "${!params[@]}"; do local param=${params[$i]};if [[ $param = \
-"$2":* ]]; then params=("${params[@]:0:$i}" "${params[@]:((i+1))}");[[ \
-$testdepth -gt 0 ]] && return 0;local value;value=$(printf -- "%q" \
-"${param#*:}");if [[ $3 = true ]]; then eval "var_$1+=($value)";else eval \
-"var_$1=$value";fi;return 0;fi;done;return 1;};stdout() { printf -- "cat <<'EO'\
-'M'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat <<'EOM' >&2\n%s\nEOM\n" "$1";}
-error() { [[ -n $1 ]] && stderr "$1";stderr "$usage";_return 1;};_return() {
-printf -- "exit %d\n" "$1";exit "$1";};set -e;trimmed_doc=${DOC:0:251}
-usage=${DOC:61:48};digest=4f56a;options=(' --mapping 1' ' --force 0');node_0(){
-value __mapping 0;};node_1(){ switch __force 1;};node_2(){ optional 1;}
-node_3(){ sequence 0 2;};cat <<<' docopt_exit() { [[ -n $1 ]] && printf "%s\n" \
-"$1" >&2;printf "%s\n" "${DOC:61:48}" >&2;exit 1;}';local varnames=(__mapping \
-__force) varname;for varname in "${varnames[@]}"; do unset "var_$varname";done
-parse 3 "$@";local p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do
-unset "$p$varname";done;eval $p'__mapping=${var___mapping:-};'$p'__force=${var'\
-'___force:-false};';local docopt_i=1;[[ $BASH_VERSION =~ ^4.3 ]] && docopt_i=2
-for ((;docopt_i>0;docopt_i--)); do for varname in "${varnames[@]}"; do declare \
--p "$p$varname";done;done;}
+in "$@"; do "node_$node_idx";done;fi;return 0;};choice() { local \
+initial_params=("${params[@]}") best_match_idx unmatched_count node_idx;: \
+$((testdepth++));for node_idx in "$@"; do if "node_$node_idx"; then if [[ -z \
+$unmatched_count || ${#params[@]} -lt $unmatched_count ]]; then
+best_match_idx=$node_idx;unmatched_count=${#params[@]};fi;fi
+params=("${initial_params[@]}");done;: $((testdepth--));if [[ -n \
+$best_match_idx ]]; then "node_$best_match_idx";return 0;fi;return 1;}
+optional() { local node_idx;for node_idx in "$@"; do "node_$node_idx";done
+return 0;};switch() { local i param;for i in "${!params[@]}"; do local \
+param=${params[$i]};if [[ $param = "$2" || $param = "$2":* ]]; then
+params=("${params[@]:0:$i}" "${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && \
+return 0;if [[ $3 = true ]]; then eval "((var_$1++))" || true;else eval \
+"var_$1=true";fi;return 0;elif [[ $param = a:* && $2 = a:* ]]; then return 1;fi
+done;return 1;};value() { local i param;for i in "${!params[@]}"; do local \
+param=${params[$i]};if [[ $param = "$2":* ]]; then params=("${params[@]:0:$i}" \
+"${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && return 0;local value
+value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
+"var_$1+=($value)";else eval "var_$1=$value";fi;return 0;fi;done;return 1;}
+stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
+<<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
+"$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
+trimmed_doc=${DOC:0:906};usage=${DOC:61:82};digest=a7d6a;options=(' --mapping '\
+'1' ' --runId 1' ' --force 0' ' --session 1');node_0(){ value __mapping 0;}
+node_1(){ value __runId 1;};node_2(){ switch __force 2;};node_3(){ value \
+__session 3;};node_4(){ choice 0 1;};node_5(){ optional 2;};node_6(){ optional 3
+};node_7(){ sequence 4 5 6;};cat <<<' docopt_exit() { [[ -n $1 ]] && printf \
+"%s\n" "$1" >&2;printf "%s\n" "${DOC:61:82}" >&2;exit 1;}';local \
+varnames=(__mapping __runId __force __session) varname;for varname in \
+"${varnames[@]}"; do unset "var_$varname";done;parse 7 "$@";local \
+p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset "$p$varname"
+done;eval $p'__mapping=${var___mapping:-};'$p'__runId=${var___runId:-};'$p'__f'\
+'orce=${var___force:-false};'$p'__session=${var___session:-};';local docopt_i=1
+[[ $BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do
+for varname in "${varnames[@]}"; do declare -p "$p$varname";done;done;}
 # docopt parser above, complete command for generating this parser is `docopt.sh revert`
 
 # Objects deleted by this run, and those still present when it finished
@@ -115,6 +133,30 @@ build_plan() {
 }
 
 # Everything that would be removed, printed before anything is touched.
+# The other way to build a plan: ask the tenant which objects carry the run
+# marker. --fragmentType is a first-class inventory filter, so this is one
+# indexed query and not a scan. There is no source id to report, because the
+# marker body is empty by design - it says which run created an object, not
+# which object it came from.
+build_plan_from_marker() {
+    local runId="$1"
+    local fragment="c8y_DeviceMigration_$runId"
+    local found line id name
+
+    found=$(c8y inventory find --fragmentType "$fragment" --select id,name --nullInput)
+
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        id=$(printf '%s' "$line" | jq -rj '.id')
+        name=$(printf '%s' "$line" | jq -rj '.name // empty' | tr '\t\n' '  ')
+        if [[ -z "${name// /}" ]]; then
+            name="<unnamed>"
+        fi
+        # Found by querying the tenant, so it is present by construction
+        printf '%s\t%s\t%s\t%s\n' "-" "$id" "present" "$name" >> "$plan"
+    done <<< "$found"
+}
+
 print_plan() {
     local oldId newId state name presentCount missingCount
 
@@ -124,7 +166,11 @@ print_plan() {
     echo "The following managed objects will be deleted from the active session:" >&2
     while IFS=$'\t' read -r oldId newId state name; do
         if [[ "$state" == "present" ]]; then
-            echo "  delete $name ($newId, imported from $oldId)" >&2
+            if [[ "$oldId" == "-" ]]; then
+                echo "  delete $name ($newId)" >&2
+            else
+                echo "  delete $name ($newId, imported from $oldId)" >&2
+            fi
         fi
     done < "$plan"
 
@@ -234,21 +280,53 @@ staging_directory() {
     mktemp -d "${base%/}/c8y-devicemigration.XXXXXXXX"
 }
 
+# Selects the tenant for every c8y call this command makes.
+#
+# C8Y_SESSION resolves exactly as the --session flag does: a path, a full file
+# name including its extension, or a glob matched against the session home. A
+# bare session name without the extension does NOT resolve, whatever the
+# upstream docs say.
+#
+# The ambient C8Y_* variables are cleared as well. Without --session they are
+# bound and take precedence over the session file, so a stray C8Y_HOST left in
+# the environment would silently redirect every request to the wrong tenant.
+# Choosing a session explicitly means the file decides, and nothing else.
+use_session() {
+    local session="$1"
+
+    [[ -n "$session" ]] || return 0
+
+    export C8Y_SESSION="$session"
+    unset C8Y_HOST C8Y_BASEURL C8Y_URL C8Y_TENANT C8Y_USER C8Y_USERNAME \
+        C8Y_PASSWORD C8Y_TOKEN
+}
+
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
 # shellcheck disable=SC2154
 run_revert() {
     eval "$(docopt "$@")"
 
+    use_session "${__session:-}"
+
     local workDirectory presentCount
 
-    if [[ ! -f "$__mapping" ]]; then
-        echo "Mapping file does not exist: $__mapping" >&2
-        exit 1
-    fi
-    if ! jq -e 'type == "object"' "$__mapping" > /dev/null 2>&1; then
-        echo "Mapping file is not a JSON object: $__mapping" >&2
-        exit 1
+    if [[ -n "$__runId" ]]; then
+        case "$__runId" in
+            *[!A-Za-z0-9_]*)
+                echo "Invalid --runId '$__runId': fragment names may only contain letters, digits and underscores" >&2
+                exit 1
+                ;;
+        esac
+    else
+        if [[ ! -f "$__mapping" ]]; then
+            echo "Mapping file does not exist: $__mapping" >&2
+            exit 1
+        fi
+        if ! jq -e 'type == "object"' "$__mapping" > /dev/null 2>&1; then
+            echo "Mapping file is not a JSON object: $__mapping" >&2
+            exit 1
+        fi
     fi
 
     workDirectory=$(staging_directory)
@@ -258,10 +336,18 @@ run_revert() {
     plan="$workDirectory/plan.tsv"
     : > "$plan"
 
-    build_plan "$__mapping" "$workDirectory"
+    if [[ -n "$__runId" ]]; then
+        build_plan_from_marker "$__runId"
+    else
+        build_plan "$__mapping" "$workDirectory"
+    fi
 
     if [[ ! -s "$plan" ]]; then
-        echo "The mapping file lists no objects, nothing to revert" >&2
+        if [[ -n "$__runId" ]]; then
+            echo "No managed object carries c8y_DeviceMigration_$__runId, nothing to revert" >&2
+        else
+            echo "The mapping file lists no objects, nothing to revert" >&2
+        fi
         return 0
     fi
 

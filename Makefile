@@ -2,7 +2,7 @@
 
 TESTS_DIR := tests
 VENDOR    := $(TESTS_DIR)/vendor
-COMMANDS  := commands/export commands/import commands/revert
+COMMANDS  := commands/export commands/import commands/revert commands/migrate
 
 # Pinned so local and CI agree. Older shellcheck (e.g. Ubuntu's 0.9.0) has a
 # cruder reachability analysis and floods the generated docopt parser with
@@ -24,9 +24,9 @@ endif
 BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
 
-.PHONY: check test test-fast test-bash3 lint parser-freshness bootstrap clean
+.PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness bootstrap clean
 
-check: lint parser-freshness test
+check: lint parser-freshness docs-freshness test
 
 bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
 
@@ -65,6 +65,7 @@ lint:
 			echo "note: shellcheck $$have, CI pins $(SHELLCHECK_VERSION); results may differ"; \
 		fi; \
 		shellcheck $(COMMANDS) $(TESTS_DIR)/fake/c8y $(TESTS_DIR)/helpers/load.bash \
+			tools/gen-command-docs.sh \
 			&& echo "shellcheck $$have: clean"; \
 	else \
 		echo "shellcheck not installed, skipping (CI enforces this)"; \
@@ -73,6 +74,12 @@ lint:
 # The embedded docopt parser is generated from the DOC string. A stale DOC is
 # caught at runtime (exit 70), but a hand-edited parser with an untouched DOC is
 # not, so compare the committed parser against a freshly generated one.
+docs:
+	@tools/gen-command-docs.sh
+
+docs-freshness:
+	@tools/gen-command-docs.sh --check
+
 parser-freshness:
 	@if command -v docopt.sh >/dev/null 2>&1; then \
 		for f in $(COMMANDS); do \

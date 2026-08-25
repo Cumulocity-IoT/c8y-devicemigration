@@ -533,3 +533,46 @@ do_data_migration() {
     assert_equal "$(grep -c '' "$REC/alarms.log")" "3"
     assert_line --partial "Imported 3 alarms for Line A"
 }
+
+# --- a data failure is not a success ----------------------------------------
+#
+# The data commands deliberately keep going when one record is refused, so that
+# a single bad record does not cost a whole migration. The exit code has to say
+# so anyway: a caller that reads zero here treats a part-delivered device as
+# finished, which is how a migration silently loses records.
+
+@test "import: a refused data record makes the import fail" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    FAKE_C8Y_FAIL_DATA_AFTER=1 run_import --input-directory "$OUT" --force
+    assert_failure
+    assert_output --partial "could not be imported, so this import is incomplete"
+}
+
+@test "import: what did arrive is still reported and still mapped" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    FAKE_C8Y_FAIL_DATA_AFTER=1 run_import --input-directory "$OUT" --force
+    assert_failure
+    # the objects were created, so the mapping is complete and revert works
+    assert_equal "$(jq 'length' id_mapping.json)" "9"
+    assert_output --partial "Imported Plant Berlin"
+}
+
+@test "import: the failure count covers every kind of record" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    FAKE_C8Y_FAIL_DATA_AFTER=0 run_import --input-directory "$OUT" --force
+    assert_failure
+    # 4 measurements, 2 events, 3 alarms in the fixture, and the attachment
+    # belongs to an event that never got created
+    assert_output --partial "9 records could not be imported"
+}
+
+@test "import: a clean data import still exits zero" {
+    run_export --rootId 1 --output-directory "$OUT" --dataTypes measurements,events,alarms
+    assert_success
+    run_import --input-directory "$OUT" --force
+    assert_success
+    refute_output --partial "could not be imported"
+}

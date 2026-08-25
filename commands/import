@@ -5,7 +5,7 @@ set -e
 DOC="Import devices and their data into Cumulocity
 
 Usage:
-  import (--input-compressed <filename> | --input-directory <directory>) [--mapping <filename>] [--force]
+  import (--input-compressed <filename> | --input-directory <directory>) [--mapping <filename>] [--force] [--session <file>] [--runId <id>] [--dataOnly | --resume]
 
 Options:
     --input-compressed filename
@@ -16,6 +16,23 @@ Options:
                         [default: id_mapping.json]
     --force             Do not prompt for confirmation before creating or
                         assigning managed objects
+    --session file      Session to use for this command: a path, a full file
+                        name including its extension, or a glob matched against
+                        the session home. A bare name without the extension does
+                        not resolve
+    --runId id          Mark every created managed object with an empty
+                        c8y_DeviceMigration_<id> fragment, so the objects of one
+                        migration can be found with a single --fragmentType
+                        query. Must be letters, digits and underscores only
+    --resume            Continue an import that stopped part way through, using
+                        the mapping file as the record of what was already
+                        created. Objects listed there are not created again, and
+                        only the relationships the target is missing are
+                        assigned
+    --dataOnly          Import only measurements, events and alarms, resolving
+                        each device through an existing mapping file. Creates no
+                        managed objects and no relationships, so it can add data
+                        to a hierarchy that was migrated earlier
   "
 # docopt parser below, refresh this parser with `docopt.sh import`
 # shellcheck disable=2016,2086,2329,1075
@@ -80,21 +97,27 @@ value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
 stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
 <<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
 "$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
-trimmed_doc=${DOC:0:606};usage=${DOC:47:112};digest=063f6;options=(' --input-c'\
-'ompressed 1' ' --input-directory 1' ' --mapping 1' ' --force 0');node_0(){
-value __input_compressed 0;};node_1(){ value __input_directory 1;};node_2(){
-value __mapping 2;};node_3(){ switch __force 3;};node_4(){ choice 0 1;}
-node_5(){ optional 2;};node_6(){ optional 3;};node_7(){ sequence 4 5 6;};cat \
-<<<' docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" \
-"${DOC:47:112}" >&2;exit 1;}';local varnames=(__input_compressed \
-__input_directory __mapping __force) varname;for varname in "${varnames[@]}"; do
-unset "var_$varname";done;parse 7 "$@";local p=${DOCOPT_PREFIX:-''};for \
-varname in "${varnames[@]}"; do unset "$p$varname";done;eval $p'__input_compre'\
-'ssed=${var___input_compressed:-};'$p'__input_directory=${var___input_director'\
-'y:-};'$p'__mapping=${var___mapping:-id_mapping.json};'$p'__force=${var___forc'\
-'e:-false};';local docopt_i=1;[[ $BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for \
-((;docopt_i>0;docopt_i--)); do for varname in "${varnames[@]}"; do declare -p \
-"$p$varname";done;done;}
+trimmed_doc=${DOC:0:1891};usage=${DOC:47:170};digest=8903c;options=(' --input-'\
+'compressed 1' ' --input-directory 1' ' --mapping 1' ' --force 0' ' --session '\
+'1' ' --runId 1' ' --dataOnly 0' ' --resume 0');node_0(){ value \
+__input_compressed 0;};node_1(){ value __input_directory 1;};node_2(){ value \
+__mapping 2;};node_3(){ switch __force 3;};node_4(){ value __session 4;}
+node_5(){ value __runId 5;};node_6(){ switch __dataOnly 6;};node_7(){ switch \
+__resume 7;};node_8(){ choice 0 1;};node_9(){ optional 2;};node_10(){ optional 3
+};node_11(){ optional 4;};node_12(){ optional 5;};node_13(){ optional 14;}
+node_14(){ choice 6 7;};node_15(){ sequence 8 9 10 11 12 13;};cat <<<' \
+docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" \
+"${DOC:47:170}" >&2;exit 1;}';local varnames=(__input_compressed \
+__input_directory __mapping __force __session __runId __dataOnly __resume) \
+varname;for varname in "${varnames[@]}"; do unset "var_$varname";done;parse 15 \
+"$@";local p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset \
+"$p$varname";done;eval $p'__input_compressed=${var___input_compressed:-};'$p'_'\
+'_input_directory=${var___input_directory:-};'$p'__mapping=${var___mapping:-id'\
+'_mapping.json};'$p'__force=${var___force:-false};'$p'__session=${var___sessio'\
+'n:-};'$p'__runId=${var___runId:-};'$p'__dataOnly=${var___dataOnly:-false};'\
+$p'__resume=${var___resume:-false};';local docopt_i=1;[[ $BASH_VERSION =~ ^4.3 \
+]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for varname in \
+"${varnames[@]}"; do declare -p "$p$varname";done;done;}
 # docopt parser above, complete command for generating this parser is `docopt.sh import`
 
 # Server managed properties which must not be sent back when recreating a
@@ -121,11 +144,35 @@ identitiesFailed=0
 # Where the old to new ID mapping is written
 mappingFile=""
 
+# --dataOnly, resolved once. The mapping is pure input in that mode, so it must
+# never be rewritten: an earlier version of this truncated it to {} at startup
+# and took the revert record with it.
+dataOnly=false
+
+# --resume, resolved once
+resume=false
+
+# How many devices --dataOnly actually imported data for
+dataDevices=0
+
+# The marker fragment added to every created managed object, empty when the
+# migration is not being tracked. The run identity lives in the fragment NAME
+# rather than its body, which is what makes it findable with one indexed
+# --fragmentType query instead of a scan.
+markerFragment=""
+
 # Device data recreated in the target tenant
 measurementsCreated=0
 eventsCreated=0
 alarmsCreated=0
 binariesCreated=0
+
+# Records that were meant to arrive and did not. The commands below deliberately
+# keep going after one fails, so that a single bad record does not cost the whole
+# migration - but the exit code has to say so at the end. Reporting success while
+# records are missing is how a migration silently loses data, and it also lets
+# migrate journal a device as finished when it is not.
+dataFailures=0
 
 # Deliberately conservative. A migration should not be the reason a tenant
 # starts throttling, and measurements go in the smallest batches because they
@@ -143,11 +190,35 @@ DATA_DELAY=200ms
 # used here, as neither persists the data.
 DATA_PROCESSING_MODE=QUIESCENT
 
+# Cumulocity rejects fragment names containing whitespace or special
+# characters, so the run id has to be letters, digits and underscores. Checked
+# here rather than trusted, because a rejected name would fail on every single
+# object rather than once.
+resolve_marker_fragment() {
+    local runId="$1"
+
+    [[ -n "$runId" ]] || return 0
+
+    case "$runId" in
+        *[!A-Za-z0-9_]*)
+            echo "Invalid --runId '$runId': letters, digits and underscores only," >&2
+            echo "because it becomes part of a Cumulocity fragment name." >&2
+            exit 1
+            ;;
+    esac
+
+    markerFragment="c8y_DeviceMigration_$runId"
+}
+
 # Rewrite the mapping from the running record. Called after every created
 # object rather than once at the end, because an import that dies part way
 # through is precisely the case `revert` has to be able to clean up: a mapping
 # written only on success would leave those objects orphaned in the tenant.
 write_mapping() {
+    if [[ "$dataOnly" == "true" ]]; then
+        return 0
+    fi
+
     jq -R -s 'split("\n")
         | map(select(length > 0) | split("\t"))
         | map({(.[0]): .[1]})
@@ -253,6 +324,7 @@ import_measurements() {
         measurementsCreated=$((measurementsCreated + count))
         echo "Imported $count $(plural "$count" measurement measurements) for $name ($newId)" >&2
     else
+        dataFailures=$((dataFailures + count))
         echo "Failed to import measurements for $name ($newId)" >&2
     fi
 }
@@ -278,6 +350,7 @@ import_events() {
                 "${forceArgs[@]}" | jq -r '.id')
 
         if [[ -z "$newEventId" || "$newEventId" == "null" ]]; then
+            dataFailures=$((dataFailures + 1))
             echo "Failed to create event $oldEventId for $name ($newId)" >&2
             continue
         fi
@@ -288,6 +361,9 @@ import_events() {
 
         binary="${dataDirectory}/binaries/${oldEventId}"
         if [[ ! -f "$binary" ]]; then
+            # Not counted as a failure, deliberately. The export is what is
+            # incomplete, so retrying the import cannot fix it - and a resume
+            # that failed on this would redo the device and fail again forever.
             echo "Event $oldEventId claimed an attachment but none was exported" >&2
             continue
         fi
@@ -298,6 +374,7 @@ import_events() {
             binariesCreated=$((binariesCreated + 1))
             echo "Attached $(basename "$binary") to event $newEventId of $name ($newId)" >&2
         else
+            dataFailures=$((dataFailures + 1))
             echo "Failed to attach $(basename "$binary") to event $newEventId" >&2
         fi
     done < <(sort_by_time "$file")
@@ -339,8 +416,99 @@ import_alarms() {
         echo "Imported $created $(plural "$created" alarm alarms) for $name ($newId)" >&2
     fi
     if [[ "$failed" -gt 0 ]]; then
+        dataFailures=$((dataFailures + failed))
         echo "Failed to import $failed $(plural "$failed" alarm alarms) for $name ($newId)" >&2
     fi
+}
+
+# Loads an existing mapping so data can be attached to a hierarchy migrated by
+# an earlier run. Interpolated rather than @tsv: @tsv escapes backslashes, which
+# once corrupted records on their way through a sort.
+load_existing_mapping() {
+    local flag="--dataOnly"
+    [[ "$resume" != "true" ]] || flag="--resume"
+
+    if [[ ! -f "$mappingFile" ]]; then
+        echo "$flag needs an existing mapping file, and $mappingFile does not exist" >&2
+        exit 1
+    fi
+    if ! jq -e 'type == "object"' "$mappingFile" > /dev/null 2>&1; then
+        echo "Mapping file is not a JSON object: $mappingFile" >&2
+        exit 1
+    fi
+    jq -r 'to_entries[] | "\(.key)\t\(.value)\t"' "$mappingFile" > "$idMap"
+}
+
+# The mapping records ids only, so names come from the export. Without this the
+# progress lines would say "device 2" where a full import says "Line A".
+backfill_names() {
+    local inputDirectory="$1"
+    local named oldId newId name
+
+    named="$idMap.named"
+    : > "$named"
+    while IFS=$'\t' read -r oldId newId name; do
+        if [[ -z "$name" && -f "$inputDirectory/exported_device_$oldId.json" ]]; then
+            name=$(read_name "$inputDirectory/exported_device_$oldId.json")
+        fi
+        printf '%s\t%s\t%s\n' "$oldId" "$newId" "$name" >> "$named"
+    done < "$idMap"
+    mv "$named" "$idMap"
+}
+
+# A resume trusts the mapping for what already exists, so an object deleted in
+# the meantime would be skipped and never recreated. The run marker is what
+# makes checking cheap: one indexed --fragmentType query returns everything the
+# run still has, and anything in the mapping outside that set is stale.
+#
+# With no marker - an import run with no --runId - there is nothing to check
+# against and the mapping is taken at its word.
+prune_deleted_from_mapping() {
+    [[ -n "$markerFragment" ]] || return 0
+
+    local live kept oldId newId name dropped=0
+
+    live=$(c8y inventory find --fragmentType "$markerFragment" --select id --nullInput | jq -r '.id')
+
+    kept="$idMap.kept"
+    : > "$kept"
+    while IFS=$'\t' read -r oldId newId name; do
+        if printf '%s\n' "$live" | grep -qx "$newId"; then
+            printf '%s\t%s\t%s\n' "$oldId" "$newId" "$name" >> "$kept"
+        else
+            dropped=$((dropped + 1))
+            echo "$name ($newId) is gone from the target, it will be created again" >&2
+        fi
+    done < "$idMap"
+    mv "$kept" "$idMap"
+
+    if [[ "$dropped" -gt 0 ]]; then
+        write_mapping
+    fi
+}
+
+# Data for devices that already exist in the target. This is what lets a large
+# migration move data one device at a time instead of staging all of it first.
+import_data_only() {
+    local inputDirectory="$1"
+    local dataDirectory oldId newId name
+
+    for dataDirectory in "$inputDirectory"/data/*; do
+        [[ -d "$dataDirectory" ]] || continue
+
+        oldId=$(basename "$dataDirectory")
+        newId=$(lookup_new_id "$oldId")
+        if [[ -z "$newId" ]]; then
+            echo "Skipping data for ($oldId), it is not in the mapping" >&2
+            continue
+        fi
+
+        name=$(lookup_name "$oldId")
+        [[ -n "$name" ]] || name="device $oldId"
+
+        import_device_data "$inputDirectory" "$oldId" "$newId" "$name"
+        dataDevices=$((dataDevices + 1))
+    done
 }
 
 import_devices() {
@@ -355,7 +523,20 @@ import_devices() {
         oldId=${oldId#exported_device_}
         name=$(read_name "$deviceFile")
 
-        jq "$STRIP_PROPERTIES" "$deviceFile" > "$workDirectory/managed_object.json"
+        # On a resume the mapping is the record of what already exists. Anything
+        # listed there is left alone, which is what stops a resume from creating
+        # a second copy of every object the first attempt got through.
+        if [[ "$resume" == "true" ]]; then
+            newId=$(lookup_new_id "$oldId")
+            if [[ -n "$newId" ]]; then
+                echo "Already imported $name ($oldId -> $newId)" >&2
+                continue
+            fi
+        fi
+
+        jq --arg marker "$markerFragment" \
+            "$STRIP_PROPERTIES | if \$marker == \"\" then . else . + {(\$marker): {}} end" \
+            "$deviceFile" > "$workDirectory/managed_object.json"
 
         newId=$(c8y inventory create --template "$workDirectory/managed_object.json" --select id --nullInput "${forceArgs[@]}" | jq -r '.id')
 
@@ -401,7 +582,7 @@ import_identities() {
 link_children() {
     local inputDirectory="$1"
     local childFile baseName oldParentId childType newParentId parentName
-    local oldChildId newChildId childName
+    local oldChildId newChildId childName existingChildren
 
     for childFile in "$inputDirectory"/*_child_*.json; do
         [[ -e "$childFile" ]] || continue
@@ -417,6 +598,13 @@ link_children() {
         fi
         parentName=$(lookup_name "$oldParentId")
 
+        existingChildren=""
+        if [[ "$resume" == "true" ]]; then
+            # --nullInput for the same reason as the assign below
+            existingChildren=$(c8y inventory children list --childType "$childType" \
+                --id "$newParentId" --select id --nullInput | jq -r '.id')
+        fi
+
         while IFS= read -r oldChildId; do
             [[ -n "$oldChildId" ]] || continue
 
@@ -426,6 +614,17 @@ link_children() {
                 continue
             fi
             childName=$(lookup_name "$oldChildId")
+
+            # On a resume the relationship may already exist. Asking the target
+            # what it has costs one read per parent and type, and it avoids
+            # depending on how Cumulocity answers a duplicate assignment -
+            # which is not something to guess at.
+            if [[ "$resume" == "true" ]]; then
+                if printf '%s\n' "$existingChildren" | grep -qx "$newChildId"; then
+                    echo "Already assigned $childName ($newChildId) as $childType child of $parentName ($newParentId)" >&2
+                    continue
+                fi
+            fi
 
             # --nullInput because --child accepts pipeline input, so c8y would
             # otherwise drain the child ID list feeding this loop and only the
@@ -448,11 +647,38 @@ staging_directory() {
     mktemp -d "${base%/}/c8y-devicemigration.XXXXXXXX"
 }
 
+# Selects the tenant for every c8y call this command makes.
+#
+# C8Y_SESSION resolves exactly as the --session flag does: a path, a full file
+# name including its extension, or a glob matched against the session home. A
+# bare session name without the extension does NOT resolve, whatever the
+# upstream docs say.
+#
+# The ambient C8Y_* variables are cleared as well. Without --session they are
+# bound and take precedence over the session file, so a stray C8Y_HOST left in
+# the environment would silently redirect every request to the wrong tenant.
+# Choosing a session explicitly means the file decides, and nothing else.
+use_session() {
+    local session="$1"
+
+    [[ -n "$session" ]] || return 0
+
+    export C8Y_SESSION="$session"
+    unset C8Y_HOST C8Y_BASEURL C8Y_URL C8Y_TENANT C8Y_USER C8Y_USERNAME \
+        C8Y_PASSWORD C8Y_TOKEN
+}
+
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
 # shellcheck disable=SC2154
 run_import() {
     eval "$(docopt "$@")"
+
+    use_session "${__session:-}"
+    resolve_marker_fragment "${__runId:-}"
+
+    dataOnly="$__dataOnly"
+    resume="$__resume"
 
     mappingFile="${__mapping:-id_mapping.json}"
     local workDirectory inputDirectory
@@ -467,7 +693,12 @@ run_import() {
 
     idMap="$workDirectory/id_map.tsv"
     : > "$idMap"
-    write_mapping
+    # An empty mapping up front means an immediate failure still leaves a file.
+    # Not on a resume: there the mapping already exists and is the input, so
+    # writing over it would destroy the record about to be read.
+    if [[ "$resume" != "true" ]]; then
+        write_mapping
+    fi
 
     if [[ -n "$__input_compressed" ]]; then
         inputDirectory="$workDirectory/extracted"
@@ -482,24 +713,51 @@ run_import() {
         exit 1
     fi
 
-    import_devices "$inputDirectory" "$workDirectory"
-    link_children "$inputDirectory"
+    if [[ "$dataOnly" == "true" ]]; then
+        # No objects and no relationships: those already exist from an earlier
+        # run, and the mapping is how this data finds them.
+        load_existing_mapping
+        backfill_names "$inputDirectory"
+        import_data_only "$inputDirectory"
+    else
+        if [[ "$resume" == "true" ]]; then
+            load_existing_mapping
+            backfill_names "$inputDirectory"
+            prune_deleted_from_mapping
+        fi
+        import_devices "$inputDirectory" "$workDirectory"
+        link_children "$inputDirectory"
+    fi
 
     write_mapping
 
-    echo "Imported $(grep -c '' "$idMap") devices and $identitiesCreated external identities, ID mapping written to $mappingFile" >&2
-    if [[ "$measurementsCreated" -gt 0 || "$eventsCreated" -gt 0 || "$alarmsCreated" -gt 0 ]]; then
-        local dataLine
-        dataLine="Imported $measurementsCreated $(plural "$measurementsCreated" measurement measurements)"
-        dataLine+=", $eventsCreated $(plural "$eventsCreated" event events)"
-        dataLine+=" and $alarmsCreated $(plural "$alarmsCreated" alarm alarms)"
-        if [[ "$binariesCreated" -gt 0 ]]; then
-            dataLine+=", including $binariesCreated $(plural "$binariesCreated" attachment attachments)"
-        fi
-        echo "$dataLine" >&2
+    if [[ "$dataOnly" != "true" ]]; then
+        echo "Imported $(grep -c '' "$idMap") devices and $identitiesCreated external identities, ID mapping written to $mappingFile" >&2
     fi
+    # A single device's totals can only restate the per-device lines above
+    if [[ "$dataOnly" != "true" || "$dataDevices" -gt 1 ]]; then
+        if [[ "$measurementsCreated" -gt 0 || "$eventsCreated" -gt 0 || "$alarmsCreated" -gt 0 ]]; then
+            local dataLine
+            dataLine="Imported $measurementsCreated $(plural "$measurementsCreated" measurement measurements)"
+            dataLine+=", $eventsCreated $(plural "$eventsCreated" event events)"
+            dataLine+=" and $alarmsCreated $(plural "$alarmsCreated" alarm alarms)"
+            if [[ "$binariesCreated" -gt 0 ]]; then
+                dataLine+=", including $binariesCreated $(plural "$binariesCreated" attachment attachments)"
+            fi
+            echo "$dataLine" >&2
+        fi
+    fi
+
     if [[ "$identitiesFailed" -gt 0 ]]; then
         echo "$identitiesFailed external identities could not be created" >&2
+    fi
+
+    # Last, and it exits non-zero: everything above already said what did land,
+    # and a caller that read a zero exit code here would go on to treat a
+    # part-delivered device as finished.
+    if [[ "$dataFailures" -gt 0 ]]; then
+        echo "$dataFailures $(plural "$dataFailures" record records) could not be imported, so this import is incomplete" >&2
+        exit 1
     fi
 }
 

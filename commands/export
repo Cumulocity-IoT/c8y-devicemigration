@@ -5,7 +5,7 @@ set -e
 DOC="Export devices and their data from Cumulocity
 
 Usage:
-  export (--rootId <id>) (--output-compressed <filename> | --output-directory <directory>) [--childTypes <types> | --no-children] [--dataTypes <types>] [--dateFrom <date>] [--dateTo <date>] [--ignoreLimits]
+  export (--rootId <id>) (--output-compressed <filename> | --output-directory <directory>) [--childTypes <types> | --no-children] [--dataTypes <types>] [--dateFrom <date>] [--dateTo <date>] [--ignoreLimits] [--metadataOnly | --dataOnly] [--session <file>]
 
 Options:
     --rootId ID         ID of the root device to export (required)
@@ -28,6 +28,17 @@ Options:
     --dateTo date       Only export data at or before this time
     --ignoreLimits      Export even if a limit below is exceeded. Not the
                         default, and it warns when used
+    --metadataOnly      Export managed objects and external identities only,
+                        skipping the data itself. The limits are still checked
+                        against whatever --dataTypes selects, so an oversized
+                        migration is refused before anything is created
+    --dataOnly          Export the data only, skipping external identities and
+                        child indexes. The opposite of --metadataOnly, and what
+                        migrate --incremental uses to move one device's data
+    --session file      Session to use for this command: a path, a full file
+                        name including its extension, or a glob matched against
+                        the session home. A bare name without the extension does
+                        not resolve
 
 Limits:
   Checked before anything is written, and the export stops without leaving a
@@ -101,29 +112,35 @@ value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
 stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
 <<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
 "$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
-trimmed_doc=${DOC:0:1848};usage=${DOC:47:213};digest=b57fe;options=(' --rootId'\
+trimmed_doc=${DOC:0:2713};usage=${DOC:47:262};digest=9e520;options=(' --rootId'\
 ' 1' ' --output-compressed 1' ' --output-directory 1' ' --childTypes 1' ' --no'\
 '-children 0' ' --dataTypes 1' ' --dateFrom 1' ' --dateTo 1' ' --ignoreLimits '\
-'0');node_0(){ value __rootId 0;};node_1(){ value __output_compressed 1;}
-node_2(){ value __output_directory 2;};node_3(){ value __childTypes 3;}
-node_4(){ switch __no_children 4;};node_5(){ value __dataTypes 5;};node_6(){
-value __dateFrom 6;};node_7(){ value __dateTo 7;};node_8(){ switch \
-__ignoreLimits 8;};node_9(){ choice 1 2;};node_10(){ optional 11;};node_11(){
-choice 3 4;};node_12(){ optional 5;};node_13(){ optional 6;};node_14(){
-optional 7;};node_15(){ optional 8;};node_16(){ sequence 0 9 10 12 13 14 15;}
-cat <<<' docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf "%s\n" \
-"${DOC:47:213}" >&2;exit 1;}';local varnames=(__rootId __output_compressed \
-__output_directory __childTypes __no_children __dataTypes __dateFrom __dateTo \
-__ignoreLimits) varname;for varname in "${varnames[@]}"; do unset "var_$varname"
-done;parse 16 "$@";local p=${DOCOPT_PREFIX:-''};for varname in \
-"${varnames[@]}"; do unset "$p$varname";done;eval $p'__rootId=${var___rootId:-'\
-'};'$p'__output_compressed=${var___output_compressed:-};'$p'__output_directory'\
-'=${var___output_directory:-};'$p'__childTypes=${var___childTypes:-asset,devic'\
-'e};'$p'__no_children=${var___no_children:-false};'$p'__dataTypes=${var___data'\
-'Types:-};'$p'__dateFrom=${var___dateFrom:-};'$p'__dateTo=${var___dateTo:-};'\
-$p'__ignoreLimits=${var___ignoreLimits:-false};';local docopt_i=1;[[ \
-$BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for \
-varname in "${varnames[@]}"; do declare -p "$p$varname";done;done;}
+'0' ' --metadataOnly 0' ' --dataOnly 0' ' --session 1');node_0(){ value \
+__rootId 0;};node_1(){ value __output_compressed 1;};node_2(){ value \
+__output_directory 2;};node_3(){ value __childTypes 3;};node_4(){ switch \
+__no_children 4;};node_5(){ value __dataTypes 5;};node_6(){ value __dateFrom 6;}
+node_7(){ value __dateTo 7;};node_8(){ switch __ignoreLimits 8;};node_9(){
+switch __metadataOnly 9;};node_10(){ switch __dataOnly 10;};node_11(){ value \
+__session 11;};node_12(){ choice 1 2;};node_13(){ optional 14;};node_14(){
+choice 3 4;};node_15(){ optional 5;};node_16(){ optional 6;};node_17(){
+optional 7;};node_18(){ optional 8;};node_19(){ optional 20;};node_20(){
+choice 9 10;};node_21(){ optional 11;};node_22(){ sequence 0 12 13 15 16 17 18 \
+19 21;};cat <<<' docopt_exit() { [[ -n $1 ]] && printf "%s\n" "$1" >&2;printf \
+"%s\n" "${DOC:47:262}" >&2;exit 1;}';local varnames=(__rootId \
+__output_compressed __output_directory __childTypes __no_children __dataTypes \
+__dateFrom __dateTo __ignoreLimits __metadataOnly __dataOnly __session) varname
+for varname in "${varnames[@]}"; do unset "var_$varname";done;parse 22 "$@"
+local p=${DOCOPT_PREFIX:-''};for varname in "${varnames[@]}"; do unset \
+"$p$varname";done;eval $p'__rootId=${var___rootId:-};'$p'__output_compressed=$'\
+'{var___output_compressed:-};'$p'__output_directory=${var___output_directory:-'\
+'};'$p'__childTypes=${var___childTypes:-asset,device};'$p'__no_children=${var_'\
+'__no_children:-false};'$p'__dataTypes=${var___dataTypes:-};'$p'__dateFrom=${v'\
+'ar___dateFrom:-};'$p'__dateTo=${var___dateTo:-};'$p'__ignoreLimits=${var___ig'\
+'noreLimits:-false};'$p'__metadataOnly=${var___metadataOnly:-false};'$p'__data'\
+'Only=${var___dataOnly:-false};'$p'__session=${var___session:-};';local \
+docopt_i=1;[[ $BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for \
+((;docopt_i>0;docopt_i--)); do for varname in "${varnames[@]}"; do declare -p \
+"$p$varname";done;done;}
 # docopt parser above, complete command for generating this parser is `docopt.sh export`
 
 
@@ -184,6 +201,10 @@ createdOutputDirectory=""
 # --ignoreLimits, resolved once so the limit helpers do not each reach for the
 # parser variables
 ignoreLimits=false
+
+# --metadataOnly and --dataOnly, resolved once for the same reason
+metadataOnly=false
+dataOnly=false
 
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
@@ -257,10 +278,29 @@ read_name() {
 report_totals() {
     local line
 
+    if [[ "$dataOnly" == "true" ]]; then
+        # A single device's totals can only restate the per-device line above,
+        # so they are left out. Across several devices they still add something.
+        if [[ "$exportedCount" -le 1 ]]; then
+            return 0
+        fi
+
+        # No objects or identities were written, so counting them would only
+        # report zeroes.
+        line="Exported $measurementCount $(plural "$measurementCount" measurement measurements)"
+        line+=", $eventCount $(plural "$eventCount" event events)"
+        line+=" and $alarmCount $(plural "$alarmCount" alarm alarms)"
+        if [[ "$binaryCount" -gt 0 ]]; then
+            line+=" including $binaryCount $(plural "$binaryCount" attachment attachments)"
+        fi
+        echo "$line to $1" >&2
+        return 0
+    fi
+
     line="Exported $exportedCount $(plural "$exportedCount" "managed object" "managed objects")"
     line+=" and $identityCount $(plural "$identityCount" "external identity" "external identities")"
 
-    if [[ -n "${dataTypes// /}" ]]; then
+    if [[ -n "${dataTypes// /}" && "$metadataOnly" != "true" ]]; then
         line+=", with $measurementCount $(plural "$measurementCount" measurement measurements)"
         line+=", $eventCount $(plural "$eventCount" event events)"
         line+=" and $alarmCount $(plural "$alarmCount" alarm alarms)"
@@ -706,7 +746,10 @@ export_device_recursive() {
     # External identities bound to the device. Written as a JSON array so the
     # file matches its extension, and only when the device actually has any.
     local identities identityFile deviceIdentities=0
-    identities=$(c8y identity list --device "$deviceId" --select externalId,type --nullInput)
+    identities=""
+    if [[ "$dataOnly" != "true" ]]; then
+        identities=$(c8y identity list --device "$deviceId" --select externalId,type --nullInput)
+    fi
     if [[ -n "$identities" ]]; then
         identityFile="${outputDirectory}/${deviceId}_identities.json"
         printf '%s\n' "$identities" | jq -s 'map({type, externalId})' > "$identityFile"
@@ -744,8 +787,10 @@ export_device_recursive() {
         summary+=", $deviceIdentities $(plural "$deviceIdentities" identity identities)"
     fi
 
-    export_device_data "$deviceId" "$outputDirectory"
-    summary+="$dataSummary"
+    if [[ "$metadataOnly" != "true" ]]; then
+        export_device_data "$deviceId" "$outputDirectory"
+        summary+="$dataSummary"
+    fi
 
     exportedCount=$((exportedCount + 1))
     echo "Exported $name ($deviceId)$summary" >&2
@@ -769,16 +814,41 @@ staging_directory() {
     mktemp -d "${base%/}/c8y-devicemigration.XXXXXXXX"
 }
 
+# Selects the tenant for every c8y call this command makes.
+#
+# C8Y_SESSION resolves exactly as the --session flag does: a path, a full file
+# name including its extension, or a glob matched against the session home. A
+# bare session name without the extension does NOT resolve, whatever the
+# upstream docs say.
+#
+# The ambient C8Y_* variables are cleared as well. Without --session they are
+# bound and take precedence over the session file, so a stray C8Y_HOST left in
+# the environment would silently redirect every request to the wrong tenant.
+# Choosing a session explicitly means the file decides, and nothing else.
+use_session() {
+    local session="$1"
+
+    [[ -n "$session" ]] || return 0
+
+    export C8Y_SESSION="$session"
+    unset C8Y_HOST C8Y_BASEURL C8Y_URL C8Y_TENANT C8Y_USER C8Y_USERNAME \
+        C8Y_PASSWORD C8Y_TOKEN
+}
+
 # The __* variables are set by the generated parser through eval, which
 # this linter cannot follow.
 # shellcheck disable=SC2154
 run_export() {
     eval "$(docopt "$@")"
 
+    use_session "${__session:-}"
+
     resolve_child_types
     resolve_data_types
     resolve_date_args
 
+    metadataOnly="$__metadataOnly"
+    dataOnly="$__dataOnly"
     ignoreLimits="$__ignoreLimits"
     if [[ "$ignoreLimits" == "true" ]]; then
         warn_ignoring_limits

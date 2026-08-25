@@ -281,3 +281,82 @@ live_objects() { ls "$REC/objects" 2>/dev/null | grep -c '' | tr -d ' '; }
     refute_output --partial '"lastUpdated"'
     refute_output --partial '"my_Custom-Fragment"'
 }
+
+# --- reverting by run marker -------------------------------------------------
+#
+# migrate tells the operator that a run can be reverted with --runId if the
+# mapping is lost, so this has to actually work. The marker body is empty by
+# design, so the fragment says which run created an object and nothing else.
+
+# An import carrying a run marker, as migrate does
+do_marked_import() {
+    run_export --rootId 1 --output-directory "$OUT"
+    [ "$status" -eq 0 ]
+    run_import --input-directory "$OUT" --force --runId TESTRUN_1
+    [ "$status" -eq 0 ]
+}
+
+@test "revert: --runId plans the objects that carry the marker" {
+    do_marked_import
+    FAKE_C8Y_CONFIRM=no run_revert --runId TESTRUN_1
+    assert_output --partial "The following managed objects will be deleted"
+    assert_output --partial "9 managed objects will be deleted, 0 are already absent."
+    # no source id to report: the marker records the run, not the origin.
+    # assert_line, not assert_output: the latter matches the whole output as one
+    # string, so the end-of-line anchor would not mean what it looks like.
+    assert_line --regexp '^  delete Plant Berlin \([0-9]+\)$'
+}
+
+@test "revert: --runId needs no mapping file at all" {
+    do_marked_import
+    rm -f id_mapping.json
+    run_revert --runId TESTRUN_1 --force
+    assert_success
+    assert_equal "$(live_objects)" "0"
+}
+
+@test "revert: --runId deletes that run's objects and leaves another run's alone" {
+    do_marked_import
+    # the same export imported again, marked as a different run
+    run_import --input-directory "$OUT" --force --runId TESTRUN_2 --mapping second.json
+    [ "$status" -eq 0 ]
+    assert_equal "$(live_objects)" "18"
+
+    run_revert --runId TESTRUN_1 --force
+    assert_success
+    assert_output --partial "Deleted 9 of 9 managed objects"
+    assert_equal "$(live_objects)" "9"
+    # what survived is the second run, still marked as such
+    assert_equal "$(grep -l 'c8y_DeviceMigration_TESTRUN_2' "$REC"/objects/*.json | grep -c '')" "9"
+}
+
+@test "revert: an unknown runId has nothing to do and deletes nothing" {
+    do_marked_import
+    run_revert --runId TESTRUN_ABSENT --force
+    assert_success
+    assert_output --partial "No managed object carries c8y_DeviceMigration_TESTRUN_ABSENT"
+    assert_equal "$(live_objects)" "9"
+}
+
+@test "revert: --runId cannot reach objects imported without a marker" {
+    # an import run with --noFlag leaves nothing to find, which is worth saying
+    # out loud rather than discovering during an incident
+    do_full_import
+    run_revert --runId TESTRUN_1 --force
+    assert_success
+    assert_output --partial "nothing to revert"
+    assert_equal "$(live_objects)" "9"
+}
+
+@test "revert: a runId that is not fragment safe is refused" {
+    do_marked_import
+    run_revert --runId 'bad id' --force
+    assert_failure
+    assert_output --partial "letters, digits and underscores"
+    assert_equal "$(live_objects)" "9"
+}
+
+@test "revert: neither --mapping nor --runId is refused" {
+    run_revert --force
+    assert_failure
+}

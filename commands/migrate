@@ -1,0 +1,681 @@
+#!/usr/bin/env bash
+
+set -e
+
+DOC="Migrate a device hierarchy from one tenant to another in one command
+
+A session must already be active, because c8y will not run an extension command
+without one. Which session it is does not matter: migrate ignores it and uses
+--sourceSession and --targetSession. Activating the source session is the
+natural choice.
+
+  eval \"\$(c8y sessions set --sessionFilter source-tenant)\"
+
+Usage:
+  migrate (--rootId <id>) (--sourceSession <file>) (--targetSession <file>) [--childTypes <types> | --no-children] [--dataTypes <types>] [--dateFrom <date>] [--dateTo <date>] [--ignoreLimits] [--mapping <filename>] [--incremental] [--resume <runid>] [--keepStaging] [--noFlag] [--force]
+
+Options:
+    --rootId ID         ID of the root device to migrate (required)
+    --sourceSession file
+                        Session to read from: a path, a full file name including
+                        its extension, or a glob matched against the session
+                        home. A bare name without the extension does not resolve
+    --targetSession file
+                        Session to write to, same forms as --sourceSession
+    --childTypes types  Comma separated list of child relationship types to
+                        follow, one or more of asset, device and addition
+                        [default: asset,device]
+    --no-children       Migrate only the root device
+    --dataTypes types   Comma separated list of device data to include, one or
+                        more of measurements, events and alarms. Defaults to
+                        none
+    --dateFrom date     Only include data at or after this time. Measurements
+                        default to the last 14 days
+    --dateTo date       Only include data at or before this time
+    --ignoreLimits      Migrate even if an export limit is exceeded
+    --mapping filename  File to write the old ID to new ID mapping to
+                        [default: id_mapping.json]
+    --incremental       Move the hierarchy first and then the data one device
+                        at a time, so the staging directory only ever holds a
+                        single device's data. Slower, but the disk it needs does
+                        not grow with the size of the migration
+    --resume runid      Continue the run with this id instead of starting a new
+                        one, skipping the devices whose data already arrived.
+                        Implies --incremental, and needs the journal that an
+                        incremental run writes next to the mapping file
+    --keepStaging       Keep the staging directory instead of removing it
+    --noFlag            Do not mark created managed objects with the run
+                        fragment
+    --force             Do not ask for confirmation
+  "
+# docopt parser below, refresh this parser with `docopt.sh migrate`
+# shellcheck disable=2016,2086,2329,1075
+docopt() { parse() { if ${DOCOPT_DOC_CHECK:-true}; then local doc_hash;if \
+doc_hash=$(printf "%s" "$DOC" | (sha256sum 2>/dev/null || shasum -a 256)); then
+if [[ ${doc_hash:0:5} != "$digest" ]]; then stderr "The current usage doc \
+(${doc_hash:0:5}) does not match what the parser was generated with (${digest})
+Run \`docopt.sh\` to refresh the parser.";_return 70;fi;fi;fi;local root_idx=$1
+shift;params=();testdepth=0;local argv=("$@") arg i o;while [[ ${#argv[@]} -gt \
+0 ]]; do if [[ ${argv[0]} = "--" ]]; then for arg in "${argv[@]}"; do
+params+=("a:$arg");done;break;elif [[ ${argv[0]} = --* ]]; then local \
+long=${argv[0]%%=*};if ${DOCOPT_ADD_HELP:-true} && [[ $long = "--help" ]]; then
+stdout "$trimmed_doc";_return 0;elif [[ ${DOCOPT_PROGRAM_VERSION:-false} != 'f'\
+'alse' && $long = "--version" ]]; then stdout "$DOCOPT_PROGRAM_VERSION"
+_return 0;fi;local similar=() match=false;i=0;for o in "${options[@]}"; do if \
+[[ $o = *" $long "? ]]; then similar+=("$long");match=$i;break;fi;: $((i++))
+done;if [[ $match = false ]]; then i=0;for o in "${options[@]}"; do if [[ $o = \
+*" $long"*? ]]; then local long_match=${o#* };similar+=("${long_match% *}")
+match=$i;fi;: $((i++));done;fi;if [[ ${#similar[@]} -gt 1 ]]; then error \
+"${long} is not a unique prefix: ${similar[*]}?";elif [[ ${#similar[@]} -lt 1 \
+]]; then error;else if [[ ${options[$match]} = *0 ]]; then if [[ ${argv[0]} = \
+*=* ]]; then local long_match=${o#* };error "${long_match% *} must not have an \
+argument";else params+=("$match:true");argv=("${argv[@]:1}");fi;else if [[ \
+${argv[0]} = *=* ]]; then params+=("$match:${argv[0]#*=}");argv=("${argv[@]:1}")
+else if [[ ${#argv[@]} -le 1 || ${argv[1]} = '--' ]]; then error "${long} \
+requires argument";fi;params+=("$match:${argv[1]}");argv=("${argv[@]:2}");fi;fi
+fi;elif [[ ${argv[0]} = -* && ${argv[0]} != "-" ]]; then local \
+remaining=${argv[0]#-};while [[ -n $remaining ]]; do local \
+short="-${remaining:0:1}";if ${DOCOPT_ADD_HELP:-true} && [[ $short = "-h" ]]; \
+then stdout "$trimmed_doc";_return 0;fi;local matched=false
+remaining="${remaining:1}";i=0;for o in "${options[@]}"; do if [[ $o = "$short \
+"* ]]; then if [[ $o = *1 ]]; then if [[ $remaining = '' ]]; then if [[ \
+${#argv[@]} -le 1 || ${argv[1]} = '--' ]]; then error "${short} requires \
+argument";fi;params+=("$i:${argv[1]}");argv=("${argv[@]:1}");break 2;else
+params+=("$i:$remaining");break 2;fi;else params+=("$i:true");matched=true;break
+fi;fi;: $((i++));done;$matched || error;done;argv=("${argv[@]:1}");elif \
+${DOCOPT_OPTIONS_FIRST:-false}; then for arg in "${argv[@]}"; do
+params+=("a:$arg");done;break;else params+=("a:${argv[0]}")
+argv=("${argv[@]:1}");fi;done;if ! "node_$root_idx" || [ ${#params[@]} -gt 0 \
+]; then error;fi;return 0;};sequence() { local initial_params=("${params[@]}") \
+node_idx;: $((testdepth++));for node_idx in "$@"; do if ! "node_$node_idx"; then
+params=("${initial_params[@]}");: $((testdepth--));return 1;fi;done;if [[ \
+$((--testdepth)) -eq 0 ]]; then params=("${initial_params[@]}");for node_idx \
+in "$@"; do "node_$node_idx";done;fi;return 0;};choice() { local \
+initial_params=("${params[@]}") best_match_idx unmatched_count node_idx;: \
+$((testdepth++));for node_idx in "$@"; do if "node_$node_idx"; then if [[ -z \
+$unmatched_count || ${#params[@]} -lt $unmatched_count ]]; then
+best_match_idx=$node_idx;unmatched_count=${#params[@]};fi;fi
+params=("${initial_params[@]}");done;: $((testdepth--));if [[ -n \
+$best_match_idx ]]; then "node_$best_match_idx";return 0;fi;return 1;}
+optional() { local node_idx;for node_idx in "$@"; do "node_$node_idx";done
+return 0;};switch() { local i param;for i in "${!params[@]}"; do local \
+param=${params[$i]};if [[ $param = "$2" || $param = "$2":* ]]; then
+params=("${params[@]:0:$i}" "${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && \
+return 0;if [[ $3 = true ]]; then eval "((var_$1++))" || true;else eval \
+"var_$1=true";fi;return 0;elif [[ $param = a:* && $2 = a:* ]]; then return 1;fi
+done;return 1;};value() { local i param;for i in "${!params[@]}"; do local \
+param=${params[$i]};if [[ $param = "$2":* ]]; then params=("${params[@]:0:$i}" \
+"${params[@]:((i+1))}");[[ $testdepth -gt 0 ]] && return 0;local value
+value=$(printf -- "%q" "${param#*:}");if [[ $3 = true ]]; then eval \
+"var_$1+=($value)";else eval "var_$1=$value";fi;return 0;fi;done;return 1;}
+stdout() { printf -- "cat <<'EOM'\n%s\nEOM\n" "$1";};stderr() { printf -- "cat \
+<<'EOM' >&2\n%s\nEOM\n" "$1";};error() { [[ -n $1 ]] && stderr "$1";stderr \
+"$usage";_return 1;};_return() { printf -- "exit %d\n" "$1";exit "$1";};set -e
+trimmed_doc=${DOC:0:2774};usage=${DOC:379:293};digest=a5059;options=(' --rootI'\
+'d 1' ' --sourceSession 1' ' --targetSession 1' ' --childTypes 1' ' --no-child'\
+'ren 0' ' --dataTypes 1' ' --dateFrom 1' ' --dateTo 1' ' --ignoreLimits 0' ' -'\
+'-mapping 1' ' --incremental 0' ' --resume 1' ' --keepStaging 0' ' --noFlag 0' \
+' --force 0');node_0(){ value __rootId 0;};node_1(){ value __sourceSession 1;}
+node_2(){ value __targetSession 2;};node_3(){ value __childTypes 3;};node_4(){
+switch __no_children 4;};node_5(){ value __dataTypes 5;};node_6(){ value \
+__dateFrom 6;};node_7(){ value __dateTo 7;};node_8(){ switch __ignoreLimits 8;}
+node_9(){ value __mapping 9;};node_10(){ switch __incremental 10;};node_11(){
+value __resume 11;};node_12(){ switch __keepStaging 12;};node_13(){ switch \
+__noFlag 13;};node_14(){ switch __force 14;};node_15(){ optional 16;};node_16(){
+choice 3 4;};node_17(){ optional 5;};node_18(){ optional 6;};node_19(){
+optional 7;};node_20(){ optional 8;};node_21(){ optional 9;};node_22(){
+optional 10;};node_23(){ optional 11;};node_24(){ optional 12;};node_25(){
+optional 13;};node_26(){ optional 14;};node_27(){ sequence 0 1 2 15 17 18 19 \
+20 21 22 23 24 25 26;};cat <<<' docopt_exit() { [[ -n $1 ]] && printf "%s\n" \
+"$1" >&2;printf "%s\n" "${DOC:379:293}" >&2;exit 1;}';local varnames=(__rootId \
+__sourceSession __targetSession __childTypes __no_children __dataTypes \
+__dateFrom __dateTo __ignoreLimits __mapping __incremental __resume \
+__keepStaging __noFlag __force) varname;for varname in "${varnames[@]}"; do
+unset "var_$varname";done;parse 27 "$@";local p=${DOCOPT_PREFIX:-''};for \
+varname in "${varnames[@]}"; do unset "$p$varname";done;eval $p'__rootId=${var'\
+'___rootId:-};'$p'__sourceSession=${var___sourceSession:-};'$p'__targetSession'\
+'=${var___targetSession:-};'$p'__childTypes=${var___childTypes:-asset,device};'\
+$p'__no_children=${var___no_children:-false};'$p'__dataTypes=${var___dataTypes'\
+':-};'$p'__dateFrom=${var___dateFrom:-};'$p'__dateTo=${var___dateTo:-};'$p'__i'\
+'gnoreLimits=${var___ignoreLimits:-false};'$p'__mapping=${var___mapping:-id_ma'\
+'pping.json};'$p'__incremental=${var___incremental:-false};'$p'__resume=${var_'\
+'__resume:-};'$p'__keepStaging=${var___keepStaging:-false};'$p'__noFlag=${var_'\
+'__noFlag:-false};'$p'__force=${var___force:-false};';local docopt_i=1;[[ \
+$BASH_VERSION =~ ^4.3 ]] && docopt_i=2;for ((;docopt_i>0;docopt_i--)); do for \
+varname in "${varnames[@]}"; do declare -p "$p$varname";done;done;}
+# docopt parser above, complete command for generating this parser is `docopt.sh migrate`
+
+commandDirectory="$(cd "$(dirname "$0")" && pwd)"
+
+stagingDirectory=""
+keepStaging=false
+runId=""
+
+# Resolved once from the arguments, so the exit trap and the helpers below do
+# not have to reach into the parser's variables
+mappingFile="id_mapping.json"
+targetSession=""
+journalFile=""
+
+# The session files the arguments actually resolved to. Every c8y call goes
+# through these rather than the original argument, so what was displayed in the
+# pre-flight is exactly what is used.
+sourceSessionFile=""
+targetSessionFile=""
+resolvedSessionFile=""
+incremental=false
+
+# Set once an import is actually attempted. Without it a failure before that
+# point would report the previous attempt's objects as this one's leftovers.
+importStarted=false
+
+# The run marker, empty when --noFlag was given. Distinct from runId, which
+# always has a value because it is also how a run is resumed.
+markerRunId=""
+
+# A run identifier safe to use as part of a Cumulocity fragment name.
+# Fragment names reject whitespace and special characters, so an ISO timestamp
+# cannot be used verbatim: no dashes and no colons. [A-Za-z0-9_] only.
+plural() {
+    if [[ "$1" -eq 1 ]]; then
+        printf '%s' "$2"
+    else
+        printf '%s' "$3"
+    fi
+}
+
+generate_run_id() {
+    local stamp random
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    random=$(LC_ALL=C tr -dc 'a-f0-9' < /dev/urandom | head -c 6)
+    printf '%s_%s' "$stamp" "$random"
+}
+
+# The host and tenant a session resolves to. Free: no network call and no
+# credentials needed, which is why it is only an identity check and proves
+# nothing about whether the session actually works.
+# Where go-c8y-cli keeps its session files. It is a setting, so ~/.cumulocity is
+# only the default and asking is cheaper than being wrong.
+session_home() {
+    local home
+    # --nullInput because this runs before the confirmation prompt, and a c8y
+    # call without it consumes stdin - which would eat the answer
+    home=$(c8y settings list --output json --nullInput 2>/dev/null | jq -r '.session.home // empty' 2>/dev/null || true)
+    if [[ -z "$home" ]]; then
+        home="${C8Y_SESSION_HOME:-$HOME/.cumulocity}"
+    fi
+    printf '%s' "$home"
+}
+
+# Resolve a --session value to the file it names, and refuse to guess.
+#
+# This reads the session files directly rather than asking c8y, because
+# `sessions get` reports whatever session is ACTIVE and ignores --session: with
+# a source session loaded it answers "source" for both sides, and with none
+# loaded it fails outright. The file is the only honest answer, and host and
+# tenant are plaintext in it even when the credentials are encrypted, so this
+# needs no passphrase, no network and no active session.
+#
+# Sets resolvedSessionFile. Returns non-zero and explains itself otherwise.
+resolve_session_file() {
+    local session="$1" side="$2"
+    local home candidate matches=()
+
+    resolvedSessionFile=""
+
+    # An explicit path wins, as it does for c8y
+    if [[ -f "$session" ]]; then
+        resolvedSessionFile="$session"
+        return 0
+    fi
+
+    home=$(session_home)
+
+    # Otherwise the value is matched against the file names in the session home,
+    # as a glob and not a substring: c8y resolves
+    # 'foo.eu-latest.cumulocity.com-me.json' and '*eu-latest*', but a bare 'foo'
+    # matches nothing at all.
+    # shellcheck disable=SC2086  # deliberately unquoted: $session is a glob
+    for candidate in "$home"/$session; do
+        [[ -f "$candidate" ]] || continue
+        matches+=("$candidate")
+    done
+
+    if [[ ${#matches[@]} -eq 0 ]]; then
+        echo "Could not resolve the $side session: $session" >&2
+        echo "Pass a path, or a file name or glob matching a file in $home." >&2
+        echo "A bare session name without its .json extension does not resolve." >&2
+        return 1
+    fi
+
+    if [[ ${#matches[@]} -gt 1 ]]; then
+        echo "The $side session '$session' matches ${#matches[@]} files:" >&2
+        for candidate in "${matches[@]}"; do
+            echo "  $(basename "$candidate")" >&2
+        done
+        echo "c8y would pick one of these without saying which, and the wrong" >&2
+        echo "tenant here creates objects where they do not belong. Name one exactly." >&2
+        return 1
+    fi
+
+    resolvedSessionFile="${matches[0]}"
+}
+
+# Session files are not consistent about the scheme: one may hold
+# 'https://x.cumulocity.com' and the next just 'x.cumulocity.com'. Both are
+# normalised before they are compared or shown, because otherwise two files for
+# the SAME tenant look like different hosts and the same-tenant refusal below
+# never fires - which is the one thing it exists to prevent.
+normalise_host() {
+    local host="$1"
+    host=${host#http://}
+    host=${host#https://}
+    host=${host%/}
+    printf '%s' "$host" | tr '[:upper:]' '[:lower:]'
+}
+
+# One plaintext field out of a session file
+session_field() {
+    jq -r --arg field "$2" '.[$field] // ""' "$1" 2>/dev/null || true
+}
+
+# Proves the credentials work. Needed because the identity check above does not:
+# an expired token or an encrypted session file with no C8Y_PASSPHRASE resolves
+# to no authentication at all and only fails when the first real request goes
+# out. Better to find that out now than halfway through a migration.
+# The authenticated probe: proves the credentials work rather than that a file
+# exists. Ambient C8Y_* variables are cleared for it, because a loaded session
+# exports C8Y_HOST and C8Y_TENANT and those otherwise decide which tenant is
+# talked to regardless of the session passed here. C8Y_PASSPHRASE is kept on
+# purpose - without it an encrypted session file cannot be decrypted at all.
+session_works() {
+    local session="$1"
+    (
+        export C8Y_SESSION="$session"
+        unset C8Y_HOST C8Y_BASEURL C8Y_URL C8Y_TENANT C8Y_USER C8Y_USERNAME \
+            C8Y_PASSWORD C8Y_TOKEN
+        c8y currenttenant get --select name --nullInput > /dev/null 2>&1
+    )
+}
+
+preflight() {
+    local sourceSession="$1" targetSession="$2"
+    local sourceHost sourceTenant targetHost targetTenant
+
+    resolve_session_file "$sourceSession" "source" || exit 1
+    sourceSessionFile="$resolvedSessionFile"
+
+    resolve_session_file "$targetSession" "target" || exit 1
+    targetSessionFile="$resolvedSessionFile"
+
+    sourceHost=$(normalise_host "$(session_field "$sourceSessionFile" host)")
+    sourceTenant=$(session_field "$sourceSessionFile" tenant)
+    targetHost=$(normalise_host "$(session_field "$targetSessionFile" host)")
+    targetTenant=$(session_field "$targetSessionFile" tenant)
+
+    if [[ -z "$sourceHost$sourceTenant" ]]; then
+        echo "The source session file names no host or tenant: $sourceSessionFile" >&2
+        exit 1
+    fi
+    if [[ -z "$targetHost$targetTenant" ]]; then
+        echo "The target session file names no host or tenant: $targetSessionFile" >&2
+        exit 1
+    fi
+
+    # Host AND tenant, because a tenant id only identifies a tenant within one
+    # host: t12345 on eu-latest and t12345 on us are different tenants, and
+    # refusing that migration would be wrong.
+    if [[ "$sourceHost" == "$targetHost" && "$sourceTenant" == "$targetTenant" ]]; then
+        echo "Source and target are the same tenant ($sourceTenant at $sourceHost)." >&2
+        echo "That would duplicate the hierarchy into the tenant it came from." >&2
+        echo "  source: $(basename "$sourceSessionFile")" >&2
+        echo "  target: $(basename "$targetSessionFile")" >&2
+        exit 1
+    fi
+
+    # What was matched, not what was typed: a glob that resolved to something
+    # unexpected is the failure this is here to make visible.
+    echo "Migrating from $sourceHost ($sourceTenant)" >&2
+    echo "               to $targetHost ($targetTenant)" >&2
+    echo "  source session: $(basename "$sourceSessionFile")" >&2
+    echo "  target session: $(basename "$targetSessionFile")" >&2
+
+    if ! session_works "$sourceSessionFile"; then
+        echo "The source session does not authenticate. An expired token or an" >&2
+        echo "encrypted session file with no C8Y_PASSPHRASE both look like this." >&2
+        exit 1
+    fi
+    if ! session_works "$targetSessionFile"; then
+        echo "The target session does not authenticate. An expired token or an" >&2
+        echo "encrypted session file with no C8Y_PASSPHRASE both look like this." >&2
+        exit 1
+    fi
+}
+
+confirm_migration() {
+    local reply
+
+    printf 'Type "yes" to migrate: ' >&2
+    if ! read -r reply; then
+        echo "No confirmation received on stdin, pass --force to migrate without being asked" >&2
+        exit 1
+    fi
+    if [[ "$reply" != "yes" ]]; then
+        echo "Aborted, nothing was migrated" >&2
+        exit 1
+    fi
+}
+
+# The journal records which devices' data has arrived. The mapping is already
+# the record for objects - it is written after every create - so this fills the
+# only gap: nothing otherwise says whether a device's measurements, events and
+# alarms made it across.
+#
+# Only the incremental path writes one, because it is the only path with a
+# per-device commit point. A chained run imports all the data in one step, so
+# there is no point at which it could honestly claim a device was finished.
+journal_note() {
+    printf '%s\n' "$1" >> "$journalFile"
+}
+
+journal_has() {
+    [[ -f "$journalFile" ]] && grep -qxF "$1" "$journalFile"
+}
+
+# Resuming reads its record from the journal rather than trusting the caller,
+# so a mismatched run id fails here instead of importing a second copy of
+# everything.
+resolve_resume() {
+    local wanted="$1"
+
+    case "$wanted" in
+        *[!A-Za-z0-9_]*)
+            echo "Invalid --resume '$wanted': a run id is letters, digits and underscores only" >&2
+            exit 1
+            ;;
+    esac
+
+    if [[ ! -f "$journalFile" ]]; then
+        echo "There is no journal at $journalFile, so there is nothing to resume." >&2
+        echo "Only an --incremental migration writes one. A chained migration imports all" >&2
+        echo "the data in one step, so resuming it could deliver the same records twice." >&2
+        exit 1
+    fi
+
+    if ! journal_has "runId $wanted"; then
+        echo "The journal at $journalFile does not belong to run $wanted." >&2
+        echo "It records: $(grep '^runId ' "$journalFile" | head -1)" >&2
+        exit 1
+    fi
+
+    runId="$wanted"
+}
+
+# A device whose data was in flight when the run stopped is delivered again in
+# full, because there is no per-record record of what arrived. Naming it is the
+# honest thing to do: the operator can then decide whether duplicated
+# measurements on one device matter more than the missing ones would.
+report_interrupted_device() {
+    local interrupted
+
+    [[ -f "$journalFile" ]] || return 0
+
+    interrupted=$(awk '$1 == "started" { started[$2] = 1 }
+                       $1 == "data" { delete started[$2] }
+                       END { for (id in started) print id }' "$journalFile")
+
+    [[ -n "$interrupted" ]] || return 0
+
+    local id
+    for id in $interrupted; do
+        echo "Run stopped while migrating data for ($id), so its records are delivered again and that device can end up with duplicates" >&2
+    done
+}
+
+cleanup_staging() {
+    if [[ -z "$stagingDirectory" || ! -d "$stagingDirectory" ]]; then
+        return 0
+    fi
+    if [[ "$keepStaging" == "true" ]]; then
+        echo "Staging directory kept at $stagingDirectory" >&2
+        return 0
+    fi
+    rm -rf "$stagingDirectory"
+}
+
+# How to undo whatever was created. Printed on the way out either way: after a
+# failure it is the thing the operator needs most, and that is exactly when the
+# success path never runs.
+print_revert_hint() {
+    echo "  c8y devicemigration revert --mapping $mappingFile --session $targetSession" >&2
+    if [[ -n "$markerRunId" ]]; then
+        echo "  or, if the mapping is lost:" >&2
+        echo "  c8y devicemigration revert --runId $runId --session $targetSession" >&2
+    fi
+}
+
+# A failed migration has different needs from a successful one. The staging
+# directory is kept, because retrying should not have to read the source tenant
+# again, and the revert hint is printed, because a part-finished migration is
+# the case it exists for.
+on_exit() {
+    local status=$?
+
+    if [[ "$status" -eq 0 ]]; then
+        cleanup_staging
+        return 0
+    fi
+
+    if [[ -n "$stagingDirectory" && -d "$stagingDirectory" ]]; then
+        echo "Staging directory kept at $stagingDirectory, so a retry does not have to read the source tenant again" >&2
+    fi
+
+    # An empty or absent mapping means nothing was ever created, so there is
+    # nothing to revert and saying otherwise would only mislead.
+    if [[ ! -f "$mappingFile" ]] || [[ "$(jq 'length' "$mappingFile" 2>/dev/null || echo 0)" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$importStarted" == "true" ]]; then
+        echo "The migration stopped part way through. Undo what it created with:" >&2
+    else
+        echo "This attempt created nothing. What an earlier attempt left in the target" >&2
+        echo "tenant is still there, and can be removed with:" >&2
+    fi
+    print_revert_hint
+}
+
+# The __* variables are set by the generated parser through eval, which
+# this linter cannot follow.
+# shellcheck disable=SC2154
+# The chained migration: the whole export lands on disk, then all of it is
+# imported. Simple, and fine until the dataset outgrows the staging directory.
+migrate_chained() {
+    echo "Exporting from the source tenant" >&2
+    "$commandDirectory/export" --rootId "$__rootId" \
+        --output-directory "$stagingDirectory/export" \
+        --session "$sourceSessionFile" "${exportArgs[@]}"
+
+    echo "Importing into the target tenant" >&2
+    importStarted=true
+    "$commandDirectory/import" --input-directory "$stagingDirectory/export" \
+        --session "$targetSessionFile" "${importArgs[@]}"
+}
+
+# The incremental migration. Metadata is small however large the migration is,
+# so the hierarchy moves in one pass; the data, which is the part that is not
+# bounded, then moves one device at a time and is discarded as it goes.
+#
+# The limits are still checked up front by the metadata export, so an oversized
+# migration is refused before a single object is created.
+migrate_incremental() {
+    local metadataDirectory="$stagingDirectory/metadata"
+    local dataDirectory="$stagingDirectory/data"
+    local deviceFile oldId total index
+
+    echo "Exporting the hierarchy from the source tenant" >&2
+    "$commandDirectory/export" --rootId "$__rootId" \
+        --output-directory "$metadataDirectory" \
+        --metadataOnly \
+        --session "$sourceSessionFile" "${exportArgs[@]}"
+
+    # On a resume the hierarchy is re-imported rather than skipped. It is
+    # idempotent - objects already in the mapping are left alone and only the
+    # relationships the target is missing are assigned - and it is what repairs
+    # a hierarchy that stopped half way, or one an object was deleted from.
+    local hierarchyArgs=()
+    if [[ -n "$__resume" ]]; then
+        hierarchyArgs+=(--resume)
+        echo "Reconciling the hierarchy in the target tenant" >&2
+    else
+        echo "Importing the hierarchy into the target tenant" >&2
+    fi
+    importStarted=true
+    "$commandDirectory/import" --input-directory "$metadataDirectory" \
+        --session "$targetSessionFile" "${importArgs[@]}" "${hierarchyArgs[@]}"
+
+    if [[ -z "$__dataTypes" ]]; then
+        return 0
+    fi
+
+    # The exported object files are the set of devices this run touched, which
+    # is more precise than the mapping file if that was reused.
+    total=$(find "$metadataDirectory" -maxdepth 1 -name 'exported_device_*.json' | grep -c '' || true)
+    index=0
+
+    echo "Migrating data for $total $(plural "$total" device devices), one at a time" >&2
+    report_interrupted_device
+
+    for deviceFile in "$metadataDirectory"/exported_device_*.json; do
+        [[ -f "$deviceFile" ]] || continue
+
+        oldId=${deviceFile##*/exported_device_}
+        oldId=${oldId%.json}
+        index=$((index + 1))
+
+        if journal_has "data $oldId"; then
+            echo "Device $index of $total: data already migrated for ($oldId)" >&2
+            continue
+        fi
+
+        echo "Device $index of $total" >&2
+
+        # Noted before the work and cleared by the "data" line after it, so a
+        # journal holding "started X" with no "data X" identifies exactly the
+        # device that was in flight when a run stopped.
+        journal_note "started $oldId"
+
+        rm -rf "$dataDirectory"
+        "$commandDirectory/export" --rootId "$oldId" \
+            --output-directory "$dataDirectory" \
+            --no-children --dataOnly \
+            --session "$sourceSessionFile" "${dataArgs[@]}"
+
+        "$commandDirectory/import" --input-directory "$dataDirectory" \
+            --dataOnly \
+            --session "$targetSessionFile" "${importArgs[@]}"
+
+        # Journalled only once the data is in the target, so an interruption
+        # part way through a device means that device is done again rather than
+        # skipped. Repeating one device's data is recoverable; losing it silently
+        # is not.
+        journal_note "data $oldId"
+
+        # Discarded straight away: holding one device's data is the whole point
+        rm -rf "$dataDirectory"
+    done
+}
+
+# Every __-prefixed variable below is assigned by the generated parser through
+# eval, which shellcheck cannot see. Whether it warns depends on where docopt-sh
+# happens to line-wrap the generated assignments, so the check is noise here.
+# shellcheck disable=SC2154
+run_migrate() {
+    eval "$(docopt "$@")"
+
+    local exportArgs=() importArgs=() dataArgs=()
+
+    mappingFile="${__mapping:-id_mapping.json}"
+    journalFile="$mappingFile.journal"
+    # set again by preflight, to the file the argument resolved to
+    targetSession="$__targetSession"
+
+    incremental="$__incremental"
+    if [[ -n "$__resume" ]]; then
+        # Resuming is only exact on the per-device path, so it selects it
+        incremental=true
+        # Validated first: it reads the journal and touches no network, so a
+        # wrong run id should fail before a tenant is contacted or a staging
+        # directory is created
+        resolve_resume "$__resume"
+    fi
+
+    preflight "$__sourceSession" "$__targetSession"
+
+    # Now that they are resolved, the revert hint can name the actual file
+    targetSession="$targetSessionFile"
+
+    if [[ "$__force" != "true" ]]; then
+        confirm_migration
+    fi
+
+    keepStaging="$__keepStaging"
+    stagingDirectory=$(mktemp -d "${TMPDIR:-/tmp}/c8y-devicemigration-staging.XXXXXXXX")
+    # shellcheck disable=2064
+    trap "on_exit" EXIT
+
+    # A run always has an id, because that is how it is resumed. Whether the id
+    # is also stamped onto the objects is what --noFlag decides.
+    if [[ -z "$__resume" ]]; then
+        runId=$(generate_run_id)
+    fi
+
+    if [[ "$__noFlag" != "true" ]]; then
+        markerRunId="$runId"
+        echo "Run id $runId, marking created objects with c8y_DeviceMigration_$runId" >&2
+    elif [[ "$incremental" == "true" ]]; then
+        # Unmarked, but the id still has to be reportable or the run could never
+        # be resumed
+        echo "Run id $runId, created objects are not marked" >&2
+    fi
+
+    if [[ "$incremental" == "true" && -z "$__resume" ]]; then
+        : > "$journalFile"
+        journal_note "runId $runId"
+    fi
+
+    # Options that only shape the export
+    if [[ "$__no_children" == "true" ]]; then
+        exportArgs+=(--no-children)
+    elif [[ -n "$__childTypes" ]]; then
+        exportArgs+=(--childTypes "$__childTypes")
+    fi
+    [[ -n "$__dataTypes" ]] && exportArgs+=(--dataTypes "$__dataTypes")
+    [[ -n "$__dateFrom" ]] && exportArgs+=(--dateFrom "$__dateFrom")
+    [[ -n "$__dateTo" ]] && exportArgs+=(--dateTo "$__dateTo")
+    [[ "$__ignoreLimits" == "true" ]] && exportArgs+=(--ignoreLimits)
+
+    # The subset that the per-device data exports of --incremental need
+    [[ -n "$__dataTypes" ]] && dataArgs+=(--dataTypes "$__dataTypes")
+    [[ -n "$__dateFrom" ]] && dataArgs+=(--dateFrom "$__dateFrom")
+    [[ -n "$__dateTo" ]] && dataArgs+=(--dateTo "$__dateTo")
+    [[ "$__ignoreLimits" == "true" ]] && dataArgs+=(--ignoreLimits)
+
+    # The import always runs unattended here: the operator already confirmed the
+    # migration as a whole, and asking again per object would be worse than
+    # useless.
+    importArgs+=(--force)
+    [[ -n "$__mapping" ]] && importArgs+=(--mapping "$__mapping")
+    [[ -n "$markerRunId" ]] && importArgs+=(--runId "$markerRunId")
+
+    if [[ "$incremental" == "true" ]]; then
+        migrate_incremental
+    else
+        migrate_chained
+    fi
+
+    echo "Migration complete. Reverse it with:" >&2
+    print_revert_hint
+}
+
+run_migrate "$@"
