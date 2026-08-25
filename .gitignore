@@ -58,3 +58,7 @@ data/
 
 # bats helpers cloned by `make bootstrap`
 tests/vendor/
+
+# The compiled Go binary. The Go template above only covers .exe/.so/.dylib, and
+# a bare executable named after the repository is neither.
+/bin/

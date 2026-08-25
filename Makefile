@@ -24,9 +24,10 @@ endif
 BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
 
-.PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness bootstrap clean
+.PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness \
+	go-build go-test go-lint bootstrap clean
 
-check: lint parser-freshness docs-freshness test
+check: lint parser-freshness docs-freshness go-lint go-test test
 
 bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
 
@@ -97,5 +98,34 @@ parser-freshness:
 		echo "docopt.sh not installed, skipping (pipx install docopt-sh==2.0.3)"; \
 	fi
 
+# --- the Go port -------------------------------------------------------------
+#
+# A second implementation of the same commands on the go-c8y v2 library, living
+# beside the bash one rather than replacing it. See docs/go-port/PLAN.md.
+#
+# go-test includes the differential test, which runs BOTH implementations against
+# the same fixture and diffs the artefacts and stderr. It needs bash and jq and
+# skips without them.
+#
+# The timeout is not decoration: the test fixture contains a cycle, so a broken
+# visited set makes the export recurse forever rather than fail.
+GO_TIMEOUT := 300s
+
+go-build:
+	go build -o bin/c8y-devicemigration ./cmd/c8y-devicemigration
+	@echo "built bin/c8y-devicemigration"
+
+go-test:
+	go test ./... -timeout $(GO_TIMEOUT)
+
+go-lint:
+	@unformatted=$$(gofmt -l cmd internal); \
+	if [ -n "$$unformatted" ]; then \
+		echo "gofmt would change these files:"; echo "$$unformatted"; exit 1; \
+	fi; \
+	echo "gofmt: clean"
+	go vet ./...
+	@echo "go vet: clean"
+
 clean:
-	rm -rf $(VENDOR)
+	rm -rf $(VENDOR) bin
