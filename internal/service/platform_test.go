@@ -59,6 +59,9 @@ type platform struct {
 	// tfaTokens is the tfatoken header of every /user/currentUser call, so a
 	// test can assert that a two-factor session's token was forwarded.
 	tfaTokens []string
+	// options are the tenant options of each tenant, keyed by
+	// "tenant/category", which is where a microservice's settings live.
+	options map[string]map[string]string
 }
 
 type platformUser struct {
@@ -76,6 +79,7 @@ func newPlatform(t *testing.T, tenants map[string]*testfixture.Server) *platform
 		t:       t,
 		tenants: tenants,
 		users:   make(map[string]platformUser),
+		options: make(map[string]map[string]string),
 	}
 	for tenant := range tenants {
 		p.subscribed = append(p.subscribed, tenant)
@@ -118,6 +122,18 @@ func (p *platform) Unsubscribe(tenant string) {
 		}
 	}
 	p.subscribed = kept
+}
+
+// SetOption sets a tenant option, which is how an operator configures a
+// microservice's settings.
+func (p *platform) SetOption(tenant, category, key, value string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	at := tenant + "/" + category
+	if p.options[at] == nil {
+		p.options[at] = map[string]string{}
+	}
+	p.options[at][key] = value
 }
 
 // SlowDown makes every tenant API call take at least d, so a test can catch a
@@ -170,6 +186,18 @@ func (p *platform) handle(w http.ResponseWriter, r *http.Request) {
 		// Bootstrap logs a warning and carries on when this is missing, so the
 		// fixture leaves it missing on purpose - that path should stay covered.
 		http.NotFound(w, r)
+		return
+	}
+
+	if category, found := strings.CutPrefix(r.URL.Path, "/tenant/options/"); found &&
+		!strings.Contains(category, "/") {
+		p.mu.Lock()
+		values := p.options[tenant+"/"+category]
+		p.mu.Unlock()
+		if values == nil {
+			values = map[string]string{}
+		}
+		writeJSON(w, http.StatusOK, values)
 		return
 	}
 

@@ -55,6 +55,7 @@ func (s *Service) EnqueueRevert(ctx context.Context, request RevertRequest, call
 
 	select {
 	case s.queue <- &queuedJob{job: job}:
+		queueDepth.Set(float64(len(s.queue)))
 		return &accepted, nil
 	default:
 		job.Status = StatusFailed

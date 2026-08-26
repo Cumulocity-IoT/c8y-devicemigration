@@ -69,6 +69,11 @@ type Service struct {
 
 	queue chan *queuedJob
 
+	// settings is what an operator configured through tenant options, kept in
+	// memory so a request never waits on a platform call to find out how it
+	// should behave.
+	settings settingsStore
+
 	mu      sync.Mutex
 	clients map[string]*tenantClient
 	running map[string]*queuedJob
@@ -121,6 +126,14 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		running:            make(map[string]*queuedJob),
 	}
 
+	// Read once at startup so the first job already behaves as configured. A
+	// failure here is worth reporting but not fatal: the defaults are the
+	// documented behaviour, and refusing to start over an unreadable option
+	// would take the service down for a setting nobody may have used.
+	if err := s.RefreshSettings(ctx); err != nil {
+		slog.Warn("could not read the settings, continuing with the defaults", "error", err)
+	}
+
 	// Job records live in the owner tenant, so without a service user there the
 	// service could run but never record anything. Better to refuse at startup,
 	// where the message is read, than at the first migration.
@@ -144,6 +157,7 @@ func (s *Service) Tenants(ctx context.Context) []string {
 	for _, user := range users {
 		names = append(names, user.Tenant)
 	}
+	subscribedTenants.Set(float64(len(names)))
 	return names
 }
 

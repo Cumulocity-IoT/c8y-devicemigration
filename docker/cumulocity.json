@@ -35,6 +35,19 @@
     "roles": [
         "ROLE_DEVICE_MIGRATION_ADMIN"
     ],
+    "settingsCategory": "devicemigration",
+    "settings": [
+        {
+            "key": "records.retention.days",
+            "defaultValue": "0",
+            "editable": true
+        },
+        {
+            "key": "data.dateFrom",
+            "defaultValue": "",
+            "editable": true
+        }
+    ],
     "livenessProbe": {
         "httpGet": {
             "path": "/health",

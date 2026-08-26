@@ -21,6 +21,11 @@ const RecordType = "c8y_DeviceMigrationJob"
 // can be read back with one query and no field-by-field mapping.
 const RecordFragment = "c8y_DeviceMigration"
 
+// managedObjectDeleteOptions is how a job record is deleted: on its own. A
+// record has no children, and cascade on something that unexpectedly does would
+// be a very bad surprise.
+var managedObjectDeleteOptions = managedobjects.DeleteOptions{}
+
 // recordPageSize is deliberately large: job records are small and a listing that
 // silently returned only the first page would be worse than a slow one.
 const recordPageSize = 100
@@ -105,17 +110,15 @@ func (s *Service) Records(ctx context.Context) ([]*Job, error) {
 			return nil, fmt.Errorf("could not read the job records: %w", err)
 		}
 
-		var body struct {
-			Job *Job `json:"c8y_DeviceMigration"`
-		}
-		if err := json.Unmarshal(object.Bytes(), &body); err != nil || body.Job == nil {
-			// A managed object of this type that this service did not write, or
-			// wrote in an older shape. Skipped rather than fatal: one unreadable
-			// record must not hide all the others.
+		job, ok := decodeRecord(object.Bytes())
+		if !ok {
+			// A managed object carrying this fragment that this service did not
+			// write, or wrote in an older shape. Skipped rather than fatal: one
+			// unreadable record must not hide all the others.
 			continue
 		}
-		body.Job.RecordID = object.ID()
-		jobs = append(jobs, body.Job)
+		job.RecordID = object.ID()
+		jobs = append(jobs, job)
 	}
 	if err := iterator.Err(); err != nil {
 		return nil, fmt.Errorf("could not read the job records: %w", err)
@@ -130,17 +133,54 @@ func (s *Service) Records(ctx context.Context) ([]*Job, error) {
 }
 
 // Record reads one job record by job id.
+//
+// Asked for by id in the query rather than by reading every record and filtering
+// here: polling a job's status is the most frequent call this service gets, and
+// on a tenant with a few hundred jobs the filtering version reads all of them
+// every time. The nested path is how the inventory query language addresses a
+// property inside a fragment, the same shape as the documented
+// c8y_Hardware.serialNumber.
 func (s *Service) Record(ctx context.Context, jobID string) (*Job, error) {
-	jobs, err := s.Records(ctx)
+	owner, err := s.tenant(s.ownerTenant)
 	if err != nil {
 		return nil, err
 	}
-	for _, job := range jobs {
-		if job.ID == jobID {
-			return job, nil
+
+	iterator := owner.client.ManagedObjects.ListAll(ctx, managedobjects.ListOptions{
+		Query: fmt.Sprintf("$filter=(has(%s)) and (%s.id eq '%s')",
+			RecordFragment, RecordFragment, jobID),
+		PaginationOptions: pagination.PaginationOptions{PageSize: recordPageSize},
+	})
+
+	for object, err := range iterator.Items() {
+		if err != nil {
+			return nil, fmt.Errorf("could not read the record of job %s: %w", jobID, err)
 		}
+		job, ok := decodeRecord(object.Bytes())
+		if !ok || job.ID != jobID {
+			// The query decides what matches, but a platform that ignored the
+			// filter would otherwise hand back somebody else's job.
+			continue
+		}
+		job.RecordID = object.ID()
+		return job, nil
 	}
+	if err := iterator.Err(); err != nil {
+		return nil, fmt.Errorf("could not read the record of job %s: %w", jobID, err)
+	}
+
 	return nil, &NotFoundError{What: fmt.Sprintf("job %s", jobID)}
+}
+
+// decodeRecord reads a job out of a managed object.
+func decodeRecord(body []byte) (*Job, bool) {
+	var document struct {
+		Job *Job `json:"c8y_DeviceMigration"`
+	}
+	if err := json.Unmarshal(body, &document); err != nil || document.Job == nil {
+		return nil, false
+	}
+	return document.Job, true
 }
 
 // NotFoundError is a job id nobody has heard of.

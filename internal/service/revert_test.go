@@ -1,12 +1,22 @@
 package service_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/migrate"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/reverter"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/service"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
 // revert1 runs one revert through the HTTP API and returns the finished job.
@@ -343,4 +353,121 @@ func TestARecordWithoutAKindIsAMigration(t *testing.T) {
 	if len(reverts) != 0 {
 		t.Fatalf("an older record was listed as a revert: %v", reverts)
 	}
+}
+
+// The same guarantee the migration differential gives, for the destructive half:
+// a revert through the API must delete exactly what the engine deletes when it
+// is driven directly. This is the test that would notice if the service ever
+// started shaping a revert differently - by mapping file instead of run id, say,
+// or with the wrong tenant.
+func TestARevertThroughTheAPIMatchesTheEngineDirectly(t *testing.T) {
+	viaAPI := revertViaAPI(t)
+	direct := revertDirectly(t)
+
+	if viaAPI != direct {
+		t.Fatalf("what was deleted differs\nvia the API:\n%s\ndirectly:\n%s", viaAPI, direct)
+	}
+}
+
+// revertViaAPI migrates and then undoes it through HTTP, returning what the
+// target tenant was asked to delete.
+func revertViaAPI(t *testing.T) string {
+	t.Helper()
+
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	migration := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1",
+		DataTypes: "all",
+	})
+	if migration["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the migration failed: %v", migration["error"])
+	}
+
+	job := revert1(t, svc, service.RevertRequest{JobID: fmt.Sprint(migration["id"])})
+	if job["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the revert failed: %v", job["error"])
+	}
+
+	return deletions(t, p.tenants["t-target"])
+}
+
+// revertDirectly does the same by calling the engine, with no service involved.
+func revertDirectly(t *testing.T) string {
+	t.Helper()
+
+	source := testfixture.New(t, "hierarchy.json")
+	target := testfixture.New(t, "empty.json")
+	work := t.TempDir()
+
+	sourceSession := source.ReadSession(t, work, "source.json")
+	targetSession := target.ReadSession(t, work, "target.json")
+
+	sourceClient, err := c8yclient.New(sourceSession, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetClient, err := c8yclient.New(targetSession, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dataTypes, err := export.ResolveDataTypes("all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	windows, err := export.ResolveWindows("", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var progress strings.Builder
+	mapping := filepath.Join(work, "id_mapping.json")
+	err = migrate.New(sourceClient, targetClient, sourceSession, targetSession,
+		&progress, nil, migrate.Options{
+			RootID: "1", MappingFile: mapping,
+			ChildTypes: export.DefaultChildTypes, DataTypes: dataTypes, Windows: windows,
+			Incremental: true, Force: true,
+		}).Run(context.Background())
+	if err != nil {
+		t.Fatalf("the direct migration failed: %v\n%s", err, progress.String())
+	}
+
+	// By run id, exactly as the service does it - the run id is the one the
+	// engine announced.
+	runID := runIDFrom(t, progress.String())
+	if err := reverter.New(targetClient, &progress, nil, reverter.Options{
+		RunID: runID, Force: true,
+	}).Run(context.Background()); err != nil {
+		t.Fatalf("the direct revert failed: %v\n%s", err, progress.String())
+	}
+
+	return deletions(t, target)
+}
+
+// runIDFrom reads the run id out of the engine's output, which is the only place
+// it exists.
+func runIDFrom(t *testing.T, output string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(output, "\n") {
+		if match := regexp.MustCompile(`^Run id (\S+),`).FindStringSubmatch(line); match != nil {
+			return match[1]
+		}
+	}
+	t.Fatalf("no run id in:\n%s", output)
+	return ""
+}
+
+// deletions is what a tenant was asked to delete, as a comparable string.
+func deletions(t *testing.T, target *testfixture.Server) string {
+	t.Helper()
+
+	deleted := append([]string(nil), target.Deleted()...)
+	if len(deleted) == 0 {
+		t.Fatal("nothing was deleted, so this comparison would prove nothing")
+	}
+	sort.Strings(deleted)
+	return strings.Join(deleted, "\n")
 }

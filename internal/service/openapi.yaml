@@ -402,6 +402,80 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /loggers:
+    get:
+      tags: [monitoring]
+      summary: The log level in force
+      description: |
+        The Spring Boot actuator shape the platform proxies at
+        `/service/{name}/loggers`, so `c8y microservices loggers` works against
+        this service.
+
+        Go's structured logging has no logger hierarchy to expose, so there is one
+        logger, named `ROOT` as the actuator names its own. Anything else is a
+        404 rather than a pretence that it was configured.
+      operationId: listLoggers
+      responses:
+        "200":
+          description: The levels available and the logger there is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoggersResponse"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /loggers/{name}:
+    get:
+      tags: [monitoring]
+      summary: One logger
+      operationId: getLogger
+      parameters:
+        - $ref: "#/components/parameters/LoggerName"
+      responses:
+        "200":
+          description: That logger's level.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoggerConfiguration"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+    post:
+      tags: [monitoring]
+      summary: Change the log level while the service runs
+      description: |
+        Turning debug output on without redeploying, which otherwise means losing
+        whatever was running. A `configuredLevel` of `null`, or an absent one,
+        resets to the default - which is what `c8y microservices loggers delete`
+        sends.
+      operationId: setLogger
+      parameters:
+        - $ref: "#/components/parameters/LoggerName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                configuredLevel:
+                  type: [string, "null"]
+                  enum: [ERROR, WARN, INFO, DEBUG, TRACE, null]
+                  description: |
+                    TRACE is accepted and treated as DEBUG, which is the finest
+                    level Go's logging has.
+              example: {configuredLevel: DEBUG}
+      responses:
+        "204":
+          description: The level was changed.
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
 components:
   securitySchemes:
     basicAuth:
@@ -433,6 +507,15 @@ components:
         forwarded when the caller is verified.
 
   parameters:
+    LoggerName:
+      name: name
+      in: path
+      required: true
+      description: The logger, of which there is one - `ROOT`.
+      schema:
+        type: string
+      example: ROOT
+
     JobID:
       name: id
       in: path
@@ -665,6 +748,35 @@ components:
         runId: 20260825T162735Z_b5c5a2
         requestedBy: t10001/admin
         countsVerified: true
+
+    LoggerConfiguration:
+      type: object
+      properties:
+        configuredLevel:
+          type: string
+          description: The level that was asked for.
+        effectiveLevel:
+          type: string
+          description: The level in force, which for one logger is the same thing.
+
+    LoggersResponse:
+      type: object
+      properties:
+        levels:
+          type: array
+          items:
+            type: string
+        loggers:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/LoggerConfiguration"
+        groups:
+          type: object
+      example:
+        levels: [ERROR, WARN, INFO, DEBUG]
+        loggers:
+          ROOT: {configuredLevel: INFO, effectiveLevel: INFO}
+        groups: {}
 
     Error:
       type: object

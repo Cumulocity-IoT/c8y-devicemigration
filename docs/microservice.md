@@ -12,10 +12,11 @@ is `internal/migrate`, linked in, not a copy and not a subprocess. What the
 microservice adds is everything the CLI got from a person: credentials, the
 decision that two tenants really are two tenants, and somewhere to send progress.
 
-> **Status: increment 3.** Bootstrap, subscriptions, authorization, `/health`,
+> **Status: complete.** Bootstrap, subscriptions, authorization, `/health`,
 > `GET /tenants`, `POST /preflight`, migrations and reverts as asynchronous jobs,
-> and closing the records of jobs whose container stopped existing. What remains
-> is operational polish: metrics, log levels and settings from tenant options.
+> closing the records of jobs whose container stopped existing, metrics, runtime
+> log levels, and settings from tenant options. It has not yet run against a live
+> tenant.
 
 ## Deploying it
 
@@ -119,6 +120,7 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /reverts` | every revert, newest first |
 | `GET /reverts/{id}` | one revert |
 | `POST /reverts/{id}/cancel` | asks a running revert to stop |
+| `GET /loggers`, `GET`/`POST /loggers/{name}` | the log level, changeable while the service runs |
 
 ```sh
 c8y api GET /service/devicemigration/tenants
@@ -228,6 +230,53 @@ gateway authenticated, from any subscribed tenant, which is a wider audience tha
 everything else here. The container log is available through the platform's own
 microservice log view.
 
+## Watching it run
+
+`GET /prometheus` exposes, besides the Go runtime's own metrics:
+
+| | |
+| --- | --- |
+| `devicemigration_jobs_total{kind,status}` | jobs that finished, by kind and outcome |
+| `devicemigration_job_duration_seconds{kind}` | how long they took. The buckets reach six hours, because a hierarchy with a month of measurements does |
+| `devicemigration_queue_depth` | accepted and waiting |
+| `devicemigration_job_running` | 1 while one runs, and one runs at a time |
+| `devicemigration_subscribed_tenants` | how many tenants this service can act on |
+| `devicemigration_records_pruned_total` | job records deleted for being older than the retention period |
+
+The log level can be changed without redeploying, which otherwise means losing
+whatever was running:
+
+```sh
+c8y microservices loggers set --name devicemigration --logger ROOT --level DEBUG
+c8y microservices loggers delete --name devicemigration --logger ROOT   # back to INFO
+```
+
+These are the Spring Boot actuator endpoints the platform proxies, so its own
+tooling works against this service. Go's structured logging has no logger
+hierarchy to expose, so there is exactly one logger, named `ROOT` as the actuator
+names its own; any other name is a 404 rather than a pretence that it was
+configured.
+
+## Settings
+
+Declared in the manifest and stored as tenant options of the tenant the service
+is deployed on, so they can be changed in **Administration → Settings** without
+redeploying. They are read at startup and re-read hourly.
+
+| Setting | Default | |
+| --- | --- | --- |
+| `records.retention.days` | `0` | How long a finished job's record is kept. **Zero keeps them forever**, which is the safe default: the record is the only account of what was done to a customer's tenant |
+| `data.dateFrom` | *(empty)* | The data window a migration gets when it does not name one. Empty leaves the engine's own defaults — measurements for the last fourteen days, everything for events and alarms |
+
+```sh
+c8y tenants options update --category devicemigration \
+    --key records.retention.days --value 90
+```
+
+Pruning only ever removes records of jobs that **finished**, and only when a
+retention period is configured. A value that cannot be read as a number is
+ignored with a warning rather than treated as zero-something.
+
 ## Who may call it
 
 Only users of the tenant the microservice is deployed on, and only those holding
@@ -288,6 +337,9 @@ library is ever fixed — at which point the local decoder can go.
   `INTERRUPTED`, keeping its run id so the target tenant can be inspected and the
   run undone. That is only sound because the manifest pins `replicas: 1`: with
   two containers, each would be closing the other's live jobs.
+- **Job records accumulate until a retention period is set.** The default keeps
+  everything, which is right for an audit trail and wrong for a tenant that
+  migrates daily. See [Settings](#settings).
 - **Progress is kept, not streamed.** The last 200 lines of a job's output are on
   its record and in the status response; everything goes to the container log as
   well. There is no streaming endpoint.

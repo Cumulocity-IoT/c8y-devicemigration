@@ -36,6 +36,10 @@ func main() {
 }
 
 func run() error {
+	// Before anything logs, so the level is one the /loggers endpoints can
+	// change afterwards.
+	service.SetupLogging()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -56,7 +60,14 @@ func run() error {
 		slog.Warn("could not reconcile the job records", "error", err)
 	}
 
+	if pruned, err := svc.Prune(ctx); err != nil {
+		slog.Warn("could not prune expired job records", "error", err)
+	} else if pruned > 0 {
+		slog.Info("pruned expired job records", "count", pruned)
+	}
+
 	go svc.WatchSubscriptions(ctx)
+	go svc.WatchHousekeeping(ctx)
 
 	// One worker, so one migration at a time. See Service.Work.
 	go svc.Work(ctx)

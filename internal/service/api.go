@@ -55,6 +55,12 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/reverts", handler: s.handleListReverts},
 		{Method: http.MethodGet, Path: "/reverts/{id}", handler: s.handleGetJob},
 		{Method: http.MethodPost, Path: "/reverts/{id}/cancel", handler: s.handleCancelJob},
+
+		// The Spring Boot actuator shape, which is what the platform's own
+		// tooling talks to.
+		{Method: http.MethodGet, Path: "/loggers", handler: s.handleListLoggers},
+		{Method: http.MethodGet, Path: "/loggers/{name}", handler: s.handleGetLogger},
+		{Method: http.MethodPost, Path: "/loggers/{name}", handler: s.handleSetLogger},
 	}
 }
 

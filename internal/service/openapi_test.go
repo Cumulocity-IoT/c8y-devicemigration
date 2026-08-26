@@ -254,6 +254,7 @@ func TestTheSchemasMatchTheStructs(t *testing.T) {
 		{"MigrationsResponse", service.MigrationsResponse{}},
 		{"RevertRequest", service.RevertRequest{}},
 		{"RevertsResponse", service.RevertsResponse{}},
+		{"LoggersResponse", service.LoggersResponse{}},
 		{"Job", service.Job{}},
 	} {
 		documented, ok := parsed.Components.Schemas[pair.schema]
@@ -496,4 +497,39 @@ func keys(value any) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// A setting the manifest does not declare cannot be changed by an operator: it
+// never appears in the Administration UI, so the code would be reading a tenant
+// option nobody can set.
+func TestEverySettingTheCodeReadsIsDeclaredInTheManifest(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(testfixture.RepoRoot(), "docker", "cumulocity.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var manifest struct {
+		SettingsCategory string `json:"settingsCategory"`
+		Settings         []struct {
+			Key string `json:"key"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	if manifest.SettingsCategory != service.SettingsCategory {
+		t.Errorf("the manifest stores settings under %q, the code reads %q",
+			manifest.SettingsCategory, service.SettingsCategory)
+	}
+
+	declared := map[string]bool{}
+	for _, setting := range manifest.Settings {
+		declared[setting.Key] = true
+	}
+	for _, key := range []string{service.SettingRetentionDays, service.SettingDefaultDateFrom} {
+		if !declared[key] {
+			t.Errorf("the code reads %q, which the manifest does not declare", key)
+		}
+	}
 }

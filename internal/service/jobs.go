@@ -226,6 +226,7 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 
 	select {
 	case s.queue <- &queuedJob{job: job}:
+		queueDepth.Set(float64(len(s.queue)))
 		return &accepted, nil
 	default:
 		// The record exists, so say what became of it rather than leaving a
@@ -254,6 +255,7 @@ func (s *Service) Work(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case queued := <-s.queue:
+			queueDepth.Set(float64(len(s.queue)))
 			s.run(ctx, queued)
 		}
 	}
@@ -311,6 +313,11 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 	})
 	s.record(ctx, &started)
 
+	kind := string(started.Kind)
+	jobRunning.Set(1)
+	defer jobRunning.Set(0)
+	begun := time.Now()
+
 	var err error
 	switch queued.snapshot().Kind {
 	case KindRevert:
@@ -337,6 +344,9 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 			job.CountsVerified = true
 		}
 	})
+
+	jobsTotal.WithLabelValues(kind, string(finished.Status)).Inc()
+	jobDuration.WithLabelValues(kind).Observe(time.Since(begun).Seconds())
 
 	// Written with a context of its own: the job's context may be exactly what
 	// was cancelled, and a cancelled job whose record still says RUNNING is the
@@ -379,7 +389,14 @@ func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 		sweepStaging(before, job.ID)
 	}()
 
-	options, err := s.resolveOptions(*job.Request, filepath.Join(directory, "id_mapping.json"))
+	request := *job.Request
+	if request.DateFrom == "" {
+		// The configured default, if there is one. Empty leaves the engine's own
+		// defaults in place.
+		request.DateFrom = s.Settings().DefaultDateFrom
+	}
+
+	options, err := s.resolveOptions(request, filepath.Join(directory, "id_mapping.json"))
 	if err != nil {
 		return err
 	}

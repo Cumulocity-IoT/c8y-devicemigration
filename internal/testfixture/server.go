@@ -24,6 +24,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/tidwall/gjson"
+
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 	"time"
 )
@@ -455,12 +457,14 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 	fragmentType := params.Get("fragmentType")
 
 	var required []string
+	var equals [][2]string
 	var afterID string
 	if query != "" {
 		// query wins: whatever fragmentType said is discarded, exactly as the
 		// platform discards it.
 		fragmentType = ""
 		required = hasTerms(query)
+		equals = equalTerms(query)
 		afterID = idCursor(query)
 	}
 	if fragmentType != "" {
@@ -475,6 +479,9 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 	var matches []found
 	for id, body := range s.created {
 		if !matchesAll(body, required) {
+			continue
+		}
+		if !equalsAll(body, equals) {
 			continue
 		}
 		if afterID != "" && id <= afterID {
@@ -504,6 +511,52 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 			"totalElements": len(objects), "totalPages": 1,
 		},
 	})
+}
+
+// equalTerms pulls the "<path> eq '<value>'" comparisons out of a query.
+//
+// Modelled because the microservice looks a job record up by the id inside its
+// fragment rather than by reading every record: without this the fixture would
+// answer such a query with everything, and a query that could never work on a
+// real platform would pass its tests.
+func equalTerms(query string) [][2]string {
+	var terms [][2]string
+	rest := query
+	for {
+		at := strings.Index(rest, " eq '")
+		if at < 0 {
+			return terms
+		}
+
+		// The path is the word before " eq ", which may be wrapped in the
+		// parentheses the query language uses to group conditions.
+		path := strings.TrimLeft(rest[:at], "( ")
+		if space := strings.LastIndexAny(path, "( "); space >= 0 {
+			path = path[space+1:]
+		}
+
+		rest = rest[at+len(" eq '"):]
+		end := strings.Index(rest, "'")
+		if end < 0 {
+			return terms
+		}
+		if path != "" {
+			terms = append(terms, [2]string{path, rest[:end]})
+		}
+		rest = rest[end+1:]
+	}
+}
+
+// equalsAll is whether an object satisfies every comparison.
+func equalsAll(body []byte, terms [][2]string) bool {
+	for _, term := range terms {
+		// The dotted path addresses a property inside a fragment, which is what
+		// gjson reads natively.
+		if gjson.GetBytes(body, term[0]).String() != term[1] {
+			return false
+		}
+	}
+	return true
 }
 
 // hasTerms pulls the fragment names out of every has(...) in a query.
