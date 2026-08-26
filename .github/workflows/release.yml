@@ -222,6 +222,7 @@ jobs:
           # shellcheck disable=SC2086
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$VERSION" \
             $tags \
             --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
             --label org.opencontainers.image.revision=${{ github.sha }} \

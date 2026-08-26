@@ -116,6 +116,7 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		clientOpts.InsecureSkipVerify = opts.InsecureSkipVerify
 	})
 	ms.Config.InitConfiguration()
+	quietenHTTPWarning(ms.Client)
 
 	if err := ms.Bootstrap(ctx); err != nil {
 		return nil, fmt.Errorf("could not load the application subscriptions: %w", err)
@@ -279,6 +280,7 @@ func (s *Service) tenant(name string) (*tenantClient, error) {
 	// The one thing added to a client the engine also uses, and it only acts
 	// when a request's context asks it to.
 	forwardTFAToken(client)
+	quietenHTTPWarning(client)
 
 	entry := &tenantClient{session: sess, client: client}
 	s.clients[name] = entry
@@ -300,6 +302,32 @@ func (s *Service) Port() string {
 // Microservice exposes the SDK object, for the health endpoints and the
 // request-auth middleware.
 func (s *Service) Microservice() *microservice.Microservice { return s.ms }
+
+// ClientFor is the platform client this service uses for a tenant. Exported for
+// tests that need to ask something about the client itself rather than about a
+// call made with it.
+func (s *Service) ClientFor(tenant string) (*api.Client, error) {
+	entry, err := s.tenant(tenant)
+	if err != nil {
+		return nil, err
+	}
+	return entry.client, nil
+}
+
+// quietenHTTPWarning stops the HTTP client warning about every request it makes.
+//
+// The platform gives a microservice an internal address - C8Y_BASEURL inside a
+// container is http - and the HTTP library warns whenever credentials travel
+// over anything but HTTPS. It is right in general and noise here: the
+// alternative it recommends is not available, the traffic never leaves the
+// platform, and the warning arrives once per request, which buries everything
+// the service actually has to say.
+//
+// Deliberately not a silenced logger: this is the library's own switch for
+// exactly this warning, so anything else it wants to report still gets through.
+func quietenHTTPWarning(client *api.Client) {
+	client.HTTPClient.SetDisableWarn(true)
+}
 
 // probe proves a tenant's service user by asking the platform which tenant it
 // belongs to. Same call the CLI's pre-flight makes, for the same reason: a

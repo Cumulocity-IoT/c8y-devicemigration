@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/service"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
 
 // --- metrics -----------------------------------------------------------------
@@ -465,5 +467,68 @@ func TestASecondServiceDoesNotNestItsStagingRoot(t *testing.T) {
 	if deepest > 1 {
 		t.Fatalf("staging directories are %d levels deep under the sandbox, so a "+
 			"service nested inside another's root", deepest)
+	}
+}
+
+// Reading the settings needs a permission the service user has to be granted,
+// and the manifest is the only place it can be. A deployed service that could
+// not read its own options logged a 403 on every start until this was added, so
+// the roles it needs are now checked against the calls it makes.
+func TestTheManifestGrantsEveryPermissionTheServiceUses(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(testfixture.RepoRoot(), "docker", "cumulocity.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var manifest struct {
+		RequiredRoles []string `json:"requiredRoles"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	granted := map[string]bool{}
+	for _, role := range manifest.RequiredRoles {
+		granted[role] = true
+	}
+
+	// One entry per thing the service actually does, so adding a call means
+	// noticing the permission it needs.
+	for role, why := range map[string]string{
+		"ROLE_INVENTORY_READ":         "reading a hierarchy, and its own job records",
+		"ROLE_INVENTORY_ADMIN":        "creating objects, and deleting them on a revert",
+		"ROLE_IDENTITY_READ":          "reading external identities",
+		"ROLE_IDENTITY_ADMIN":         "recreating external identities",
+		"ROLE_MEASUREMENT_READ":       "counting and reading measurements",
+		"ROLE_MEASUREMENT_ADMIN":      "writing measurements",
+		"ROLE_EVENT_READ":             "reading events and their attachments",
+		"ROLE_EVENT_ADMIN":            "writing events and attachments",
+		"ROLE_ALARM_READ":             "reading alarms",
+		"ROLE_ALARM_ADMIN":            "writing alarms",
+		"ROLE_OPTION_MANAGEMENT_READ": "reading its settings from tenant options",
+	} {
+		if !granted[role] {
+			t.Errorf("the service needs %s for %s, and the manifest does not grant it", role, why)
+		}
+	}
+}
+
+// The platform hands a microservice an internal http address, and the HTTP
+// library warns about credentials over http on every single request. One line
+// per call buries everything the service has to say.
+func TestTheHTTPCredentialsWarningIsNotRepeatedPerRequest(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	// Reaching in through the same client the service uses, because that is what
+	// the switch is set on.
+	call(t, svc, request(t, http.MethodGet, "/tenants", nil))
+
+	client, err := svc.ClientFor(bootstrapTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !client.HTTPClient.IsDisableWarn() {
+		t.Error("the client still warns about credentials over http, once per request")
 	}
 }

@@ -12,6 +12,11 @@ FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
+# What the running service calls itself. Passed in by `make service-package`,
+# because the build happens inside this container and cannot see the tag: without
+# it a deployed microservice reports "dev", which it did.
+ARG VERSION=dev
+
 WORKDIR /src
 
 # Dependencies first, so a source-only change does not re-download the module
@@ -24,7 +29,8 @@ COPY internal/ internal/
 
 # CGO off: the target image has no libc to link against.
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" \
+    go build -trimpath \
+    -ldflags="-s -w -X github.com/Cumulocity-IoT/c8y-devicemigration/internal/version.Version=$VERSION" \
     -o /out/c8y-devicemigration-service ./cmd/c8y-devicemigration-service
 
 # A migration stages one device's data at a time under $TMPDIR, so the image

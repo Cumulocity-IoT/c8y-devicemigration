@@ -213,6 +213,7 @@ service-build:
 		echo "SERVICE_VERSION is empty, so there is nothing to tag the image with."; \
 		echo "Pass it explicitly: make service-build SERVICE_VERSION=1.2.3"; exit 1; }
 	$(DOCKER) build --platform linux/amd64 \
+		--build-arg VERSION=$(SERVICE_VERSION) \
 		-t $(SERVICE_NAME):$(SERVICE_VERSION) \
 		-f docker/Dockerfile .
 	@echo "built image $(SERVICE_NAME):$(SERVICE_VERSION)"
