@@ -330,6 +330,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
 		s.assignChild(w, r)
 
+	case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
+		s.updateManagedObject(w, r)
+
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
 		s.deleteManagedObject(w, strings.TrimPrefix(r.URL.Path, "/inventory/managedObjects/"))
 
@@ -841,6 +844,61 @@ func (s *Server) nextID() string {
 	}
 	s.counter++
 	return strconv.Itoa(s.counter)
+}
+
+// updateManagedObject merges a PUT body into an object this server created.
+//
+// The migration engine never updates a managed object - it only ever creates,
+// links and deletes - so this route did not exist until the microservice needed
+// it for its job records, which it keeps in the tenant because a container has
+// nowhere else to keep anything.
+func (s *Server) updateManagedObject(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/inventory/managedObjects/")
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var patch map[string]any
+	if err := json.Unmarshal(body, &patch); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	s.mu.Lock()
+	existing, ok := s.created[id]
+	if !ok {
+		s.mu.Unlock()
+		http.NotFound(w, r)
+		return
+	}
+
+	var object map[string]any
+	if err := json.Unmarshal(existing, &object); err != nil {
+		s.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// A fragment at a time, as the platform does: a PUT naming one fragment
+	// leaves the others alone.
+	for key, value := range patch {
+		object[key] = value
+	}
+
+	merged, err := json.Marshal(object)
+	if err != nil {
+		s.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.created[id] = merged
+	s.mu.Unlock()
+
+	object["id"] = id
+	object["self"] = s.selfLink(id)
+	s.writeJSON(w, object)
 }
 
 func (s *Server) createManagedObject(w http.ResponseWriter, r *http.Request) {

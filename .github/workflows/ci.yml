@@ -77,6 +77,72 @@ jobs:
       - name: Test
         run: make go-test
 
+  # The deployable artefact: cumulocity.json plus the image tarball, zipped the
+  # way the platform wants it. Built on every push so a broken Dockerfile or an
+  # invalid manifest is caught here rather than at upload time, and uploaded as a
+  # workflow artifact so a deployable zip exists for any commit.
+  microservice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `make service-package` derives the version from the newest v-tag, so
+          # a shallow clone without tags would silently produce a snapshot.
+          fetch-depth: 0
+
+      # The runner is amd64 already, so no emulation is needed here - the
+      # --platform pin in the Dockerfile just becomes a no-op.
+      - name: Build the package
+        run: make service-package
+
+      - name: Show what will be deployed
+        run: |
+          cd build
+          unzip -o -d inspect "$(ls *.zip)" >/dev/null
+          echo "manifest:"
+          cat inspect/cumulocity.json
+          echo
+          ls -lh inspect/image.tar
+
+      # The manifest is what the platform validates first, so validate it here.
+      # A malformed one fails the upload with a message that does not say which
+      # field, so this check is worth the four lines.
+      - name: Check the manifest
+        run: |
+          python3 - <<'PY'
+          import json, re, sys
+          manifest = json.load(open("build/cumulocity.json"))
+          problems = []
+          if manifest.get("isolation") != "MULTI_TENANT":
+              problems.append("isolation must be MULTI_TENANT")
+          if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$", manifest.get("version", "")):
+              problems.append(f"version {manifest.get('version')!r} is not SemVer")
+          if len(manifest.get("name", "")) > 23:
+              problems.append("name must be at most 23 characters")
+          if not manifest.get("requiredRoles"):
+              problems.append("requiredRoles is empty, so the service users could read nothing")
+          for probe in ("livenessProbe", "readinessProbe"):
+              if manifest.get(probe, {}).get("httpGet", {}).get("path") != "/health":
+                  problems.append(f"{probe} must probe /health")
+          # Without this the API documentation application does not know the
+          # service has a spec, however well the spec is served.
+          spec = manifest.get("openApiSpec")
+          if not spec:
+              problems.append("openApiSpec is missing, so the API documentation app will not list it")
+          elif isinstance(spec, str) and spec.startswith("/"):
+              problems.append(f"openApiSpec {spec!r} must be relative to /service/<contextPath>/")
+          if problems:
+              print("\n".join(problems)); sys.exit(1)
+          print("manifest ok:", manifest["name"], manifest["version"])
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: microservice-${{ github.sha }}
+          path: build/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:

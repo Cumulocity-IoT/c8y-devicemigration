@@ -1,0 +1,572 @@
+openapi: 3.1.0
+
+info:
+  title: Device migration
+  version: 0.1.0
+  summary: Migrates a device hierarchy from one Cumulocity tenant to another.
+  description: |
+    The migration engine of the c8y-devicemigration tool, running inside
+    Cumulocity as a multi-tenant microservice.
+
+    It is deployed on a parent tenant and subscribed to the tenants it migrates
+    between, so the platform provides a service user for each and no session file
+    or personal credential is involved.
+
+    Two things shape this API and are worth knowing before reading it:
+
+    - A migration is a job, not a request. The platform caps a request at fifteen
+      minutes and a hierarchy with data regularly takes longer, so
+      `POST /migrations` answers 202 with a job id and the work continues
+      afterwards. One migration runs at a time.
+    - Only users of the tenant the microservice is deployed on may migrate, and
+      only those holding `ROLE_DEVICE_MIGRATION_ADMIN`. A subtenant administrator
+      is refused even with the role: migrating writes into a second tenant, and
+      rights in the source say nothing about the target.
+  license:
+    name: Apache-2.0
+  contact:
+    name: c8y-devicemigration
+    url: https://github.com/Cumulocity-IoT/c8y-devicemigration
+
+servers:
+  - url: /service/devicemigration
+    description: The microservice as the platform exposes it.
+
+security:
+  - basicAuth: []
+  - bearerAuth: []
+  - cookieAuth: []
+
+tags:
+  - name: migrations
+    description: Starting, following and stopping migrations.
+  - name: tenants
+    description: What this microservice can act on.
+  - name: monitoring
+    description: What the platform's probes and operators use. No credentials needed.
+
+paths:
+  /health:
+    get:
+      tags: [monitoring]
+      summary: Liveness and readiness
+      description: |
+        Probed by the platform, which sends no credentials, so this endpoint is
+        the one place that answers without them.
+      security: []
+      operationId: getHealth
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: UP
+              example: {status: UP}
+
+  /prometheus:
+    get:
+      tags: [monitoring]
+      summary: Metrics
+      security: []
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Metrics in the Prometheus text format.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /openapi.yaml:
+    get:
+      tags: [monitoring]
+      summary: This document
+      description: |
+        The deployed instance's own description, so what a running version
+        accepts can be read from it rather than looked up elsewhere.
+      security: []
+      operationId: getOpenAPI
+      responses:
+        "200":
+          description: This document.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /api-json:
+    get:
+      tags: [monitoring]
+      summary: This document, as JSON
+      description: |
+        The same document as `/openapi.yaml`, converted to JSON.
+
+        This is the path the manifest's `openApiSpec` names, and what the
+        platform's API documentation application reads. It fetches with the
+        browser's own session, so like the probes it answers without this
+        service's own authorization check.
+      security: []
+      operationId: getOpenAPIJSON
+      responses:
+        "200":
+          description: This document, as JSON.
+          content:
+            application/json:
+              schema:
+                type: object
+        "500":
+          description: The document could not be converted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /tenants:
+    get:
+      tags: [tenants]
+      summary: The tenants this microservice can act on
+      description: |
+        Every tenant currently subscribed to this application, and the tenant the
+        microservice is deployed on. A tenant that is not listed cannot be a
+        source or a target: subscribe it first.
+      operationId: listTenants
+      responses:
+        "200":
+          description: The subscribed tenants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantsResponse"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /preflight:
+    post:
+      tags: [tenants]
+      summary: Check that a migration between two tenants is possible
+      description: |
+        Answers whether this service could migrate between these two tenants,
+        without reading or writing a single device - which is why it takes no
+        `rootId`.
+
+        It resolves both tenants in the subscription list, refuses a source and
+        target that are the same tenant, and then proves each side's service user
+        by asking the platform which tenant it belongs to. Run it after
+        subscribing a tenant, and before a migration whose credentials have never
+        been used.
+      operationId: preflight
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreflightRequest"
+      responses:
+        "200":
+          description: Both tenants resolve and both service users work.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreflightResponse"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /migrations:
+    post:
+      tags: [migrations]
+      summary: Start a migration
+      description: |
+        Validates the request, records the job in the owner tenant, and queues
+        it. Everything that can be checked without touching a tenant is checked
+        before this returns, so a bad root id or an unsubscribed tenant is a 400
+        rather than a job that fails a minute later.
+
+        Migrations always run incrementally - the export is staged one device's
+        data at a time - because that is what bounds the container's ephemeral
+        disk. For the same reason there is no way to ignore the export limits or
+        to keep the staging directory.
+      operationId: createMigration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MigrationRequest"
+      responses:
+        "202":
+          description: |
+            Accepted and queued. The body is the job as it was accepted, and the
+            Location header points at it.
+          headers:
+            Location:
+              description: Where this job's status can be read.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "429": {$ref: "#/components/responses/Busy"}
+
+    get:
+      tags: [migrations]
+      summary: Every migration this service has run
+      description: |
+        Read from the job records in the owner tenant, newest first, so the
+        listing survives the container being replaced.
+      operationId: listMigrations
+      responses:
+        "200":
+          description: The jobs on record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MigrationsResponse"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /migrations/{id}:
+    get:
+      tags: [migrations]
+      summary: One migration
+      description: |
+        The running job is answered from memory and any other from its record, so
+        a running job's progress is as current as the engine's last line rather
+        than as its last record update.
+      operationId: getMigration
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /migrations/{id}/cancel:
+    post:
+      tags: [migrations]
+      summary: Ask a running migration to stop
+      description: |
+        The job stops at its next platform call, so this returns before it has.
+
+        A cancelled job reports `countsVerified: false`, and that is not a
+        formality: the engine has no cancellation checks, so a cancelled import
+        counts the records it never sent as failures. Check the target tenant by
+        run id before retrying.
+      operationId: cancelMigration
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "202":
+          description: The cancellation has been asked for.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  message:
+                    type: string
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404":
+          description: No job with this id is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: |
+        Credentials must name their tenant, as `tenant/username`. Basic auth
+        without a tenant is ambiguous and is refused rather than assumed to mean
+        the owner tenant.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The tenant is taken from the token's `ten` claim.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: authorization
+      description: |
+        A browser session, which is what the API documentation application's
+        "Try it out" uses. The cookie holds the session token, and the tenant
+        comes from its `ten` claim.
+
+        Anything other than a read must also carry the `X-XSRF-TOKEN` header,
+        matching the session. A cookie travels with any request a browser can be
+        talked into making, so without that header a page visited while logged in
+        could start a migration; reads need no such proof. A session with
+        two-factor authentication must also send its `tfatoken` header, which is
+        forwarded when the caller is verified.
+
+  parameters:
+    JobID:
+      name: id
+      in: path
+      required: true
+      description: The job id, as returned when the migration was accepted.
+      schema:
+        type: string
+      example: 20260825T162735Z_c8e249
+
+  schemas:
+    TenantsResponse:
+      type: object
+      properties:
+        ownerTenant:
+          type: string
+          description: |
+            The tenant the microservice is deployed on. Job records are written
+            here, and only its users may migrate.
+        tenants:
+          type: array
+          description: Every tenant subscribed to this application.
+          items:
+            type: string
+      example:
+        ownerTenant: t10001
+        tenants: [t10001, t11111, t22222]
+
+    PreflightRequest:
+      type: object
+      required: [sourceTenant, targetTenant]
+      properties:
+        sourceTenant:
+          type: string
+          description: The tenant a migration would read from.
+        targetTenant:
+          type: string
+          description: The tenant a migration would write to. Must not be the source.
+      example:
+        sourceTenant: t11111
+        targetTenant: t22222
+
+    PreflightResponse:
+      type: object
+      properties:
+        host:
+          type: string
+          description: The platform both tenants live on.
+        source:
+          $ref: "#/components/schemas/PreflightSide"
+        target:
+          $ref: "#/components/schemas/PreflightSide"
+
+    PreflightSide:
+      type: object
+      properties:
+        tenant:
+          type: string
+          description: The tenant that was asked for.
+        reportedTenant:
+          type: string
+          description: |
+            The tenant the platform says the service user belongs to. Proof that
+            the credentials work, rather than that they exist.
+        serviceUser:
+          type: string
+          description: The service user this microservice acts as in that tenant.
+
+    MigrationRequest:
+      type: object
+      required: [sourceTenant, targetTenant, rootId]
+      description: |
+        The fields are the command line tool's flags, resolved by the same code,
+        so values mean here exactly what they mean there. An unknown field is
+        refused rather than ignored, so a typo is a 400.
+      properties:
+        sourceTenant:
+          type: string
+          description: The tenant to read from. Must be subscribed to this application.
+        targetTenant:
+          type: string
+          description: The tenant to write to. Must be subscribed, and must not be the source.
+        rootId:
+          type: string
+          description: |
+            The id of the root managed object to migrate. An id, not a path: a
+            value containing a path separator is refused, because it would end up
+            in the names of the files the export writes.
+        childTypes:
+          type: string
+          description: |
+            Comma separated child relationship types to follow, from `asset`,
+            `device` and `addition`. Omitted means the default.
+          default: asset,device
+        noChildren:
+          type: boolean
+          description: Migrate only the root object. Cannot be combined with childTypes.
+          default: false
+        dataTypes:
+          type: string
+          description: |
+            Comma separated device data to include, from `measurements`, `events`
+            and `alarms`, or `all` for every one of them. Omitted means no data.
+            `all` cannot be combined with named types.
+        dateFrom:
+          type: string
+          description: |
+            Start of the data window, absolute or relative (`-30d`). Measurements
+            default to the last 14 days; events and alarms to everything.
+        dateTo:
+          type: string
+          description: End of the data window.
+        noFlag:
+          type: boolean
+          description: |
+            Leave created objects unmarked. The marker fragment is what makes a
+            run findable by its run id, so without it the job's mapping is the
+            only record of what was created - and that mapping does not outlive
+            the container.
+          default: false
+      example:
+        sourceTenant: t11111
+        targetTenant: t22222
+        rootId: "1399229"
+        dataTypes: all
+        dateFrom: -30d
+
+    MigrationsResponse:
+      type: object
+      properties:
+        migrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+
+    Job:
+      type: object
+      description: |
+        One migration. This is also exactly what the job record in the owner
+        tenant holds, under the `c8y_DeviceMigration` fragment of a managed
+        object of type `c8y_DeviceMigrationJob`.
+      properties:
+        id:
+          type: string
+          description: The job id.
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, INTERRUPTED]
+          description: |
+            `INTERRUPTED` means the container died while the job was running. The
+            job is then over, whatever it had reached.
+        request:
+          $ref: "#/components/schemas/MigrationRequest"
+        runId:
+          type: string
+          description: |
+            Marks everything the run created in the target tenant, and is what an
+            undo needs. Present as soon as the engine has announced it, including
+            on a job that then failed.
+        requestedBy:
+          type: string
+          description: The tenant and user who asked for this migration.
+        queuedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        error:
+          type: string
+          description: Why the job did not succeed.
+        progress:
+          type: array
+          description: |
+            The tail of what the engine printed, up to 200 lines. The whole
+            output is in the container log.
+          items:
+            type: string
+        countsVerified:
+          type: boolean
+          description: |
+            Whether the job's own account of itself can be believed. False for a
+            cancelled or interrupted run: the engine has no cancellation checks,
+            so a run that was cut short miscounts what it did. Check the target
+            tenant by run id instead.
+      example:
+        id: 20260825T162735Z_c8e249
+        status: SUCCEEDED
+        runId: 20260825T162735Z_b5c5a2
+        requestedBy: t10001/admin
+        countsVerified: true
+
+    Error:
+      type: object
+      description: |
+        The same shape the platform uses for its own errors, so a client that
+        understands Cumulocity errors understands these.
+      properties:
+        error:
+          type: string
+          description: A short kind, such as `devicemigration/tenantNotSubscribed`.
+        message:
+          type: string
+          description: What went wrong, in a sentence that says what to do about it.
+      example:
+        error: devicemigration/tenantNotSubscribed
+        message: tenant t22222 has no service user for this microservice, so it must be subscribed to it first
+
+  responses:
+    BadRequest:
+      description: |
+        The request cannot be carried out as asked: a missing field, a root id
+        that is a path, a source and target that are the same tenant, or a tenant
+        that is not subscribed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: No credentials, credentials the platform rejected, or credentials naming no tenant.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: |
+        A verified caller who may not do this: not a user of the owner tenant, or
+        without ROLE_DEVICE_MIGRATION_ADMIN.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No job with this id is on record.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Busy:
+      description: |
+        As many migrations are already queued as this service will hold. One runs
+        at a time, so refusing is more honest than accepting.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

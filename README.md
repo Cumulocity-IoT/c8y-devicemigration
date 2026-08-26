@@ -8,11 +8,12 @@ their external identities and optionally their measurements, events and alarms â
 and recreates it in a second tenant, keeping a mapping so the whole thing can be
 reverted.
 
-## Two implementations
+## Three ways to run it
 
-The same commands exist twice. They are kept behaviour-identical on purpose, and
-a differential test diffs their output on every build, so which one you use is a
-question of how you work rather than what you get.
+The same commands exist twice as a command line tool, and a third time as
+something you deploy. The two command line versions are kept behaviour-identical
+on purpose, and a differential test diffs their output on every build, so which
+one you use is a question of how you work rather than what you get.
 
 | | [go-c8y-cli extension](docs/extension.md) | [standalone binary](docs/cli.md) |
 | --- | --- | --- |
@@ -30,6 +31,19 @@ the `c8y` binary, or when you want a single artefact to ship.
 
 Why both exist, and how they are kept in step, is in
 **[docs/internals.md](docs/internals.md)**.
+
+### Or deploy it into the platform
+
+**[The microservice](docs/microservice.md)** runs the same engine inside
+Cumulocity. It is deployed on a parent tenant and subscribed to the tenants it
+migrates between, so the platform provides a service user for each and no session
+file or personal credential is involved. Reach for it when migrations should be
+an operation the platform performs rather than something an operator runs from a
+laptop.
+
+It is being built incrementally: bootstrap, authorization, a read-only
+pre-flight and migrations as asynchronous jobs work today; undoing a run through
+the service is next.
 
 ## What gets migrated
 

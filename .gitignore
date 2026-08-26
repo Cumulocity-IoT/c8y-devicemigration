@@ -62,3 +62,7 @@ tests/vendor/
 # The compiled Go binary. The Go template above only covers .exe/.so/.dylib, and
 # a bare executable named after the repository is neither.
 /bin/
+
+# The microservice package: the image tarball and the zip the platform is fed,
+# both produced by `make service-package`. The tarball alone is tens of MB.
+/build/

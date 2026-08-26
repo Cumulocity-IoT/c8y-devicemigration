@@ -25,7 +25,8 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
 
 .PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness \
-	go-build go-test go-lint install install-completion bootstrap clean
+	go-build go-test go-lint install install-completion bootstrap clean \
+	service-build service-image service-package service-deploy
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
@@ -119,6 +120,8 @@ GO_TIMEOUT := 300s
 go-build:
 	go build -o bin/c8y-devicemigration ./cmd/c8y-devicemigration
 	@echo "built bin/c8y-devicemigration"
+	go build -o bin/c8y-devicemigration-service ./cmd/c8y-devicemigration-service
+	@echo "built bin/c8y-devicemigration-service"
 
 go-test:
 	go test ./... -timeout $(GO_TIMEOUT)
@@ -146,6 +149,62 @@ install-completion: install
 	@echo "installed $(ZSH_COMPLETION_DIR)/_c8y-devicemigration"
 	@echo "start a new shell, or: rm -f ~/.zcompdump*; exec zsh"
 
+# --- the microservice ---------------------------------------------------------
+#
+# The same engine, deployed on a parent tenant and subscribed to the tenants it
+# migrates between. `make service-package` produces the zip the platform wants:
+# cumulocity.json plus the image as a tarball, nothing else.
+#
+# The image is linux/amd64 because that is all the platform runs. On an Apple
+# Silicon machine docker will emulate for the build, which is slow but correct -
+# the alternative is an image that uploads fine and never starts.
+SERVICE_NAME := devicemigration
+
+# The manifest version has to be SemVer or the platform refuses the upload, so
+# this takes the newest v-prefixed tag and falls back to a snapshot rather than
+# to `git describe`, whose output for an untagged tree ("f8faeb2-dirty") is not
+# a version at all.
+SERVICE_VERSION ?= $(shell \
+	v=$$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0 2>/dev/null); \
+	v=$${v\#v}; \
+	if [ -n "$$v" ]; then echo "$$v"; else echo 0.1.0-SNAPSHOT; fi)
+
+SERVICE_DIR := build
+SERVICE_ZIP := $(SERVICE_DIR)/$(SERVICE_NAME)-$(SERVICE_VERSION).zip
+
+# Which container tool to use. podman works the same for build/save.
+DOCKER ?= docker
+
+service-build:
+	$(DOCKER) build --platform linux/amd64 \
+		-t $(SERVICE_NAME):$(SERVICE_VERSION) \
+		-f docker/Dockerfile .
+	@echo "built image $(SERVICE_NAME):$(SERVICE_VERSION)"
+
+service-image: service-build
+	@mkdir -p $(SERVICE_DIR)
+	$(DOCKER) save $(SERVICE_NAME):$(SERVICE_VERSION) -o $(SERVICE_DIR)/image.tar
+	@echo "saved $(SERVICE_DIR)/image.tar"
+
+# The version in the manifest has to match what is deployed, so it is filled in
+# here rather than committed - a committed version is one nobody remembers to
+# bump.
+service-package: service-image
+	@echo "$(SERVICE_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$$' \
+		|| { echo "SERVICE_VERSION '$(SERVICE_VERSION)' is not SemVer, and the platform will reject it"; exit 1; }
+	sed 's/@VERSION@/$(SERVICE_VERSION)/' docker/cumulocity.json > $(SERVICE_DIR)/cumulocity.json
+	@rm -f $(SERVICE_ZIP)
+	cd $(SERVICE_DIR) && zip -q $(notdir $(SERVICE_ZIP)) cumulocity.json image.tar
+	@echo "packaged $(SERVICE_ZIP)"
+	@unzip -l $(SERVICE_ZIP)
+
+# Uploads and subscribes in one step. Needs an active go-c8y-cli session on the
+# tenant the microservice is to be deployed on.
+service-deploy: service-package
+	c8y microservices create --file $(SERVICE_ZIP) --name $(SERVICE_NAME)
+	@echo "deployed. Subscribe the source and target tenants, and grant"
+	@echo "ROLE_DEVICE_MIGRATION_ADMIN to whoever should be allowed to migrate"
+
 go-lint:
 	@unformatted=$$(gofmt -l cmd internal); \
 	if [ -n "$$unformatted" ]; then \
@@ -156,4 +215,4 @@ go-lint:
 	@echo "go vet: clean"
 
 clean:
-	rm -rf $(VENDOR) bin
+	rm -rf $(VENDOR) bin $(SERVICE_DIR)
