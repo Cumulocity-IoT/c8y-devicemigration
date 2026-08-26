@@ -311,7 +311,7 @@ redeploying. They are read at startup and re-read hourly.
 | Setting | Default | |
 | --- | --- | --- |
 | `records.retention.days` | `0` | How long a finished job's record is kept. **Zero keeps them forever**, which is the safe default: the record is the only account of what was done to a customer's tenant |
-| `data.dateFrom` | *(empty)* | The data window a migration gets when it does not name one. Empty leaves the engine's own defaults — measurements for the last fourteen days, everything for events and alarms |
+| `data.dateFrom` | `-14d` | The data window a migration gets when it does not name one |
 
 ```sh
 c8y tenants options update --category devicemigration \
@@ -321,6 +321,24 @@ c8y tenants options update --category devicemigration \
 Pruning only ever removes records of jobs that **finished**, and only when a
 retention period is configured. A value that cannot be read as a number is
 ignored with a warning rather than treated as zero-something.
+
+### The default window differs from the command line, deliberately
+
+The engine's own defaults are asymmetric: without a `--dateFrom` it takes the
+last fourteen days of measurements and **all** events and alarms. A single
+`dateFrom` applies to all three kinds, so there is no value that reproduces that
+asymmetry — and a setting has to declare a real default, or an operator finds it
+blank in Administration with no idea what it does.
+
+So the service seeds `-14d`, and a migration that does not name a window carries
+**fourteen days of measurements, events and alarms alike**. That is narrower than
+[the command line](cli.md) would take, never wider, and the wizard's review step
+shows the window it counted over beside the counts. Set the option to something
+longer if a migration needs more, or name `dateFrom` on the request.
+
+Clearing the option entirely returns to the engine's own asymmetric defaults —
+that is what an empty value means to the code, and it stays supported for anyone
+who wants it.
 
 ## Who may call it
 

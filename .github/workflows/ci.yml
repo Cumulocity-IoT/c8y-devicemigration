@@ -174,6 +174,9 @@ jobs:
                   problems.append(f"{probe} must probe /health")
           # Without this the API documentation application does not know the
           # service has a spec, however well the spec is served.
+          for setting in manifest.get("settings", []):
+              if not setting.get("defaultValue"):
+                  problems.append(f"setting {setting.get('key')!r} declares no default value")
           spec = manifest.get("openApiSpec")
           if not spec:
               problems.append("openApiSpec is missing, so the API documentation app will not list it")

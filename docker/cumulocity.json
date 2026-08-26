@@ -1,68 +1,68 @@
 {
-    "apiVersion": "v2",
-    "name": "devicemigration",
-    "version": "@VERSION@",
-    "provider": {
-        "name": "Cumulocity IoT"
+  "apiVersion": "v2",
+  "name": "devicemigration",
+  "version": "@VERSION@",
+  "provider": {
+    "name": "Cumulocity IoT"
+  },
+  "icon": {
+    "class": "dlt-c8y-icon-in-transit"
+  },
+  "isolation": "MULTI_TENANT",
+  "openApiSpec": "api-json",
+  "scale": "NONE",
+  "replicas": 1,
+  "resources": {
+    "cpu": "1",
+    "memory": "1G"
+  },
+  "requestedResources": {
+    "cpu": "200m",
+    "memory": "256Mi"
+  },
+  "requiredRoles": [
+    "ROLE_INVENTORY_READ",
+    "ROLE_INVENTORY_ADMIN",
+    "ROLE_IDENTITY_READ",
+    "ROLE_IDENTITY_ADMIN",
+    "ROLE_MEASUREMENT_READ",
+    "ROLE_MEASUREMENT_ADMIN",
+    "ROLE_EVENT_READ",
+    "ROLE_EVENT_ADMIN",
+    "ROLE_ALARM_READ",
+    "ROLE_ALARM_ADMIN"
+  ],
+  "roles": [
+    "ROLE_DEVICE_MIGRATION_ADMIN"
+  ],
+  "settingsCategory": "devicemigration",
+  "settings": [
+    {
+      "key": "records.retention.days",
+      "defaultValue": "0",
+      "editable": true
     },
-    "icon": {
-        "class": "dlt-c8y-icon-in-transit"
-    },
-    "isolation": "MULTI_TENANT",
-    "openApiSpec": "api-json",
-    "scale": "NONE",
-    "replicas": 1,
-    "resources": {
-        "cpu": "1",
-        "memory": "1G"
-    },
-    "requestedResources": {
-        "cpu": "200m",
-        "memory": "256Mi"
-    },
-    "requiredRoles": [
-        "ROLE_INVENTORY_READ",
-        "ROLE_INVENTORY_ADMIN",
-        "ROLE_IDENTITY_READ",
-        "ROLE_IDENTITY_ADMIN",
-        "ROLE_MEASUREMENT_READ",
-        "ROLE_MEASUREMENT_ADMIN",
-        "ROLE_EVENT_READ",
-        "ROLE_EVENT_ADMIN",
-        "ROLE_ALARM_READ",
-        "ROLE_ALARM_ADMIN"
-    ],
-    "roles": [
-        "ROLE_DEVICE_MIGRATION_ADMIN"
-    ],
-    "settingsCategory": "devicemigration",
-    "settings": [
-        {
-            "key": "records.retention.days",
-            "defaultValue": "0",
-            "editable": true
-        },
-        {
-            "key": "data.dateFrom",
-            "defaultValue": "",
-            "editable": true
-        }
-    ],
-    "livenessProbe": {
-        "httpGet": {
-            "path": "/health",
-            "port": 80
-        },
-        "initialDelaySeconds": 20,
-        "periodSeconds": 30,
-        "failureThreshold": 3
-    },
-    "readinessProbe": {
-        "httpGet": {
-            "path": "/health",
-            "port": 80
-        },
-        "initialDelaySeconds": 10,
-        "periodSeconds": 10
+    {
+      "key": "data.dateFrom",
+      "defaultValue": "-14d",
+      "editable": true
     }
+  ],
+  "livenessProbe": {
+    "httpGet": {
+      "path": "/health",
+      "port": 80
+    },
+    "initialDelaySeconds": 20,
+    "periodSeconds": 30,
+    "failureThreshold": 3
+  },
+  "readinessProbe": {
+    "httpGet": {
+      "path": "/health",
+      "port": 80
+    },
+    "initialDelaySeconds": 10,
+    "periodSeconds": 10
+  }
 }

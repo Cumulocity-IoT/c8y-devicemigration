@@ -148,8 +148,13 @@ go-build:
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/c8y-devicemigration-service ./cmd/c8y-devicemigration-service
 	@echo "built bin/c8y-devicemigration-service $(VERSION)"
 
+# -shuffle=on because a test that only passes in the order it was written is a
+# test that will fail one day for reasons nobody can reproduce. This repository
+# has already had two: a metrics gauge read while another test's worker was
+# unwinding, and a job lookup answered from memory instead of from the platform.
+# Go prints the seed it used, and `go test -shuffle=<seed>` replays it exactly.
 go-test:
-	go test ./... -timeout $(GO_TIMEOUT)
+	go test ./... -timeout $(GO_TIMEOUT) -shuffle=on
 
 # Where `make install` puts the binary. Shell completion needs it on PATH under
 # its own name: the generated script is keyed to the bare command name and calls
@@ -319,8 +324,13 @@ ui-types:
 # childTypes the API is perfectly happy to fill in itself.
 ui-types-freshness:
 	@if [ -x $(UI_BIN)/openapi-typescript ]; then \
-		fresh=$$(mktemp -t uitypes); \
-		$(UI_BIN)/openapi-typescript $(OPENAPI) --default-non-nullable=false -o $$fresh >/dev/null 2>&1; \
+		fresh=$$(mktemp); \
+		if ! $(UI_BIN)/openapi-typescript $(OPENAPI) --default-non-nullable=false -o $$fresh; then \
+			echo "could not generate types from $(OPENAPI)"; rm -f $$fresh; exit 1; \
+		fi; \
+		if [ ! -s $$fresh ]; then \
+			echo "generating types from $(OPENAPI) produced nothing"; rm -f $$fresh; exit 1; \
+		fi; \
 		if diff -q $$fresh $(UI_TYPES) >/dev/null 2>&1; then \
 			echo "openapi types: up to date"; rm -f $$fresh; \
 		else \

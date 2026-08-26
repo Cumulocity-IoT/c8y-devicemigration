@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/service"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/testfixture"
 )
@@ -518,7 +521,8 @@ func TestEverySettingTheCodeReadsIsDeclaredInTheManifest(t *testing.T) {
 	var manifest struct {
 		SettingsCategory string `json:"settingsCategory"`
 		Settings         []struct {
-			Key string `json:"key"`
+			Key          string `json:"key"`
+			DefaultValue string `json:"defaultValue"`
 		} `json:"settings"`
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
@@ -533,10 +537,35 @@ func TestEverySettingTheCodeReadsIsDeclaredInTheManifest(t *testing.T) {
 	declared := map[string]bool{}
 	for _, setting := range manifest.Settings {
 		declared[setting.Key] = true
+
+		// The platform wants a value, not an empty string: a setting declared
+		// with nothing in it is one an operator finds blank in Administration
+		// with no idea what it would do.
+		if setting.DefaultValue == "" {
+			t.Errorf("setting %q declares no default value", setting.Key)
+		}
 	}
 	for _, key := range []string{service.SettingRetentionDays, service.SettingDefaultDateFrom} {
 		if !declared[key] {
 			t.Errorf("the code reads %q, which the manifest does not declare", key)
+		}
+	}
+
+	// Every seeded default has to be a value the engine accepts. A window the
+	// engine cannot parse would refuse every migration that did not name its
+	// own, which is a tenant-wide outage seeded at install time.
+	for _, setting := range manifest.Settings {
+		switch setting.Key {
+		case service.SettingDefaultDateFrom:
+			if _, err := export.ParseDate(setting.DefaultValue, time.Now()); err != nil {
+				t.Errorf("the seeded %s of %q is not a date the engine accepts: %v",
+					setting.Key, setting.DefaultValue, err)
+			}
+		case service.SettingRetentionDays:
+			if _, err := strconv.Atoi(setting.DefaultValue); err != nil {
+				t.Errorf("the seeded %s of %q is not a number: %v",
+					setting.Key, setting.DefaultValue, err)
+			}
 		}
 	}
 }

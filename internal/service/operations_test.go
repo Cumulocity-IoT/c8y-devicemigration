@@ -59,9 +59,14 @@ func TestAFinishedJobIsCounted(t *testing.T) {
 
 	// Nothing is running once the job is done, and a gauge stuck at 1 would tell
 	// an operator the service is busy forever.
-	if !strings.Contains(exposed, "devicemigration_job_running 0") {
-		t.Error("devicemigration_job_running was left set")
-	}
+	//
+	// Polled rather than read once: the metric is a package-level gauge shared by
+	// every service in the process, and a job's status reaches its record inside
+	// run() a moment before run() returns and clears this. So the honest question
+	// is whether it settles, not what it reads on one particular line.
+	waitFor(t, "the running gauge to clear", func() bool {
+		return strings.Contains(metrics(t, svc), "devicemigration_job_running 0")
+	})
 }
 
 func TestAFailedJobIsCountedAsSuch(t *testing.T) {
