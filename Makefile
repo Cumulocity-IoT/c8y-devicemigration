@@ -24,9 +24,9 @@ endif
 BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
 
-.PHONY: check test test-fast test-bash3 lint parser-freshness docs docs-freshness \
+.PHONY: check test test-fast test-bash3 lint workflow-lint parser-freshness docs docs-freshness \
 	go-build go-test go-lint install install-completion bootstrap clean \
-	service-build service-image service-package service-deploy
+	service-build service-image service-package service-deploy dist
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
@@ -63,6 +63,17 @@ test-bash3: bootstrap
 	@echo "forcing $$(/bin/bash --version | head -1)"
 	@echo "parallel jobs: $(JOBS)"
 	/bin/bash $(BATS) $(TESTS_DIR)
+
+# Workflows are code too, and nothing else here would notice a broken one until
+# it failed in CI - or, for the release workflow, until a tag was pushed.
+# Optional in the same way shellcheck is: absent means skipped, not broken.
+lint: workflow-lint
+workflow-lint:
+	@if command -v actionlint >/dev/null 2>&1; then \
+		actionlint .github/workflows/*.yml && echo "actionlint: clean"; \
+	else \
+		echo "actionlint not installed, skipping (brew install actionlint)"; \
+	fi
 
 lint:
 	@if command -v shellcheck >/dev/null 2>&1; then \
@@ -117,11 +128,21 @@ parser-freshness:
 # visited set makes the export recurse forever rather than fail.
 GO_TIMEOUT := 300s
 
+# What a build calls itself. From the newest v-tag so a release artefact can be
+# identified from the outside; "dev" plus a commit for anything else, because a
+# local build claiming to be a release is worse than one admitting it is not.
+VERSION ?= $(shell \
+	v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null); \
+	if [ -n "$$v" ]; then echo "$${v\#v}"; \
+	else echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"; fi)
+
+GO_LDFLAGS := -s -w -X github.com/Cumulocity-IoT/c8y-devicemigration/internal/version.Version=$(VERSION)
+
 go-build:
-	go build -o bin/c8y-devicemigration ./cmd/c8y-devicemigration
-	@echo "built bin/c8y-devicemigration"
-	go build -o bin/c8y-devicemigration-service ./cmd/c8y-devicemigration-service
-	@echo "built bin/c8y-devicemigration-service"
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/c8y-devicemigration ./cmd/c8y-devicemigration
+	@echo "built bin/c8y-devicemigration $(VERSION)"
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/c8y-devicemigration-service ./cmd/c8y-devicemigration-service
+	@echo "built bin/c8y-devicemigration-service $(VERSION)"
 
 go-test:
 	go test ./... -timeout $(GO_TIMEOUT)
@@ -205,6 +226,53 @@ service-deploy: service-package
 	@echo "deployed. Subscribe the source and target tenants, and grant"
 	@echo "ROLE_DEVICE_MIGRATION_ADMIN to whoever should be allowed to migrate"
 
+# --- release artefacts --------------------------------------------------------
+#
+# `make dist` cross-compiles the command line tool for every platform a release
+# covers and packs each one with its licence and its documentation. The release
+# workflow calls exactly this, so what CI publishes can be reproduced here.
+#
+# The extension is deliberately absent: it is installed from the repository by
+# `c8y extension install`, so there is nothing to build for it.
+DIST_DIR := dist
+
+# GOOS/GOARCH pairs. arm64 and amd64 for the two systems people run this from,
+# and 64-bit Windows.
+CLI_PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64
+
+dist:
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	@for platform in $(CLI_PLATFORMS); do \
+		goos=$${platform%/*}; goarch=$${platform#*/}; \
+		name=c8y-devicemigration; \
+		if [ "$$goos" = windows ]; then name=$$name.exe; fi; \
+		stage=c8y-devicemigration-$(VERSION)-$$goos-$$goarch; \
+		mkdir -p "$(DIST_DIR)/$$stage"; \
+		echo "building $$goos/$$goarch"; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch \
+			go build -trimpath -ldflags "$(GO_LDFLAGS)" \
+			-o "$(DIST_DIR)/$$stage/$$name" ./cmd/c8y-devicemigration || exit 1; \
+		cp LICENSE README.md "$(DIST_DIR)/$$stage/"; \
+		cp -R docs "$(DIST_DIR)/$$stage/"; \
+		if [ "$$goos" = windows ]; then \
+			( cd $(DIST_DIR) && zip -qr "$$stage.zip" "$$stage" ) || exit 1; \
+		else \
+			tar -czf "$(DIST_DIR)/$$stage.tar.gz" -C $(DIST_DIR) "$$stage" || exit 1; \
+		fi; \
+		rm -rf "$(DIST_DIR)/$$stage"; \
+	done
+	@# Written last and listing only the archives, so the file never tries to
+	@# check itself.
+	@cd $(DIST_DIR) && \
+		if command -v sha256sum >/dev/null 2>&1; then \
+			sha256sum *.tar.gz *.zip > SHA256SUMS; \
+		else \
+			shasum -a 256 *.tar.gz *.zip > SHA256SUMS; \
+		fi
+	@echo
+	@ls -lh $(DIST_DIR)
+
 go-lint:
 	@unformatted=$$(gofmt -l cmd internal); \
 	if [ -n "$$unformatted" ]; then \
@@ -215,4 +283,4 @@ go-lint:
 	@echo "go vet: clean"
 
 clean:
-	rm -rf $(VENDOR) bin $(SERVICE_DIR)
+	rm -rf $(VENDOR) bin $(SERVICE_DIR) $(DIST_DIR)

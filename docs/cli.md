@@ -16,6 +16,21 @@ than one file rather than silently taking the first.
 
 ## Building and installing
 
+From a release, which is the easiest way and needs no Go toolchain — pick the
+archive for your platform from the
+[releases page](https://github.com/Cumulocity-IoT/c8y-devicemigration/releases),
+check it against `SHA256SUMS`, and put the binary on your `PATH`:
+
+```sh
+tar -xzf c8y-devicemigration-<version>-darwin-arm64.tar.gz
+shasum -a 256 -c SHA256SUMS
+```
+
+`c8y-devicemigration --version` then says which build it is, which is worth
+knowing before reporting anything about it.
+
+Or from source:
+
 ```sh
 make go-build   # -> bin/c8y-devicemigration
 make install    # -> $(INSTALL_DIR), default ~/.local/bin

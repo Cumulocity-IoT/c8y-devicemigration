@@ -12,6 +12,8 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/version"
 )
 
 // Main runs the CLI and returns the process exit code.
@@ -50,6 +52,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 			"full file name including its extension, or a glob matched against the\n" +
 			"session home. A bare name without .json does not resolve, and a glob\n" +
 			"matching more than one file is refused rather than guessed at.",
+		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// no action of its own: help is the right answer to a bare invocation

@@ -99,6 +99,50 @@ which session each call used — and a library-based tool makes no such calls, s
 those assertions are meaningless for it and are deliberately not faked into
 passing.
 
+## Releasing
+
+Two things are released, and the extension is not one of them: it is installed
+straight from the repository by `c8y extension install`, so there is no artefact
+to build for it.
+
+| | |
+| --- | --- |
+| the command line tool | `c8y-devicemigration-<version>-<os>-<arch>.tar.gz`, and `.zip` for Windows, for darwin and linux on arm64 and amd64 plus 64-bit Windows. Each holds the binary, `LICENSE`, `README.md` and `docs/`, and `SHA256SUMS` covers them all |
+| the microservice | `devicemigration-<version>.zip`, the manifest and image the platform is fed, and the same image in the registry at `ghcr.io/<owner>/c8y-devicemigration/microservice` |
+
+Both carry the same version, and both binaries report it — `c8y-devicemigration
+--version`, and the microservice logs it at startup. It is stamped at link time
+from `internal/version`, so a local build says `dev-<commit>` rather than
+claiming to be a release.
+
+```sh
+make dist                       # the archives, into dist/
+make service-package            # the microservice zip, into build/
+make dist VERSION=1.2.0         # what a release of 1.2.0 would contain
+```
+
+To release, push a tag:
+
+```sh
+git tag v1.2.0 && git push origin v1.2.0
+```
+
+That runs [.github/workflows/release.yml](../.github/workflows/release.yml),
+which resolves the version once, refuses it unless it is SemVer — the platform
+rejects a manifest that is not — runs the Go checks and the whole bats suite
+before building anything, then produces the archives, the microservice zip and a
+multi-architecture image, and opens a **draft** release with all of it attached.
+The draft is deliberate: the notes are generated and somebody should read them
+before this is what people download. Publish with
+`gh release edit v1.2.0 --draft=false`.
+
+A tag with a pre-release identifier (`v1.2.0-rc.1`) is marked as a pre-release
+and does not move the image's `latest` tag.
+
+To find out whether a release would work without making one, run the workflow
+manually from the Actions tab with a version: everything is built and nothing is
+published.
+
 ## Development
 
 The test suite runs entirely against a fake `c8y` on `PATH`, so it never touches

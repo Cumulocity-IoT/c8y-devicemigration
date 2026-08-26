@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/service"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/version"
 )
 
 // shutdownGrace is how long in-flight requests get once a signal arrives. Jobs
@@ -44,6 +45,7 @@ func run() error {
 	}
 
 	slog.Info("microservice ready",
+		"version", version.Version,
 		"ownerTenant", svc.OwnerTenant(),
 		"subscribedTenants", svc.Tenants(ctx))
 

@@ -23,6 +23,14 @@ decision that two tenants really are two tenants, and somewhere to send progress
 make service-package       # -> build/devicemigration-<version>.zip
 ```
 
+A release publishes the same zip on the
+[releases page](https://github.com/Cumulocity-IoT/c8y-devicemigration/releases),
+and the same image in the registry:
+
+```sh
+docker pull ghcr.io/cumulocity-iot/c8y-devicemigration/microservice:<version>
+```
+
 That zip is exactly what the platform wants: `cumulocity.json` and the image as
 a tarball. Upload it under **Administration → Ecosystem → Microservices → Add
 microservice**, or let go-c8y-cli do it:

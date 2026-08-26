@@ -66,3 +66,6 @@ tests/vendor/
 # The microservice package: the image tarball and the zip the platform is fed,
 # both produced by `make service-package`. The tarball alone is tens of MB.
 /build/
+
+# Release archives, from `make dist`.
+/dist/

@@ -1,0 +1,270 @@
+name: release
+
+# Releases the two things that are built: the standalone command line tool and
+# the microservice. The go-c8y-cli extension is deliberately not released - it is
+# installed straight from the repository with `c8y extension install`, so there
+# is no artefact for it.
+#
+# A tag publishes; a manual run builds everything and publishes nothing, which is
+# how to find out whether a release would work before making one.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the leading v. Nothing is published.'
+        required: true
+        type: string
+
+# Read-only by default. The two jobs that need to write say so themselves.
+permissions:
+  contents: read
+
+jobs:
+  # Resolved once so every job agrees, and so a malformed version fails in
+  # seconds rather than after the builds.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    steps:
+      - id: resolve
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            version="${REQUESTED#v}"
+            publish=false
+          else
+            version="${GITHUB_REF_NAME#v}"
+            publish=true
+          fi
+
+          # Both artefacts carry this version and the microservice manifest is
+          # rejected by the platform unless it is SemVer, so it is checked here
+          # where the error is easy to find.
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$'; then
+            echo "::error::'$version' is not a SemVer version, so the microservice manifest would be refused"
+            exit 1
+          fi
+
+          # A pre-release identifier means a pre-release, which keeps it out of
+          # "latest" both on the releases page and in the container registry.
+          case "$version" in
+            *-*) prerelease=true ;;
+            *)   prerelease=false ;;
+          esac
+
+          {
+            echo "version=$version"
+            echo "publish=$publish"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "version $version, publish $publish, prerelease $prerelease" >> "$GITHUB_STEP_SUMMARY"
+
+  # Nothing is built for a release until the tests that cover it pass. The
+  # extension-only checks - shellcheck, the docopt parsers, the command
+  # reference - stay in ci.yml, which runs on the commit this tag points at.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # jq for the bash commands the differential tests run, parallel for bats.
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq parallel
+
+      - name: Go checks
+        run: make go-lint go-build go-test
+
+      - name: Bats suite
+        run: make test JOBS="$(getconf _NPROCESSORS_ONLN)"
+
+  # The command line tool, for every platform a release covers.
+  cli:
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Cross-compile and archive
+        run: make dist VERSION=${{ needs.version.outputs.version }}
+
+      - name: Report what was built
+        run: |
+          {
+            echo '### Command line tool'
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli
+          path: dist/*
+          if-no-files-found: error
+
+  # The microservice, as the zip the platform is fed.
+  microservice:
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the package
+        run: make service-package SERVICE_VERSION=${{ needs.version.outputs.version }}
+
+      - name: Report what will be deployed
+        run: |
+          {
+            echo '### Microservice'
+            echo
+            echo '```json'
+            cat build/cumulocity.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: microservice
+          path: build/*.zip
+          if-no-files-found: error
+
+  # The same image, in the registry, for anyone who would rather pull it than
+  # unpack a zip - and so a deployment can be traced back to something
+  # immutable. Only for a real release: a dry run has already proved the
+  # Dockerfile builds, in the job above.
+  image:
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Sign in to the registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Build and push
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          # Lower-cased because a registry rejects capitals, and the owner here
+          # has them.
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/microservice"
+
+          tags="--tag $image:$VERSION"
+          if [ "$PRERELEASE" = false ]; then
+            tags="$tags --tag $image:latest"
+          fi
+
+          # arm64 as well as the amd64 the platform runs, so the image is also
+          # usable locally on an Apple Silicon machine. The Dockerfile
+          # cross-compiles, so neither needs emulation.
+          docker buildx create --use --name release >/dev/null
+          # shellcheck disable=SC2086
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            $tags \
+            --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --label org.opencontainers.image.version="$VERSION" \
+            --file docker/Dockerfile \
+            --push .
+
+          echo "### Image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$image:$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, cli, microservice, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      # Created as a draft on purpose: the notes are generated, and somebody
+      # should read them before this is the thing people download. Publishing is
+      # then one click, or `gh release edit <tag> --draft=false`.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          prerelease=""
+          if [ "$PRERELEASE" = true ]; then
+            prerelease="--prerelease"
+          fi
+
+          image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/microservice"
+
+          cat > notes.md <<NOTES
+          **EXPERIMENTAL.** Migrating a device hierarchy between Cumulocity tenants.
+
+          ### The command line tool
+
+          Download the archive for your platform, verify it against \`SHA256SUMS\`,
+          and put the binary on your PATH:
+
+          \`\`\`sh
+          tar -xzf c8y-devicemigration-$VERSION-<os>-<arch>.tar.gz
+          \`\`\`
+
+          ### The microservice
+
+          Upload \`devicemigration-$VERSION.zip\` under **Administration → Ecosystem
+          → Microservices**, or pull the image:
+
+          \`\`\`sh
+          docker pull $image:$VERSION
+          \`\`\`
+
+          Subscribe the tenant it is deployed on as well as the source and target
+          tenants, and grant \`ROLE_DEVICE_MIGRATION_ADMIN\` to whoever may migrate.
+
+          ### The go-c8y-cli extension
+
+          Not part of a release - install it from the repository:
+
+          \`\`\`sh
+          c8y extension install ${{ github.repository }}
+          \`\`\`
+          NOTES
+
+          # shellcheck disable=SC2086
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            $prerelease \
+            artifacts/cli/* artifacts/microservice/*
+
+          echo "Draft release created for $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
