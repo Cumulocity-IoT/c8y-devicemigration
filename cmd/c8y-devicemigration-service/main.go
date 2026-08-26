@@ -49,6 +49,13 @@ func run() error {
 		"ownerTenant", svc.OwnerTenant(),
 		"subscribedTenants", svc.Tenants(ctx))
 
+	// Before any new work is accepted: a record still saying RUNNING belongs to
+	// a container that no longer exists, and leaving it that way hides the fact
+	// that something was interrupted part way through.
+	if err := svc.Reconcile(ctx); err != nil {
+		slog.Warn("could not reconcile the job records", "error", err)
+	}
+
 	go svc.WatchSubscriptions(ctx)
 
 	// One worker, so one migration at a time. See Service.Work.

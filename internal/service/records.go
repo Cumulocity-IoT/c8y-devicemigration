@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/inventory/managedobjects"
@@ -156,4 +157,70 @@ func recordTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+// OfKind is the records of one kind, newest first.
+//
+// A record written before jobs had kinds is a migration: it is the only thing
+// that existed, and treating it as one keeps an older tenant's history readable
+// rather than hiding it.
+func (s *Service) OfKind(ctx context.Context, kind JobKind) ([]*Job, error) {
+	jobs, err := s.Records(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var wanted []*Job
+	for _, job := range jobs {
+		actual := job.Kind
+		if actual == "" {
+			actual = KindMigration
+		}
+		if actual == kind {
+			wanted = append(wanted, job)
+		}
+	}
+	return wanted, nil
+}
+
+// Reconcile closes the records of jobs that were running when this container
+// stopped existing.
+//
+// A microservice has no persistent storage and no way to resume: whatever the
+// engine was part way through is over, and the container that comes back knows
+// nothing about it. What it can do is stop the record claiming to be RUNNING
+// forever, and say what the run id was so somebody can look at the target tenant
+// and undo it. Sound because the manifest pins replicas to 1 - with two
+// containers this would close the other one's live jobs.
+func (s *Service) Reconcile(ctx context.Context) error {
+	jobs, err := s.Records(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, job := range jobs {
+		if job.Status != StatusRunning && job.Status != StatusQueued {
+			continue
+		}
+
+		unfinished := job.Status
+		job.Status = StatusInterrupted
+		job.CountsVerified = false
+		job.FinishedAt = recordTime(time.Now())
+		if unfinished == StatusQueued {
+			job.Error = "the microservice restarted before this job started, so nothing was done"
+		} else {
+			job.Error = "the microservice restarted while this job was running, so what it " +
+				"reached is not known: check the target tenant by run id"
+		}
+
+		if err := s.UpdateRecord(ctx, job); err != nil {
+			// Reported rather than fatal: one unwritable record must not stop
+			// the service from starting.
+			slog.Warn("could not close an interrupted job's record", "job", job.ID, "error", err)
+			continue
+		}
+		slog.Info("closed an interrupted job", "job", job.ID, "was", unfinished, "runId", job.RunID)
+	}
+	return nil
 }

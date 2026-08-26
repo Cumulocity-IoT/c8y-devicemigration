@@ -50,6 +50,11 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/migrations/{id}", handler: s.handleGetMigration},
 		{Method: http.MethodPost, Path: "/migrations/{id}/cancel",
 			handler: s.handleCancelMigration},
+
+		{Method: http.MethodPost, Path: "/reverts", handler: s.handleCreateRevert},
+		{Method: http.MethodGet, Path: "/reverts", handler: s.handleListReverts},
+		{Method: http.MethodGet, Path: "/reverts/{id}", handler: s.handleGetJob},
+		{Method: http.MethodPost, Path: "/reverts/{id}/cancel", handler: s.handleCancelJob},
 	}
 }
 
@@ -136,12 +141,61 @@ func (s *Service) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs, err := s.Records(r.Context())
+	jobs, err := s.OfKind(r.Context(), KindMigration)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, r, http.StatusOK, MigrationsResponse{Migrations: jobs})
+}
+
+// RevertsResponse is what this service has been asked to undo.
+type RevertsResponse struct {
+	Reverts []*Job `json:"reverts"`
+}
+
+// handleCreateRevert undoes what a migration created.
+//
+// The one destructive thing here, and the only one that needs no more than a run
+// id: every object a migration created carries a marker fragment naming the run,
+// so the engine finds them by asking the target tenant. Nothing has to have
+// survived on disk, which is what makes this possible at all from a container
+// that has been replaced since.
+func (s *Service) handleCreateRevert(w http.ResponseWriter, r *http.Request) {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	var request RevertRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	job, err := s.EnqueueRevert(r.Context(), request, caller)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Location", strings.TrimSuffix(r.URL.Path, "/")+"/"+job.ID)
+	writeJSON(w, r, http.StatusAccepted, job)
+}
+
+func (s *Service) handleListReverts(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.Authorize(r.Context(), r); err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	jobs, err := s.OfKind(r.Context(), KindRevert)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, r, http.StatusOK, RevertsResponse{Reverts: jobs})
 }
 
 func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +217,16 @@ func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, r, http.StatusOK, job)
+}
+
+// handleGetJob and handleCancelJob serve reverts. A job is a job once it exists,
+// so these are the migration handlers under names that do not claim otherwise.
+func (s *Service) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	s.handleGetMigration(w, r)
+}
+
+func (s *Service) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	s.handleCancelMigration(w, r)
 }
 
 func (s *Service) handleCancelMigration(w http.ResponseWriter, r *http.Request) {

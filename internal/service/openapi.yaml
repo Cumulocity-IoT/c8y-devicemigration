@@ -291,6 +291,117 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /reverts:
+    post:
+      tags: [migrations]
+      summary: Undo what a migration created
+      description: |
+        Deletes the objects a run created in the tenant it migrated into.
+
+        A run id is all this needs: every object a migration creates carries a
+        marker fragment naming the run, so the engine finds them by asking the
+        target tenant rather than by reading a mapping file. Nothing has to have
+        survived on disk, which is what makes undoing a run possible from a
+        container that has been replaced since.
+
+        `jobId` is the same thing spelled more conveniently - the run id and the
+        tenant are both on that job's record. A migration run with `noFlag` has
+        no marker and therefore cannot be undone this way; the refusal says so.
+
+        Like a migration this is a job, and it shares the same queue, so a revert
+        never runs while a migration is part way through creating what it would
+        be deleting.
+      operationId: createRevert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevertRequest"
+      responses:
+        "202":
+          description: Accepted and queued.
+          headers:
+            Location:
+              description: Where this job's status can be read.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "429": {$ref: "#/components/responses/Busy"}
+
+    get:
+      tags: [migrations]
+      summary: Every revert this service has run
+      operationId: listReverts
+      responses:
+        "200":
+          description: The reverts on record, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevertsResponse"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /reverts/{id}:
+    get:
+      tags: [migrations]
+      summary: One revert
+      operationId: getRevert
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /reverts/{id}/cancel:
+    post:
+      tags: [migrations]
+      summary: Ask a running revert to stop
+      description: |
+        A cancelled revert reports `countsVerified: false`, and here that matters
+        more than anywhere else: the engine decides an object is gone by whether
+        re-reading it fails, so a cancelled run reports objects as deleted that
+        are still there. Run the revert again rather than trusting its numbers -
+        deleting what is already gone is reported as absent and costs nothing.
+      operationId: cancelRevert
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "202":
+          description: The cancellation has been asked for.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  message:
+                    type: string
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404":
+          description: No job with this id is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     basicAuth:
@@ -448,10 +559,40 @@ components:
         dataTypes: all
         dateFrom: -30d
 
+    RevertRequest:
+      type: object
+      description: |
+        Either a run id with the tenant to undo it in, or the id of the job that
+        created it - in which case both are read from that job's record.
+      properties:
+        targetTenant:
+          type: string
+          description: |
+            The tenant holding what should be deleted. Required unless jobId
+            says which tenant it was.
+        runId:
+          type: string
+          description: |
+            The run whose objects should be deleted. Required unless jobId is
+            given; if both are given they must agree.
+        jobId:
+          type: string
+          description: The migration to undo, which is where the run id comes from.
+      example:
+        jobId: 20260825T162735Z_c8e249
+
     MigrationsResponse:
       type: object
       properties:
         migrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+
+    RevertsResponse:
+      type: object
+      properties:
+        reverts:
           type: array
           items:
             $ref: "#/components/schemas/Job"
@@ -466,14 +607,23 @@ components:
         id:
           type: string
           description: The job id.
+        kind:
+          type: string
+          enum: [MIGRATION, REVERT]
+          description: |
+            What the job does. Both kinds go through one queue, so only one of
+            either runs at a time. A record written before this field existed is
+            read as a migration.
+        request:
+          $ref: "#/components/schemas/MigrationRequest"
+        revert:
+          $ref: "#/components/schemas/RevertRequest"
         status:
           type: string
           enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, INTERRUPTED]
           description: |
             `INTERRUPTED` means the container died while the job was running. The
             job is then over, whatever it had reached.
-        request:
-          $ref: "#/components/schemas/MigrationRequest"
         runId:
           type: string
           description: |

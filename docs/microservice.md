@@ -12,10 +12,10 @@ is `internal/migrate`, linked in, not a copy and not a subprocess. What the
 microservice adds is everything the CLI got from a person: credentials, the
 decision that two tenants really are two tenants, and somewhere to send progress.
 
-> **Status: increment 2.** Bootstrap, subscriptions, authorization, `/health`,
-> `GET /tenants`, `POST /preflight` and migrations as asynchronous jobs are
-> implemented. `POST /reverts` and reconciliation of jobs whose container died
-> come next.
+> **Status: increment 3.** Bootstrap, subscriptions, authorization, `/health`,
+> `GET /tenants`, `POST /preflight`, migrations and reverts as asynchronous jobs,
+> and closing the records of jobs whose container stopped existing. What remains
+> is operational polish: metrics, log levels and settings from tenant options.
 
 ## Deploying it
 
@@ -115,6 +115,10 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /migrations` | every job this service has run, newest first |
 | `GET /migrations/{id}` | one job, including the tail of its output |
 | `POST /migrations/{id}/cancel` | asks a running job to stop |
+| `POST /reverts` | undoes what a migration created; answers **202** with a job id |
+| `GET /reverts` | every revert, newest first |
+| `GET /reverts/{id}` | one revert |
+| `POST /reverts/{id}/cancel` | asks a running revert to stop |
 
 ```sh
 c8y api GET /service/devicemigration/tenants
@@ -145,6 +149,37 @@ The fields are the CLI's flags — `childTypes`, `noChildren`, `dataTypes`,
 `"asset,device"` mean exactly what they mean there. An unknown field is refused
 rather than ignored, so a typo is a 400 and not a surprise.
 
+### Undoing a migration
+
+```sh
+# by the job that created it, which is where the run id comes from
+c8y api POST /service/devicemigration/reverts --data '{
+    "jobId": "20260825T162735Z_c8e249"
+}'
+
+# or by run id, if the job record is long gone
+c8y api POST /service/devicemigration/reverts --data '{
+    "targetTenant": "t22222",
+    "runId": "20260825T162735Z_b5c5a2"
+}'
+```
+
+A run id is all this needs, and that is the whole reason it works from a
+container: every object a migration creates carries a marker fragment naming the
+run, so the engine finds them by asking the target tenant rather than by reading
+the mapping file — which lived in a job directory that was removed when the job
+ended.
+
+The consequence is that **a migration run with `noFlag` cannot be undone here**.
+Nothing it created carries a marker, so only its mapping file could find it, and
+that is gone. Asking is refused with that explanation rather than accepted into a
+revert that would delete nothing and report success. Undo such a run with
+[the command line tool](cli.md) and the mapping.
+
+Reverts share the migrations' queue, so one never runs while a migration is part
+way through creating what it would be deleting. A revert of a revert is refused:
+a revert creates nothing.
+
 ### Why a migration is a job and not a request
 
 The platform caps a request at fifteen minutes and a hierarchy with data
@@ -161,7 +196,7 @@ A job ends in one of:
 | `SUCCEEDED` | the engine finished; its counts are reported as verified |
 | `FAILED` | the engine stopped and said why; `runId` is still recorded, because objects may already exist in the target |
 | `CANCELLED` | asked to stop. **Its counts are not verified** — see below |
-| `INTERRUPTED` | the container died while it ran (increment 3) |
+| `INTERRUPTED` | the container stopped existing while the job was running or queued. **Counts are not verified** |
 
 `countsVerified` is false for a cancelled job, and that is not a formality. The
 engine has no cancellation checks anywhere: a cancelled import counts the records
@@ -248,6 +283,11 @@ library is ever fixed — at which point the local decoder can go.
   volumes, so the staging directory and the resume journal are ephemeral. The
   job record keeps the run id, which is enough to revert or to resume from the
   CLI, but the service does not resume by itself.
+
+  On startup, every record still saying `RUNNING` or `QUEUED` is closed as
+  `INTERRUPTED`, keeping its run id so the target tenant can be inspected and the
+  run undone. That is only sound because the manifest pins `replicas: 1`: with
+  two containers, each would be closing the other's live jobs.
 - **Progress is kept, not streamed.** The last 200 lines of a job's output are on
   its record and in the status response; everything goes to the container log as
   well. There is no streaming endpoint.

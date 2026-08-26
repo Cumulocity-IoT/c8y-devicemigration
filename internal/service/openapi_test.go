@@ -252,6 +252,8 @@ func TestTheSchemasMatchTheStructs(t *testing.T) {
 		{"PreflightSide", service.PreflightSide{}},
 		{"MigrationRequest", service.MigrationRequest{}},
 		{"MigrationsResponse", service.MigrationsResponse{}},
+		{"RevertRequest", service.RevertRequest{}},
+		{"RevertsResponse", service.RevertsResponse{}},
 		{"Job", service.Job{}},
 	} {
 		documented, ok := parsed.Components.Schemas[pair.schema]

@@ -21,6 +21,16 @@ import (
 // accepting it and starting it in an hour.
 const QueueDepth = 10
 
+// JobKind is what a job does. Both kinds go through the same queue, so a revert
+// can never run while a migration is half way through creating the objects it
+// would be deleting.
+type JobKind string
+
+const (
+	KindMigration JobKind = "MIGRATION"
+	KindRevert    JobKind = "REVERT"
+)
+
 // JobStatus is where a job has got to.
 type JobStatus string
 
@@ -60,11 +70,29 @@ type MigrationRequest struct {
 	NoFlag bool `json:"noFlag,omitempty"`
 }
 
-// Job is one migration, and is also exactly what a job record holds.
+// RevertRequest undoes what a migration created.
+//
+// A run id is all the engine needs - it finds the objects by the marker fragment
+// they carry, so nothing has to have survived on disk. JobID is the same thing
+// spelled more conveniently: the run id and the target tenant are both on that
+// job's record.
+type RevertRequest struct {
+	TargetTenant string `json:"targetTenant,omitempty"`
+	RunID        string `json:"runId,omitempty"`
+	JobID        string `json:"jobId,omitempty"`
+}
+
+// Job is one migration or one revert, and is also exactly what a job record
+// holds.
 type Job struct {
-	ID      string           `json:"id"`
-	Status  JobStatus        `json:"status"`
-	Request MigrationRequest `json:"request"`
+	ID     string    `json:"id"`
+	Kind   JobKind   `json:"kind"`
+	Status JobStatus `json:"status"`
+
+	// Exactly one of these is set, according to Kind. Pointers so a record holds
+	// the request it is actually about and not an empty copy of the other.
+	Request *MigrationRequest `json:"request,omitempty"`
+	Revert  *RevertRequest    `json:"revert,omitempty"`
 
 	// RunID marks everything the run created in the target tenant, and is what
 	// a revert needs. Learned from the engine's own output.
@@ -177,8 +205,9 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 
 	job := Job{
 		ID:       migrate.GenerateRunID(time.Now()),
+		Kind:     KindMigration,
 		Status:   StatusQueued,
-		Request:  request,
+		Request:  &request,
 		QueuedAt: recordTime(time.Now()),
 	}
 	if caller != nil {
@@ -282,7 +311,13 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 	})
 	s.record(ctx, &started)
 
-	err := s.migrate(ctx, queued)
+	var err error
+	switch queued.snapshot().Kind {
+	case KindRevert:
+		err = s.revert(ctx, queued)
+	default:
+		err = s.migrate(ctx, queued)
+	}
 
 	finished := queued.with(func(job *Job) {
 		job.FinishedAt = recordTime(time.Now())
@@ -317,6 +352,10 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 	job := queued.snapshot()
 
+	if job.Request == nil {
+		return errors.New("a migration job with no migration request")
+	}
+
 	source, err := s.tenant(job.Request.SourceTenant)
 	if err != nil {
 		return err
@@ -340,7 +379,7 @@ func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 		sweepStaging(before, job.ID)
 	}()
 
-	options, err := s.resolveOptions(job.Request, filepath.Join(directory, "id_mapping.json"))
+	options, err := s.resolveOptions(*job.Request, filepath.Join(directory, "id_mapping.json"))
 	if err != nil {
 		return err
 	}
