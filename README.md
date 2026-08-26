@@ -41,9 +41,18 @@ file or personal credential is involved. Reach for it when migrations should be
 an operation the platform performs rather than something an operator runs from a
 laptop.
 
-It is being built incrementally: bootstrap, authorization, a read-only
-pre-flight and migrations as asynchronous jobs work today; undoing a run through
-the service is next.
+It is complete: bootstrap, authorization, migrations and reverts as jobs,
+metrics, runtime log levels and settings from tenant options. It has not yet run
+against a live tenant.
+
+### Or use it from a browser
+
+**[The user interface](docs/ui.md)** is an Angular plugin that drives the
+microservice, for people who should not have to learn any of the above. Install
+it into Administration and a migration becomes four steps and a progress screen.
+
+Being built incrementally: the plugin, its navigator entry and the history view
+with revert work today; the wizard and live progress are next.
 
 ## What gets migrated
 

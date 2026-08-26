@@ -69,6 +69,11 @@ type Service struct {
 
 	queue chan *queuedJob
 
+	// stagingRoot is this process's own temporary directory. Everything a job
+	// writes lives under it, which is what lets it be swept without touching
+	// anything else on the machine.
+	stagingRoot string
+
 	// settings is what an operator configured through tenant options, kept in
 	// memory so a request never waits on a platform call to find out how it
 	// should behave.
@@ -124,6 +129,10 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		queue:              make(chan *queuedJob, QueueDepth),
 		clients:            make(map[string]*tenantClient),
 		running:            make(map[string]*queuedJob),
+	}
+
+	if err := s.prepareStaging(); err != nil {
+		return nil, err
 	}
 
 	// Read once at startup so the first job already behaves as configured. A

@@ -1,0 +1,79 @@
+<c8y-title>Device migration</c8y-title>
+
+<div class="p-16">
+  <div class="d-flex a-i-center gap-8 m-b-16">
+    <h3 class="m-0">Past migrations</h3>
+    <button class="btn btn-default btn-sm" type="button" (click)="load()" [disabled]="loading()">
+      Refresh
+    </button>
+    <span class="flex-grow"></span>
+    <a class="btn btn-primary btn-sm" [routerLink]="['/device-migration/new']">New migration</a>
+  </div>
+
+  @if (problem(); as failure) {
+    <div class="alert alert-danger">
+      <strong>{{ failure.title }}</strong>
+      <p class="m-0">{{ failure.detail }}</p>
+    </div>
+  }
+
+  @if (loading()) {
+    <c8y-loading />
+  } @else if (!rows().length && !problem()) {
+    <c8y-ui-empty-state
+      [icon]="'exchange'"
+      [title]="'Nothing has been migrated yet'"
+      [subtitle]="'A migration started here is listed with its run id, so it can be undone.'"
+    />
+  } @else {
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>What</th>
+          <th>Asked for</th>
+          <th>By</th>
+          <th>Run id</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.job.id) {
+          <tr>
+            <td>
+              <span class="label">{{ row.shown.label }}</span>
+              @if (row.shown.caveat) {
+                <div class="text-warning small">{{ row.shown.caveat }}</div>
+              }
+            </td>
+            <td>
+              @if (row.job.kind === 'REVERT') {
+                Undo of {{ row.job.revert?.runId }} in {{ row.job.revert?.targetTenant }}
+              } @else {
+                {{ row.job.request?.rootId }} &middot; {{ row.job.request?.sourceTenant }} &rarr;
+                {{ row.job.request?.targetTenant }}
+              }
+              @if (row.job.error) {
+                <div class="text-danger small">{{ row.job.error }}</div>
+              }
+            </td>
+            <td>{{ row.job.queuedAt }}</td>
+            <td>{{ row.job.requestedBy }}</td>
+            <td>
+              <code>{{ row.job.runId }}</code>
+            </td>
+            <td class="text-right">
+              @if (row.revertable) {
+                <button class="btn btn-danger btn-sm" type="button" (click)="revert(row.job)">
+                  Revert
+                </button>
+              } @else if (row.job.kind !== 'REVERT') {
+                <span class="text-muted small">cannot be undone here</span>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

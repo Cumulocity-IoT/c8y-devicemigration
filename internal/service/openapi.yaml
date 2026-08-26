@@ -177,6 +177,144 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
 
+  /estimates:
+    post:
+      tags: [tenants]
+      summary: How much a migration would move
+      description: |
+        Walks the hierarchy and counts what a migration would carry, without
+        creating anything. The answer holds the object and identity counts, the
+        record counts per kind, the busiest single device per kind - the limits
+        are per device, so a hierarchy well under the total can still be refused
+        - and whatever limits it would breach.
+
+        The fields are a migration's own, and they are resolved the same way,
+        including the configured default window. An estimate therefore describes
+        the run that follows it rather than a similar one.
+
+        Synchronous: a hierarchy walk plus one count per object per kind is
+        seconds even at the widest the limits allow. It creates nothing, so a
+        caller that changes its mind may simply abandon the request.
+      operationId: estimate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EstimateRequest"
+      responses:
+        "200":
+          description: What that migration would move.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateResponse"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /tenants/{tenant}/inventory:
+    get:
+      tags: [tenants]
+      summary: Find something to migrate
+      description: |
+        Reads a subscribed tenant's inventory on the caller's behalf. A browser
+        session belongs to one tenant and the hierarchy being migrated is in
+        another, so without this there is no way to offer a choice.
+
+        `text` matches on name. `onlyRoots` keeps objects that nothing holds as a
+        child, which is the top of a hierarchy. Reads only.
+      operationId: listInventory
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+        - name: text
+          in: query
+          description: Match objects whose name contains this.
+          schema:
+            type: string
+        - name: onlyRoots
+          in: query
+          description: Keep only objects that are nobody's child.
+          schema:
+            type: boolean
+        - name: pageSize
+          in: query
+          description: Objects per page, at most 200.
+          schema:
+            type: integer
+            default: 20
+        - name: currentPage
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: A page of objects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryResponse"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /tenants/{tenant}/inventory/{id}:
+    get:
+      tags: [tenants]
+      summary: One object, and what is under it
+      description: |
+        Confirms a choice, and answers whether an id exists at all — which was
+        otherwise discovered when the migration ran, minutes later. Child counts
+        come from the platform, so a group holding four hundred devices costs the
+        same to look at as one holding two.
+      operationId: getInventoryObject
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+        - $ref: "#/components/parameters/ObjectID"
+      responses:
+        "200":
+          description: The object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryObject"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /tenants/{tenant}/inventory/{id}/children:
+    get:
+      tags: [tenants]
+      summary: What is directly under one object
+      description: |
+        The drill-down, over the same three relationship kinds a migration can
+        follow and named the same way, so a picker and a migration request speak
+        one vocabulary.
+      operationId: listInventoryChildren
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+        - $ref: "#/components/parameters/ObjectID"
+        - name: childTypes
+          in: query
+          description: |
+            Comma separated, from `asset`, `device` and `addition`. Omitted means
+            the migration default, `asset,device`.
+          schema:
+            type: string
+            default: asset,device
+      responses:
+        "200":
+          description: The children, each saying which relationship it came from.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryResponse"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
   /migrations:
     post:
       tags: [migrations]
@@ -507,6 +645,24 @@ components:
         forwarded when the caller is verified.
 
   parameters:
+    TenantID:
+      name: tenant
+      in: path
+      required: true
+      description: A tenant subscribed to this microservice.
+      schema:
+        type: string
+      example: t11106993
+
+    ObjectID:
+      name: id
+      in: path
+      required: true
+      description: A managed object id. An id, not a path.
+      schema:
+        type: string
+      example: "1399229"
+
     LoggerName:
       name: name
       in: path
@@ -663,6 +819,172 @@ components:
           description: The migration to undo, which is where the run id comes from.
       example:
         jobId: 20260825T162735Z_c8e249
+
+    InventoryObject:
+      type: object
+      description: As much of a managed object as choosing a root needs.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        owner:
+          type: string
+        creationTime:
+          type: string
+        isDevice:
+          type: boolean
+          description: Carries the platform's device marker.
+        isGroup:
+          type: boolean
+          description: Carries the platform's group marker.
+        children:
+          type: object
+          additionalProperties:
+            type: integer
+          description: |
+            How many children per relationship kind. Present only where the
+            platform was asked to count them, which the single-object read does.
+            An absent count is not zero.
+        childType:
+          type: string
+          enum: [asset, device, addition]
+          description: The relationship this object was reached by, when it was reached as a child.
+      example:
+        id: "1399229"
+        name: Plant Berlin
+        type: c8y_Site
+        isDevice: false
+        isGroup: true
+        children: {assets: 3, devices: 1}
+
+    InventoryResponse:
+      type: object
+      properties:
+        tenant:
+          type: string
+        objects:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryObject"
+        more:
+          type: boolean
+          description: Another page exists.
+
+    EstimateRequest:
+      type: object
+      required: [sourceTenant, rootId]
+      description: |
+        A migration that has not been asked for yet. The fields are a
+        migration's own and are resolved the same way, so what is counted is
+        what would move.
+      properties:
+        sourceTenant:
+          type: string
+        rootId:
+          type: string
+        childTypes:
+          type: string
+          default: asset,device
+        noChildren:
+          type: boolean
+        dataTypes:
+          type: string
+          description: Omitted counts no records, as a migration without data moves none.
+        dateFrom:
+          type: string
+          description: Omitted uses the configured default, exactly as a run would.
+        dateTo:
+          type: string
+      example:
+        sourceTenant: t11106993
+        rootId: "1399229"
+        dataTypes: measurements
+
+    EstimateResponse:
+      type: object
+      properties:
+        tenant:
+          type: string
+        rootId:
+          type: string
+        objects:
+          type: integer
+        identities:
+          type: integer
+        records:
+          type: object
+          additionalProperties:
+            type: integer
+          description: The total per kind, for the kinds asked for.
+        busiest:
+          type: object
+          additionalProperties:
+            type: integer
+          description: |
+            The highest single-object count per kind. The limits are per device,
+            so a hierarchy well under the total can still be refused.
+        window:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/EstimateWindow"
+          description: The range each kind was counted over, as a run would resolve it.
+        breaches:
+          type: array
+          items:
+            $ref: "#/components/schemas/EstimateBreach"
+        withinLimits:
+          type: boolean
+          description: An empty breach list, said plainly, because it is what a caller branches on.
+        limits:
+          $ref: "#/components/schemas/EstimateLimits"
+      example:
+        tenant: t11106993
+        rootId: "1399229"
+        objects: 9
+        identities: 4
+        records: {measurements: 1204884}
+        busiest: {measurements: 218406}
+        withinLimits: true
+        breaches: []
+
+    EstimateWindow:
+      type: object
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+
+    EstimateBreach:
+      type: object
+      properties:
+        kind:
+          type: string
+          description: The record kind, or `objects` when the hierarchy itself is too large.
+        objectId:
+          type: string
+          description: The worst offender. Absent for the object count.
+        objects:
+          type: integer
+          description: How many objects breach this limit.
+        count:
+          type: integer
+        allowed:
+          type: integer
+
+    EstimateLimits:
+      type: object
+      description: What the engine enforces, so nobody hardcodes it and drifts.
+      properties:
+        maxChildObjects:
+          type: integer
+        perDevice:
+          type: object
+          additionalProperties:
+            type: integer
 
     MigrationsResponse:
       type: object

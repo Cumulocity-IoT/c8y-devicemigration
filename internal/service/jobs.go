@@ -381,12 +381,12 @@ func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 	}
 	// What was in the temporary directory before the run, so the export the
 	// engine stages can be removed afterwards without touching anything else.
-	before := stagingEntries()
+	before := s.stagingEntries()
 	defer func() {
 		if err := os.RemoveAll(directory); err != nil {
 			slog.Warn("could not remove the job directory", "job", job.ID, "error", err)
 		}
-		sweepStaging(before, job.ID)
+		s.sweepStaging(before, job.ID)
 	}()
 
 	request := *job.Request
@@ -490,34 +490,63 @@ func defaultChildTypes() string {
 //
 // Knowing this is unfortunate but necessary: migrate creates it with
 // os.MkdirTemp("", ...), keeps it deliberately when a run fails, and offers no
-// way to say where it should live or what it was called. A container that ran
-// for months would otherwise accumulate one abandoned export per failure. The
-// sweep below is prefix-matched, so if this ever changed the leftovers would
-// come back - which is what TestAFailedJobAlsoLeavesNothingOnDisk exists to
-// notice, since it looks for exported data rather than for this name.
+// way to say where it should live. A container that ran for months would
+// otherwise accumulate one abandoned export per failure.
 const stagingPrefix = "c8y-devicemigration-staging."
 
-// jobDirectory makes the directory a job works in.
+// stagingRootPrefix names this process's own root. Two services in one process
+// share it, which only tests do; a container runs one.
+const stagingRootPrefix = "c8y-devicemigration-"
+
+// stagingRoot is a temporary directory of this process's own, and TMPDIR is
+// pointed at it so the engine's own os.MkdirTemp("") lands inside.
 //
-// Only the mapping and its journal go here - the engine stages its export in a
-// directory of its own choosing under the process temporary directory, which is
-// what sweepStaging deals with. Setting TMPDIR instead would be neater and is
-// what the first version did, but it changes the temporary directory of the
-// whole process from a worker goroutine, which is not a thing a library should
-// do to its host.
+// The alternative - sweeping the shared temporary directory for anything with
+// the prefix above - looked equivalent and was not: it deletes staging
+// directories belonging to any other process doing the same work, which is
+// exactly what happened the first time the test suites of two packages ran at
+// once and one of them lost its export mid-write. Owning a root makes the sweep
+// incapable of reaching anybody else's files.
+//
+// The environment is changed once, here, before anything else runs. Doing it per
+// job from a worker goroutine - which an earlier version did - moves the whole
+// process's temporary directory around underneath everything else in it.
+func (s *Service) prepareStaging() error {
+	// Beside an existing root of ours, never inside it. os.TempDir() reads
+	// TMPDIR, which this function sets - so a second service in one process
+	// would otherwise nest inside the first one's root, and a test process that
+	// builds eighty of them nests eighty deep until the paths stop working.
+	base := os.TempDir()
+	if strings.HasPrefix(filepath.Base(base), stagingRootPrefix) {
+		base = filepath.Dir(base)
+	}
+
+	root := filepath.Join(base, fmt.Sprintf("%s%d", stagingRootPrefix, os.Getpid()))
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return fmt.Errorf("could not make a working directory: %w", err)
+	}
+	if err := os.Setenv("TMPDIR", root); err != nil {
+		return err
+	}
+	s.stagingRoot = root
+	return nil
+}
+
+// jobDirectory makes the directory a job works in, holding its mapping and
+// journal. The engine stages its export beside it, under the same root.
 func (s *Service) jobDirectory(jobID string) (string, error) {
-	directory := filepath.Join(os.TempDir(), "job-"+jobID)
+	directory := filepath.Join(s.stagingRoot, "job-"+jobID)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", fmt.Errorf("could not make a working directory for job %s: %w", jobID, err)
 	}
 	return directory, nil
 }
 
-// stagingEntries names what is in the temporary directory now, so what a job
+// stagingEntries names what is in this service's own root now, so what a job
 // leaves behind can be told from what was already there.
-func stagingEntries() map[string]bool {
+func (s *Service) stagingEntries() map[string]bool {
 	present := map[string]bool{}
-	entries, err := os.ReadDir(os.TempDir())
+	entries, err := os.ReadDir(s.stagingRoot)
 	if err != nil {
 		return present
 	}
@@ -529,15 +558,14 @@ func stagingEntries() map[string]bool {
 
 // sweepStaging removes the staging directories that appeared while a job ran.
 //
-// Only new ones, and only ones with the engine's prefix, so nothing that was
-// already there can be caught by it. One job runs at a time, so anything new is
-// this job's.
-func sweepStaging(before map[string]bool, jobID string) {
-	for name := range stagingEntries() {
+// Only inside this service's own root, only new, and only with the engine's
+// prefix. One job runs at a time, so anything matching all three is this job's.
+func (s *Service) sweepStaging(before map[string]bool, jobID string) {
+	for name := range s.stagingEntries() {
 		if before[name] || !strings.HasPrefix(name, stagingPrefix) {
 			continue
 		}
-		path := filepath.Join(os.TempDir(), name)
+		path := filepath.Join(s.stagingRoot, name)
 		if err := os.RemoveAll(path); err != nil {
 			slog.Warn("could not remove a staging directory", "job", jobID, "path", path, "error", err)
 		}

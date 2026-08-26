@@ -84,6 +84,45 @@ jobs:
         if: runner.os == 'Linux'
         run: make dist VERSION=0.0.0-ci
 
+  # The user interface plugin. First job in this repository to need Node, and the
+  # only one that installs most of a gigabyte of Angular to do its work.
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          # The 1024 Web SDK needs Angular 21, which needs Node 20.19+ or newer.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm --prefix ui ci --no-audit --no-fund
+
+      # The types the UI codes against come from the same OpenAPI document the Go
+      # tests keep true to the handlers. Stale generated types mean the UI and the
+      # API disagree, which is a build failure rather than a runtime surprise.
+      - name: Generated types are current
+        run: make ui-types-freshness
+
+      - name: Typecheck
+        run: make ui-typecheck
+
+      - name: Test
+        run: make ui-test
+
+      - name: Build the plugin
+        run: make ui-package VERSION=0.0.0-ci
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-${{ github.sha }}
+          path: build/devicemigration-ui-*.zip
+          if-no-files-found: error
+          retention-days: 30
+
   # The deployable artefact: cumulocity.json plus the image tarball, zipped the
   # way the platform wants it. Built on every push so a broken Dockerfile or an
   # invalid manifest is caught here rather than at upload time, and uploaded as a

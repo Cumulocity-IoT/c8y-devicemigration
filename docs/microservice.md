@@ -121,6 +121,10 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /reverts/{id}` | one revert |
 | `POST /reverts/{id}/cancel` | asks a running revert to stop |
 | `GET /loggers`, `GET`/`POST /loggers/{name}` | the log level, changeable while the service runs |
+| `GET /tenants/{tenant}/inventory` | find something to migrate, by name or only roots |
+| `GET /tenants/{tenant}/inventory/{id}` | one object and its child counts |
+| `GET /tenants/{tenant}/inventory/{id}/children` | what is directly under it |
+| `POST /estimates` | how much a migration would move, and whether the limits allow it |
 
 ```sh
 c8y api GET /service/devicemigration/tenants
@@ -206,6 +210,47 @@ it never sent as *failures*, and a cancelled revert reports objects as deleted
 that are still there. So a job that did not finish reports its run id and says
 its numbers cannot be trusted, rather than presenting them as fact. Check the
 target tenant by run id before retrying.
+
+### Choosing what to migrate, and knowing how big it is
+
+A caller has no session in the tenant being migrated — a session belongs to one
+tenant, and the hierarchy is in another. So the service reads that tenant's
+inventory on the caller's behalf:
+
+```sh
+c8y api GET '/service/devicemigration/tenants/t11111/inventory?text=berlin'
+c8y api GET  /service/devicemigration/tenants/t11111/inventory/1399229
+c8y api GET '/service/devicemigration/tenants/t11111/inventory/1399229/children?childTypes=asset,device'
+```
+
+These are reads and nothing else. **They do grant something new**, though: an
+owner-tenant administrator holding `ROLE_DEVICE_MIGRATION_ADMIN` can now read
+any subscribed tenant's inventory through its service user. That is strictly less
+than what the role already permits — migrating that tenant's hierarchy wholesale
+— but it is a capability, and anyone deciding who gets the role should know it
+comes with this.
+
+An id that does not exist is a 404 here, which is the point: until these existed,
+a mistyped root was discovered when the migration ran, minutes later.
+
+`POST /estimates` answers how big a migration would be before anybody commits to
+it:
+
+```sh
+c8y api POST /service/devicemigration/estimates --data '{
+    "sourceTenant": "t11111",
+    "rootId": "1399229",
+    "dataTypes": "measurements"
+}'
+```
+
+It reports the object and identity counts, the record totals per kind, the
+**busiest single device** per kind — the limits are per device, so a hierarchy
+well under the total can still be refused — the window it counted over, any
+limits that would be breached, and the limits themselves so nothing has to
+hardcode them. It creates nothing and takes seconds; the same request fields as a
+migration, resolved the same way including the configured default window, so an
+estimate describes the run that follows it rather than a similar one.
 
 ### What preflight is for
 

@@ -255,6 +255,13 @@ func TestTheSchemasMatchTheStructs(t *testing.T) {
 		{"RevertRequest", service.RevertRequest{}},
 		{"RevertsResponse", service.RevertsResponse{}},
 		{"LoggersResponse", service.LoggersResponse{}},
+		{"InventoryObject", service.InventoryObject{}},
+		{"InventoryResponse", service.InventoryResponse{}},
+		{"EstimateRequest", service.EstimateRequest{}},
+		{"EstimateResponse", service.EstimateResponse{}},
+		{"EstimateWindow", service.EstimateWindow{}},
+		{"EstimateBreach", service.EstimateBreach{}},
+		{"EstimateLimits", service.EstimateLimits{}},
 		{"Job", service.Job{}},
 	} {
 		documented, ok := parsed.Components.Schemas[pair.schema]

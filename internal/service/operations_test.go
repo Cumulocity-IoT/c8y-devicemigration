@@ -2,8 +2,11 @@ package service_test
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -402,8 +405,11 @@ func TestAJobIsLookedUpByAskingThePlatformForIt(t *testing.T) {
 	})
 	id := fmt.Sprint(job["id"])
 
-	// The job has finished, so this is answered from the record rather than from
-	// memory.
+	// Answered from the record rather than from memory, which needs the worker to
+	// have let go of it - otherwise this reads the running job and never asks the
+	// platform anything, and the assertion below passes or fails on timing.
+	waitFor(t, "the worker to release the job", func() bool { return svc.Running() == nil })
+
 	recorder := call(t, svc, request(t, http.MethodGet, "/migrations/"+id, nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", recorder.Code, recorder.Body)
@@ -418,5 +424,41 @@ func TestAJobIsLookedUpByAskingThePlatformForIt(t *testing.T) {
 	if !asked {
 		t.Fatal("the job id never reached the platform, so every record was read and " +
 			"filtered here instead")
+	}
+}
+
+// A second service must work beside the first one's staging root, not inside
+// it: os.TempDir() reads the variable this points at, so nesting compounds -
+// and a test process that builds eighty services nested eighty deep until the
+// paths stopped working, which is how this was found.
+func TestASecondServiceDoesNotNestItsStagingRoot(t *testing.T) {
+	staging := sandbox(t)
+	p := twoTenants(t)
+
+	for range 3 {
+		if _, err := service.New(t.Context(), service.Options{InsecureSkipVerify: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = p
+
+	deepest := 0
+	err := filepath.WalkDir(staging, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || !entry.IsDir() {
+			return nil //nolint:nilerr // a directory that vanished mid-walk is not a failure
+		}
+		if depth := strings.Count(strings.TrimPrefix(path, staging), string(os.PathSeparator)); depth > deepest {
+			deepest = depth
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One level for the root itself; anything more means it nested.
+	if deepest > 1 {
+		t.Fatalf("staging directories are %d levels deep under the sandbox, so a "+
+			"service nested inside another's root", deepest)
 	}
 }

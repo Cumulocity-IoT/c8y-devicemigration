@@ -477,6 +477,24 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 		body []byte
 	}
 	var matches []found
+
+	// The tenant's own devices, not only what this server was asked to create.
+	// A real inventory holds both, and a listing that saw only creations made
+	// searching a source tenant impossible to model.
+	for id, device := range s.hierarchy {
+		body, err := json.Marshal(s.sourceObject(id, device))
+		if err != nil {
+			continue
+		}
+		if !matchesAll(body, required) || !equalsAll(body, equals) {
+			continue
+		}
+		if afterID != "" && id <= afterID {
+			continue
+		}
+		matches = append(matches, found{id: id, body: body})
+	}
+
 	for id, body := range s.created {
 		if !matchesAll(body, required) {
 			continue
@@ -1146,6 +1164,13 @@ func (s *Server) writeManagedObject(w http.ResponseWriter, id string) {
 		return
 	}
 
+	s.writeJSON(w, s.sourceObject(id, device))
+}
+
+// sourceObject is a managed object of the tenant's own, as the platform would
+// render it. Shared by the single read and the listing, so a search cannot see a
+// different object from the one that is then fetched.
+func (s *Server) sourceObject(id string, device Device) map[string]any {
 	object := map[string]any{
 		"id":           id,
 		"self":         s.selfLink(id),
@@ -1173,8 +1198,7 @@ func (s *Server) writeManagedObject(w http.ResponseWriter, id string) {
 	if device.Name != "" {
 		object["name"] = device.Name
 	}
-
-	s.writeJSON(w, object)
+	return object
 }
 
 func (s *Server) writeChildren(w http.ResponseWriter, id, childType, property string) {

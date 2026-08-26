@@ -1,0 +1,63 @@
+{
+  "name": "c8y-devicemigration-ui",
+  "version": "0.1.1-2-g7fcd2d4-dirty",
+  "description": "Migrate a device hierarchy from one Cumulocity tenant to another",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "start": "ng serve",
+    "build": "ng build",
+    "deploy": "c8y-toolkit deploy",
+    "test": "jest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@angular/animations": "^21.0.0",
+    "@angular/cdk": "^21.0.0",
+    "@angular/common": "^21.0.0",
+    "@angular/compiler": "^21.0.0",
+    "@angular/core": "^21.0.0",
+    "@angular/forms": "^21.0.0",
+    "@angular/platform-browser": "^21.0.0",
+    "@angular/platform-browser-dynamic": "^21.0.0",
+    "@angular/router": "^21.0.0",
+    "@angular/upgrade": "^21.0.0",
+    "@c8y/bootstrap": "1024.15.16",
+    "@c8y/client": "1024.15.16",
+    "@c8y/ngx-components": "1024.15.16",
+    "@c8y/style": "1024.15.16",
+    "monaco-editor": "0.52.2",
+    "rxjs": "7.8.2",
+    "zone.js": "^0.15.0"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^21.0.0",
+    "@angular/cli": "^21.0.0",
+    "@angular/compiler-cli": "^21.0.0",
+    "@c8y/devkit": "1024.15.16",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.0.0",
+    "openapi-typescript": "^7.13.0",
+    "ts-jest": "^29.4.0",
+    "typescript": "~5.9.0"
+  },
+  "c8y": {
+    "application": {
+      "name": "Device migration",
+      "description": "Migrate a device hierarchy from one tenant to another",
+      "contextPath": "devicemigration-ui",
+      "key": "devicemigration-ui-application-key",
+      "globalTitle": "Device migration",
+      "isPackage": true,
+      "package": "plugin",
+      "exports": [
+        {
+          "name": "Device migration",
+          "module": "DeviceMigrationModule",
+          "path": "./src/migration.module.ts",
+          "description": "Move a device hierarchy between tenants, and undo it"
+        }
+      ]
+    }
+  }
+}

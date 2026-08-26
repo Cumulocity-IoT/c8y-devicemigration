@@ -69,3 +69,9 @@ tests/vendor/
 
 # Release archives, from `make dist`.
 /dist/
+
+# The user interface plugin: its dependencies and its build output. node_modules
+# for the Web SDK is most of a gigabyte.
+ui/node_modules/
+ui/dist/
+ui/.angular/

@@ -1,0 +1,317 @@
+<c8y-title>Device migration</c8y-title>
+
+<div class="p-16">
+  <!-- Where we are. Numbered because it genuinely is a sequence. -->
+  <ol class="breadcrumb m-b-16">
+    @for (step of steps; track step) {
+      <li [class.active]="flow.step === step">
+        <button
+          class="btn btn-link p-0"
+          type="button"
+          [disabled]="!flow.can(step).reachable"
+          [title]="flow.can(step).because"
+          (click)="open(step)"
+        >
+          {{ step }}
+        </button>
+      </li>
+    }
+  </ol>
+
+  @if (flow.failure; as failure) {
+    <div class="alert" [class.alert-warning]="failure.retryable" [class.alert-danger]="!failure.retryable">
+      <strong>{{ failure.title }}</strong>
+      <p class="m-0">{{ failure.detail }}</p>
+    </div>
+  }
+
+  @switch (flow.step) {
+    @case ('introduction') {
+      <h3>Migrate a device hierarchy between tenants</h3>
+      <p>
+        This copies a group or device, everything beneath it, their external identities and
+        optionally their measurements, events and alarms into a second tenant.
+      </p>
+      <ul>
+        <li>The source tenant is not changed. Nothing is deleted from it.</li>
+        <li>Objects get new ids in the target. The old ids are recorded in a mapping.</li>
+        <li>Everything created is marked with a run id, so this can be undone.</li>
+        <li>Operations are not migrated.</li>
+      </ul>
+      <p class="text-muted">
+        Both tenants must be subscribed to the migration microservice. Subscribing them is done
+        under Tenants, not here.
+      </p>
+    }
+
+    @case ('source') {
+      <h4>Which tenant, and what in it</h4>
+
+      <div class="list-group m-b-16">
+        @for (tenant of flow.sourceTenants; track tenant.id) {
+          <button
+            class="list-group-item"
+            type="button"
+            [class.active]="flow.choices.sourceTenant === tenant.id"
+            [disabled]="!!tenant.unavailable"
+            (click)="chooseSource(tenant.id)"
+          >
+            <code>{{ tenant.id }}</code>
+            @if (tenant.unavailable) {
+              <span class="text-muted"> &mdash; {{ tenant.unavailable }}</span>
+            }
+          </button>
+        }
+      </div>
+
+      @if (flow.choices.sourceTenant) {
+        <div class="input-group m-b-8">
+          <input
+            class="form-control"
+            type="search"
+            placeholder="Find a device or group by name"
+            [ngModel]="search()"
+            (ngModelChange)="search.set($event)"
+            (keyup.enter)="find()"
+          />
+          <span class="input-group-btn">
+            <button class="btn btn-default" type="button" (click)="find()">Search</button>
+          </span>
+        </div>
+
+        @if (searching()) {
+          <c8y-loading />
+        } @else if (!rows().length) {
+          <p class="text-muted">Nothing found. An empty search lists the roots of the tenant.</p>
+        } @else {
+          <div class="list-group">
+            @for (row of rows(); track row.object.id) {
+              <div
+                class="list-group-item d-flex a-i-center gap-8"
+                [class.active]="flow.choices.root?.id === row.object.id"
+                [style.padding-left.px]="12 + row.depth * 20"
+              >
+                @if (hasChildren(row.object)) {
+                  <button class="btn btn-link p-0" type="button" (click)="toggle(row)">
+                    {{ row.expanded ? '−' : '+' }}
+                  </button>
+                } @else {
+                  <span class="text-muted">·</span>
+                }
+
+                <button class="btn btn-link p-0 flex-grow" type="button" (click)="chooseRoot(row.object)">
+                  {{ row.object.name || '(unnamed)' }}
+                </button>
+
+                <small class="text-muted">{{ row.object.type }}</small>
+                @if (childSummary(row.object)) {
+                  <small class="text-muted">{{ childSummary(row.object) }}</small>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <fieldset class="m-t-16">
+          <legend class="legend">What to include</legend>
+
+          <label class="c8y-checkbox">
+            <input
+              type="checkbox"
+              [ngModel]="flow.choices.noChildren"
+              (ngModelChange)="changeScope({ noChildren: $event })"
+            />
+            <span></span>
+            <span>Only the selected object, no children</span>
+          </label>
+
+          @if (!flow.choices.noChildren) {
+            <div class="form-group">
+              <label for="childTypes">Relationships to follow</label>
+              <input
+                id="childTypes"
+                class="form-control"
+                [ngModel]="flow.choices.childTypes"
+                (ngModelChange)="changeScope({ childTypes: $event })"
+              />
+            </div>
+          }
+
+          <div class="form-group">
+            <label for="dataTypes">Device data</label>
+            <select
+              id="dataTypes"
+              class="form-control"
+              [ngModel]="flow.choices.dataTypes"
+              (ngModelChange)="changeScope({ dataTypes: $event })"
+            >
+              <option value="">None</option>
+              <option value="measurements">Measurements</option>
+              <option value="events">Events</option>
+              <option value="alarms">Alarms</option>
+              <option value="all">Measurements, events and alarms</option>
+            </select>
+          </div>
+
+          @if (flow.choices.dataTypes) {
+            <div class="form-group">
+              <label for="dateFrom">From</label>
+              <input
+                id="dateFrom"
+                class="form-control"
+                placeholder="-14d, or 2026-01-01"
+                [ngModel]="flow.choices.dateFrom"
+                (ngModelChange)="changeScope({ dateFrom: $event })"
+              />
+              <p class="help-block">
+                Left empty, measurements cover the last 14 days and events and alarms everything.
+              </p>
+            </div>
+          }
+        </fieldset>
+      }
+    }
+
+    @case ('target') {
+      <h4>Which tenant to migrate into</h4>
+
+      <div class="list-group m-b-16">
+        @for (tenant of flow.targetTenants; track tenant.id) {
+          <button
+            class="list-group-item"
+            type="button"
+            [class.active]="flow.choices.targetTenant === tenant.id"
+            [disabled]="!!tenant.unavailable"
+            (click)="chooseTarget(tenant.id)"
+          >
+            <code>{{ tenant.id }}</code>
+            @if (tenant.unavailable) {
+              <span class="text-muted"> &mdash; {{ tenant.unavailable }}</span>
+            }
+          </button>
+        }
+      </div>
+
+      @if (flow.preflightPassed) {
+        <div class="alert alert-success">
+          Both service users authenticated against the platform. Nothing has been read from either
+          hierarchy yet.
+        </div>
+      }
+    }
+
+    @case ('review') {
+      <h4>
+        {{ flow.choices.root?.name }} &middot; {{ flow.choices.sourceTenant }} &rarr;
+        {{ flow.choices.targetTenant }}
+      </h4>
+
+      @if (flow.busy) {
+        <c8y-loading />
+      } @else if (flow.estimate; as estimate) {
+        <table class="table">
+          <tbody>
+            <tr>
+              <td>Managed objects</td>
+              <td class="text-right"><strong>{{ estimate.objects }}</strong></td>
+              <td class="text-muted">{{ estimate.limits?.maxChildObjects }} children allowed</td>
+            </tr>
+            <tr>
+              <td>External identities</td>
+              <td class="text-right"><strong>{{ estimate.identities }}</strong></td>
+              <td class="text-muted">no limit</td>
+            </tr>
+            @for (record of estimate.records | keyvalue; track record.key) {
+              <tr>
+                <td>{{ record.key }}</td>
+                <td class="text-right"><strong>{{ record.value }}</strong></td>
+                <td class="text-muted">
+                  busiest device {{ estimate.busiest?.[record.key] }} of
+                  {{ estimate.limits?.perDevice?.[record.key] }} allowed
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+
+        @if (!estimate.withinLimits) {
+          <div class="alert alert-danger">
+            <strong>Over the export limits</strong>
+            @for (breach of estimate.breaches; track breach.kind) {
+              <p class="m-0">
+                {{ breach.kind }}: {{ breach.count }} where {{ breach.allowed }} is allowed
+                @if (breach.objectId) {
+                  (worst is {{ breach.objectId }}, {{ breach.objects }} over the limit)
+                }
+              </p>
+            }
+            <p class="m-b-0">Narrow the window or the data types on the previous step.</p>
+          </div>
+        }
+      }
+    }
+
+    @case ('progress') {
+      @if (job(); as running) {
+        <div class="d-flex a-i-center gap-8 m-b-8">
+          <span class="label">{{ jobStatus()?.label }}</span>
+          <code>{{ running.runId }}</code>
+        </div>
+
+        @if (jobStatus()?.caveat) {
+          <div class="alert alert-warning">{{ jobStatus()?.caveat }}</div>
+        }
+
+        @if (jobProgress(); as bar) {
+          <div class="progress">
+            <div class="progress-bar" [style.width.%]="bar.percent"></div>
+          </div>
+          <p class="text-muted small">
+            Device {{ bar.current }} of {{ bar.total }} &mdash; approximate
+          </p>
+        }
+
+        @if (running.error) {
+          <div class="alert alert-danger">{{ running.error }}</div>
+        }
+
+        <pre class="p-8">{{ running.progress?.join('\n') }}</pre>
+
+        @if (running.status === 'RUNNING' || running.status === 'QUEUED') {
+          <button class="btn btn-danger" type="button" (click)="cancel()">Cancel migration</button>
+          <span class="text-muted m-l-8">Leaving this page does not stop it.</span>
+        }
+      }
+    }
+  }
+
+  <hr />
+  <div class="d-flex gap-8">
+    <button class="btn btn-default" type="button" [disabled]="flow.step === 'introduction'" (click)="back()">
+      Back
+    </button>
+
+    <span class="flex-grow"></span>
+
+    @if (flow.step === 'review') {
+      <button
+        class="btn btn-primary"
+        type="button"
+        [disabled]="!flow.startable.reachable || flow.busy"
+        [title]="flow.startable.because"
+        (click)="start()"
+      >
+        Start migration
+      </button>
+    } @else if (flow.step !== 'progress') {
+      <button
+        class="btn btn-primary"
+        type="button"
+        [disabled]="flow.busy"
+        (click)="forward()"
+      >
+        Next
+      </button>
+    }
+  </div>
+</div>

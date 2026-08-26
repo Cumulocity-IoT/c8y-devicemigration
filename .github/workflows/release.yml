@@ -147,6 +147,41 @@ jobs:
           path: build/*.zip
           if-no-files-found: error
 
+  # The user interface plugin, as the zip an operator installs.
+  ui:
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm --prefix ui ci --no-audit --no-fund
+
+      - name: Build the package
+        run: make ui-package VERSION=${{ needs.version.outputs.version }}
+
+      - name: Report what will be installed
+        run: |
+          {
+            echo '### User interface'
+            echo
+            echo '```'
+            unzip -p build/devicemigration-ui-*.zip cumulocity.json | head -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui
+          path: build/devicemigration-ui-*.zip
+          if-no-files-found: error
+
   # The same image, in the registry, for anyone who would rather pull it than
   # unpack a zip - and so a deployment can be traced back to something
   # immutable. Only for a real release: a dry run has already proved the
@@ -199,7 +234,7 @@ jobs:
 
   release:
     if: needs.version.outputs.publish == 'true'
-    needs: [version, cli, microservice, image]
+    needs: [version, cli, microservice, ui, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -221,6 +256,11 @@ jobs:
           name: microservice
           path: assets/microservice
 
+      - uses: actions/download-artifact@v7
+        with:
+          name: ui
+          path: assets/ui
+
       # Everything that will be attached, established before anything is
       # published. A release missing half its artefacts is worse than a release
       # that failed, because nobody notices.
@@ -238,7 +278,8 @@ jobs:
             "c8y-devicemigration-$VERSION-linux-arm64.tar.gz" \
             "c8y-devicemigration-$VERSION-windows-amd64.zip" \
             "SHA256SUMS" \
-            "devicemigration-$VERSION.zip"; do
+            "devicemigration-$VERSION.zip" \
+            "devicemigration-ui-$VERSION.zip"; do
             if ! grep -qF "$expected" asset-list; then
               echo "::error::$expected was built but is not among the downloaded assets"
               missing=1
@@ -293,6 +334,13 @@ jobs:
 
           Subscribe the tenant it is deployed on as well as the source and target
           tenants, and grant \`ROLE_DEVICE_MIGRATION_ADMIN\` to whoever may migrate.
+
+          ### The user interface
+
+          Install \`devicemigration-ui-$VERSION.zip\` under **Administration →
+          Ecosystem → Extensions**, then add it to Administration. Whoever should
+          use it needs \`ROLE_DEVICE_MIGRATION_ADMIN\` in the tenant the
+          microservice is deployed on.
 
           ### The go-c8y-cli extension
 

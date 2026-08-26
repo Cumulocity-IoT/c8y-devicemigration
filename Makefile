@@ -26,13 +26,15 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 
 .PHONY: check test test-fast test-bash3 lint workflow-lint parser-freshness docs docs-freshness \
 	go-build go-test go-lint install install-completion bootstrap clean \
-	service-build service-image service-package service-deploy dist
+	service-build service-image service-package service-deploy dist \
+	ui-install ui-types ui-types-freshness ui-test ui-typecheck ui-build ui-package ui-deploy
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
 # that no longer exists - which happened once, with a bug that had already been
 # fixed in the source.
-check: lint parser-freshness docs-freshness go-lint go-build go-test test
+check: lint parser-freshness docs-freshness ui-types-freshness go-lint go-build go-test \
+	ui-typecheck ui-test test
 
 bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
 
@@ -286,6 +288,84 @@ dist:
 	@echo
 	@ls -lh $(DIST_DIR)
 
+# --- the user interface -------------------------------------------------------
+#
+# An Angular plugin, installable into Administration or any other application.
+# The 1024 Web SDK builds with the Angular CLI and @c8y/devkit's builders;
+# c8ycli is gone, and c8y-toolkit only deploys.
+#
+# Everything here degrades gracefully when the dependencies are not installed,
+# the way lint does without shellcheck: a Go-only contributor should not need a
+# node_modules directory to run the checks.
+UI_DIR   := ui
+UI_BIN   := $(UI_DIR)/node_modules/.bin
+UI_TYPES := $(UI_DIR)/src/api/types.ts
+OPENAPI  := internal/service/openapi.yaml
+
+ui-install:
+	cd $(UI_DIR) && npm install --no-audit --no-fund
+
+# The types the UI codes against are generated from the same document the Go
+# tests keep true to the handlers, so a field renamed in Go fails the UI build
+# rather than arriving as undefined in a browser.
+ui-types:
+	@test -x $(UI_BIN)/openapi-typescript \
+		|| { echo "ui dependencies missing, run: make ui-install"; exit 1; }
+	$(UI_BIN)/openapi-typescript $(OPENAPI) --default-non-nullable=false -o $(UI_TYPES)
+	@echo "generated $(UI_TYPES)"
+
+# --default-non-nullable=false because a request field with a default is
+# optional for the caller: without it the generated MigrationRequest demanded a
+# childTypes the API is perfectly happy to fill in itself.
+ui-types-freshness:
+	@if [ -x $(UI_BIN)/openapi-typescript ]; then \
+		fresh=$$(mktemp -t uitypes); \
+		$(UI_BIN)/openapi-typescript $(OPENAPI) --default-non-nullable=false -o $$fresh >/dev/null 2>&1; \
+		if diff -q $$fresh $(UI_TYPES) >/dev/null 2>&1; then \
+			echo "openapi types: up to date"; rm -f $$fresh; \
+		else \
+			echo "$(UI_TYPES) is stale, run: make ui-types"; \
+			diff $$fresh $(UI_TYPES) | head -20; rm -f $$fresh; exit 1; \
+		fi; \
+	else \
+		echo "ui dependencies not installed, skipping (make ui-install)"; \
+	fi
+
+ui-test:
+	@if [ -x $(UI_BIN)/jest ]; then \
+		cd $(UI_DIR) && ./node_modules/.bin/jest; \
+	else \
+		echo "ui dependencies not installed, skipping (make ui-install)"; \
+	fi
+
+ui-typecheck:
+	@if [ -x $(UI_BIN)/tsc ]; then \
+		cd $(UI_DIR) && ./node_modules/.bin/tsc --noEmit -p tsconfig.json && echo "tsc: clean"; \
+	else \
+		echo "ui dependencies not installed, skipping (make ui-install)"; \
+	fi
+
+ui-build:
+	cd $(UI_DIR) && ./node_modules/.bin/ng build --configuration production
+
+# The plugin's own version lives in ui/package.json, because npm needs it there.
+# This sets it so the zip the platform is given says the same thing as
+# everything else in a release.
+ui-package:
+	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$$' \
+		|| { echo "VERSION '$(VERSION)' is not SemVer, and the platform will reject it"; exit 1; }
+	cd $(UI_DIR) && npm version --no-git-tag-version --allow-same-version $(VERSION) >/dev/null
+	$(MAKE) ui-build
+	@mkdir -p $(SERVICE_DIR)
+	cp $(UI_DIR)/dist/devicemigration-ui.zip $(SERVICE_DIR)/devicemigration-ui-$(VERSION).zip
+	@echo "packaged $(SERVICE_DIR)/devicemigration-ui-$(VERSION).zip"
+	@unzip -l $(SERVICE_DIR)/devicemigration-ui-$(VERSION).zip | tail -3
+
+# Needs an active go-c8y-cli session on the tenant to install it into.
+ui-deploy: ui-package
+	cd $(UI_DIR) && ./node_modules/.bin/c8y-toolkit deploy dist/devicemigration-ui.zip
+	@echo "deployed. Add it to an application under Administration > Ecosystem > Extensions"
+
 go-lint:
 	@unformatted=$$(gofmt -l cmd internal); \
 	if [ -n "$$unformatted" ]; then \
@@ -296,4 +376,4 @@ go-lint:
 	@echo "go vet: clean"
 
 clean:
-	rm -rf $(VENDOR) bin $(SERVICE_DIR) $(DIST_DIR)
+	rm -rf $(VENDOR) bin $(SERVICE_DIR) $(DIST_DIR) $(UI_DIR)/dist

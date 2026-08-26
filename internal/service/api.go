@@ -44,6 +44,16 @@ func (s *Service) Routes() []Route {
 
 		{Method: http.MethodGet, Path: "/tenants", handler: s.handleTenants},
 		{Method: http.MethodPost, Path: "/preflight", handler: s.handlePreflight},
+		{Method: http.MethodPost, Path: "/estimates", handler: s.handleEstimate},
+
+		// Reads over a tenant the caller has no session in, so that a user
+		// interface can offer a hierarchy to choose from.
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/inventory",
+			handler: s.handleListInventory},
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/inventory/{id}",
+			handler: s.handleGetInventoryObject},
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/inventory/{id}/children",
+			handler: s.handleListChildren},
 
 		{Method: http.MethodPost, Path: "/migrations", handler: s.handleCreateMigration},
 		{Method: http.MethodGet, Path: "/migrations", handler: s.handleListMigrations},
