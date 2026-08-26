@@ -99,8 +99,10 @@ jobs:
 
       # The runner is amd64 already, so no emulation is needed here - the
       # --platform pin in the Dockerfile just becomes a no-op.
+      # An explicit CI version, so a package built from a branch cannot be
+      # mistaken for a release of whatever tag happens to be nearest.
       - name: Build the package
-        run: make service-package
+        run: make service-package SERVICE_VERSION=0.0.0-ci
 
       - name: Show what will be deployed
         run: |

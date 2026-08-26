@@ -206,9 +206,53 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Downloaded by name into a directory each, rather than everything into
+      # one: a glob over a shared directory can resolve to a subdirectory, and
+      # `gh release create` ignores directory arguments without saying so - which
+      # is how a release came out holding the microservice and none of the
+      # command line archives.
       - uses: actions/download-artifact@v7
         with:
-          path: artifacts
+          name: cli
+          path: assets/cli
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: microservice
+          path: assets/microservice
+
+      # Everything that will be attached, established before anything is
+      # published. A release missing half its artefacts is worse than a release
+      # that failed, because nobody notices.
+      - name: Collect and check the assets
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          find assets -type f | sort | tee asset-list
+
+          missing=0
+          for expected in \
+            "c8y-devicemigration-$VERSION-darwin-arm64.tar.gz" \
+            "c8y-devicemigration-$VERSION-darwin-amd64.tar.gz" \
+            "c8y-devicemigration-$VERSION-linux-amd64.tar.gz" \
+            "c8y-devicemigration-$VERSION-linux-arm64.tar.gz" \
+            "c8y-devicemigration-$VERSION-windows-amd64.zip" \
+            "SHA256SUMS" \
+            "devicemigration-$VERSION.zip"; do
+            if ! grep -qF "$expected" asset-list; then
+              echo "::error::$expected was built but is not among the downloaded assets"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+
+          {
+            echo '### Release assets'
+            echo
+            echo '```'
+            cat asset-list
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Created as a draft on purpose: the notes are generated, and somebody
       # should read them before this is the thing people download. Publishing is
@@ -259,12 +303,42 @@ jobs:
           \`\`\`
           NOTES
 
+          # From the checked list, and only files: a directory argument here is
+          # skipped in silence.
+          assets=()
+          while IFS= read -r asset; do
+            assets+=("$asset")
+          done < asset-list
+
           # shellcheck disable=SC2086
           gh release create "$GITHUB_REF_NAME" \
             --draft \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
             $prerelease \
-            artifacts/cli/* artifacts/microservice/*
+            "${assets[@]}"
 
-          echo "Draft release created for $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+      # What the release actually holds, according to the API rather than
+      # according to the upload having been attempted.
+      - name: Confirm what was attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          attached=$(gh release view "$GITHUB_REF_NAME" --json assets \
+            --jq '.assets[].name' | sort)
+          expected=$(xargs -n1 basename < asset-list | sort)
+
+          if [ "$attached" != "$expected" ]; then
+            echo "::error::the release does not hold what was built"
+            diff <(echo "$expected") <(echo "$attached") || true
+            exit 1
+          fi
+
+          {
+            echo
+            echo "Draft release **$GITHUB_REF_NAME** holds:"
+            echo
+            echo '```'
+            echo "$attached"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

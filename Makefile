@@ -132,13 +132,15 @@ GO_TIMEOUT := 300s
 # identified from the outside; "dev" plus a commit for anything else, because a
 # local build claiming to be a release is worse than one admitting it is not.
 VERSION ?= $(shell \
-	v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null); \
-	if [ -n "$$v" ]; then echo "$${v\#v}"; \
+	v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null | sed 's/^v//'); \
+	if [ -n "$$v" ]; then echo "$$v"; \
 	else echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"; fi)
 
 GO_LDFLAGS := -s -w -X github.com/Cumulocity-IoT/c8y-devicemigration/internal/version.Version=$(VERSION)
 
 go-build:
+	@test -n "$(VERSION)" || { \
+		echo "VERSION is empty, so the binaries could not say what they are."; exit 1; }
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/c8y-devicemigration ./cmd/c8y-devicemigration
 	@echo "built bin/c8y-devicemigration $(VERSION)"
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/c8y-devicemigration-service ./cmd/c8y-devicemigration-service
@@ -185,9 +187,12 @@ SERVICE_NAME := devicemigration
 # this takes the newest v-prefixed tag and falls back to a snapshot rather than
 # to `git describe`, whose output for an untagged tree ("f8faeb2-dirty") is not
 # a version at all.
+# The leading v is stripped with sed rather than $${v\#v}: a '#' inside a
+# $(shell ...) is escaped differently by make 3.81 and make 4.4, and the version
+# that gets it wrong silently comes out empty.
 SERVICE_VERSION ?= $(shell \
-	v=$$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0 2>/dev/null); \
-	v=$${v\#v}; \
+	v=$$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0 2>/dev/null \
+		| sed 's/^v//'); \
 	if [ -n "$$v" ]; then echo "$$v"; else echo 0.1.0-SNAPSHOT; fi)
 
 SERVICE_DIR := build
@@ -197,6 +202,9 @@ SERVICE_ZIP := $(SERVICE_DIR)/$(SERVICE_NAME)-$(SERVICE_VERSION).zip
 DOCKER ?= docker
 
 service-build:
+	@test -n "$(SERVICE_VERSION)" || { \
+		echo "SERVICE_VERSION is empty, so there is nothing to tag the image with."; \
+		echo "Pass it explicitly: make service-build SERVICE_VERSION=1.2.3"; exit 1; }
 	$(DOCKER) build --platform linux/amd64 \
 		-t $(SERVICE_NAME):$(SERVICE_VERSION) \
 		-f docker/Dockerfile .
@@ -214,7 +222,9 @@ service-package: service-image
 	@echo "$(SERVICE_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$$' \
 		|| { echo "SERVICE_VERSION '$(SERVICE_VERSION)' is not SemVer, and the platform will reject it"; exit 1; }
 	sed 's/@VERSION@/$(SERVICE_VERSION)/' docker/cumulocity.json > $(SERVICE_DIR)/cumulocity.json
-	@rm -f $(SERVICE_ZIP)
+	@# Every zip, not just this version's: a directory holding two versions is
+	@# one a release job could upload both of.
+	@rm -f $(SERVICE_DIR)/*.zip
 	cd $(SERVICE_DIR) && zip -q $(notdir $(SERVICE_ZIP)) cumulocity.json image.tar
 	@echo "packaged $(SERVICE_ZIP)"
 	@unzip -l $(SERVICE_ZIP)
@@ -241,6 +251,9 @@ DIST_DIR := dist
 CLI_PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64
 
 dist:
+	@test -n "$(VERSION)" || { \
+		echo "VERSION is empty, so the archives would have no version in their names."; \
+		echo "Pass it explicitly: make dist VERSION=1.2.3"; exit 1; }
 	@rm -rf $(DIST_DIR)
 	@mkdir -p $(DIST_DIR)
 	@for platform in $(CLI_PLATFORMS); do \
