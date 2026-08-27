@@ -92,14 +92,14 @@ func (s *Service) handleListInventory(w http.ResponseWriter, r *http.Request) {
 	// fragmentType whenever a query is present, and asking any other way
 	// silently returns the whole inventory - which this repository has been
 	// caught by twice.
-	var conditions []string
+	//
+	// Devices, assets and groups only. A tenant's inventory also holds
+	// dashboards, smart rules, binaries, retention rules and this service's own
+	// job records, none of which is a thing anybody would migrate, and all of
+	// which would otherwise be offered as a choice.
+	conditions := []string{migratable}
 	if text := r.URL.Query().Get("text"); text != "" {
 		conditions = append(conditions, fmt.Sprintf("(name eq '*%s*')", escapeQuery(text)))
-	}
-	if r.URL.Query().Get("onlyRoots") == "true" {
-		// A root is an object nothing else holds as a child asset or device,
-		// which is how the platform expresses "top of a hierarchy".
-		conditions = append(conditions, "(not(has(c8y_IsChildAsset))) and (not(has(c8y_IsChildDevice)))")
 	}
 
 	options := managedobjects.ListOptions{
@@ -107,10 +107,26 @@ func (s *Service) handleListInventory(w http.ResponseWriter, r *http.Request) {
 			PageSize:          pageSize,
 			CurrentPage:       currentPage,
 			WithTotalElements: true,
+			WithTotalPages:    true,
 		},
 	}
-	if len(conditions) > 0 {
-		options.Query = "$filter=" + join(conditions, " and ")
+	options.Query = "$filter=" + join(conditions, " and ")
+
+	// A root is an object nothing else holds as a child. There is no fragment
+	// saying so - the platform decides it by looking at an object's parents,
+	// which is also how its own asset picker decides it - so this asks for the
+	// parents and drops anything that has one.
+	//
+	// The platform's own onlyRoots parameter is sent as well, in case it is
+	// honoured alongside a query. If it is, the pages come back already filtered
+	// and the check below finds nothing to do; if it is ignored, as type and
+	// fragmentType are, the check is what makes the answer right. Betting a
+	// picker on which of those it is would be how this endpoint quietly listed
+	// every child in the tenant.
+	onlyRoots := r.URL.Query().Get("onlyRoots") == "true"
+	if onlyRoots {
+		options.OnlyRoots = true
+		options.WithParents = true
 	}
 
 	result := tenant.client.ManagedObjects.List(r.Context(), options)
@@ -127,9 +143,12 @@ func (s *Service) handleListInventory(w http.ResponseWriter, r *http.Request) {
 				tenant.session.Tenant, err))
 			return
 		}
+		if onlyRoots && hasParent(item.Bytes()) {
+			continue
+		}
 		response.Objects = append(response.Objects, objectFrom(item.Bytes()))
 	}
-	response.More = len(response.Objects) == pageSize
+	response.More = morePages(result.Response, currentPage, pageSize, len(response.Objects))
 
 	writeJSON(w, r, http.StatusOK, response)
 }
@@ -318,6 +337,44 @@ func paging(r *http.Request) (pageSize, currentPage int, err error) {
 	}
 	return pageSize, currentPage, nil
 }
+
+// hasParent says whether something else holds this object as a child, in any of
+// the three relationships. Only meaningful when the platform was asked for
+// parents; without that the collections are absent and everything looks like a
+// root, which is why the caller sets WithParents rather than hoping.
+func hasParent(body []byte) bool {
+	for _, path := range []string{
+		"assetParents.references.#",
+		"deviceParents.references.#",
+		"additionParents.references.#",
+	} {
+		if gjson.GetBytes(body, path).Int() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// morePages says whether another page exists.
+//
+// From the platform's own statistics where they are there, because a page whose
+// children were filtered out is shorter than the page size and would otherwise
+// look like the end of the inventory. Counting is the fallback, for a response
+// that carries no statistics at all.
+func morePages(envelope []byte, currentPage, pageSize, returned int) bool {
+	if total := gjson.GetBytes(envelope, "statistics.totalPages"); total.Exists() {
+		return int64(currentPage) < total.Int()
+	}
+	return returned == pageSize
+}
+
+// migratable is what counts as something worth migrating: the fragments the
+// platform marks devices, groups and assets with.
+//
+// The same three the platform's own inventory search uses for its default
+// query, which is the closest thing to a definition of "something a person
+// would pick".
+const migratable = "((has(c8y_IsDevice)) or (has(c8y_IsDeviceGroup)) or (has(c8y_IsAsset)))"
 
 // escapeQuery keeps a search term from ending the string it sits in.
 func escapeQuery(text string) string {

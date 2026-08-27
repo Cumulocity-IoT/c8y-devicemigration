@@ -59,6 +59,12 @@ type Server struct {
 
 	hierarchy Hierarchy
 
+	// tenantName and tenantDomain are what this fixture says it is when asked
+	// about the current tenant. Defaulted, so a test that does not care sees what
+	// it always saw.
+	tenantName   string
+	tenantDomain string
+
 	// objectBodies overrides what GET /inventory/managedObjects/<id> returns.
 	// The differential test fills this from tests/fake/c8y so both
 	// implementations receive byte-identical responses; without that the two
@@ -170,6 +176,15 @@ func (s *Server) HideFromHierarchy(ids ...string) {
 	}
 }
 
+// SetIdentity is who this fixture says it is when asked about the current
+// tenant. Tests running several fixtures at once use it to prove that a request
+// reached the tenant it was meant for and not one of the others.
+func (s *Server) SetIdentity(name, domain string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tenantName, s.tenantDomain = name, domain
+}
+
 // SetObjectBody makes the server return exactly these bytes for one managed
 // object, instead of synthesising a response.
 func (s *Server) SetObjectBody(id string, body []byte) {
@@ -238,7 +253,11 @@ func New(t *testing.T, fixture string) *Server {
 		t.Fatalf("cannot load fixture %s: %v", fixture, err)
 	}
 
-	s := &Server{hierarchy: hierarchy}
+	s := &Server{
+		hierarchy:    hierarchy,
+		tenantName:   "t-fixture",
+		tenantDomain: "t-fixture.example.com",
+	}
 	// TLS, not plain HTTP. The library warns on every request when credentials
 	// travel over HTTP - "Using sensitive credentials in HTTP mode is not
 	// secure" - which buried the actual test output in thousands of lines. It is
@@ -300,7 +319,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case r.URL.Path == "/tenant/currentTenant":
-		s.writeJSON(w, map[string]any{"name": "t-fixture"})
+		// The platform answers currentTenant with the tenant's own id as `name`
+		// and its host as `domainName`. Both are how a caller proves which
+		// tenant its credentials landed in.
+		s.mu.Lock()
+		identity, host := s.tenantName, s.tenantDomain
+		s.mu.Unlock()
+		s.writeJSON(w, map[string]any{"name": identity, "domainName": host})
 
 	case r.Method == http.MethodPost && r.URL.Path == "/inventory/managedObjects":
 		s.createManagedObject(w, r)
@@ -456,21 +481,18 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 	query := params.Get("query")
 	fragmentType := params.Get("fragmentType")
 
-	var required []string
-	var equals [][2]string
+	var groups []condition
 	var afterID string
 	if query != "" {
 		// query wins: whatever fragmentType said is discarded, exactly as the
 		// platform discards it.
 		fragmentType = ""
-		required = hasTerms(query)
-		equals = equalTerms(query)
+		groups = conditions(query)
 		afterID = idCursor(query)
 	}
 	if fragmentType != "" {
-		required = append(required, fragmentType)
+		groups = append(groups, condition{fragments: []string{fragmentType}})
 	}
-
 	s.mu.Lock()
 	type found struct {
 		id   string
@@ -486,7 +508,7 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 		if err != nil {
 			continue
 		}
-		if !matchesAll(body, required) || !equalsAll(body, equals) {
+		if !satisfies(body, groups) {
 			continue
 		}
 		if afterID != "" && id <= afterID {
@@ -496,10 +518,7 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 	}
 
 	for id, body := range s.created {
-		if !matchesAll(body, required) {
-			continue
-		}
-		if !equalsAll(body, equals) {
+		if !satisfies(body, groups) {
 			continue
 		}
 		if afterID != "" && id <= afterID {
@@ -512,12 +531,36 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 	// Sorted, so a test can compare without caring about map iteration order.
 	sort.Slice(matches, func(i, j int) bool { return matches[i].id < matches[j].id })
 
+	// Paged, because a caller that asks for a page and gets everything cannot
+	// tell a working pager from a broken one. Zero means everything, which is
+	// what the export's own listings want.
+	pageSize := number(params.Get("pageSize"))
+	currentPage := number(params.Get("currentPage"))
+	if currentPage < 1 {
+		currentPage = 1
+	}
+	totalPages := 1
+	page := matches
+	if pageSize > 0 {
+		totalPages = (len(matches) + pageSize - 1) / pageSize
+		start := min((currentPage-1)*pageSize, len(matches))
+		page = matches[start:min(start+pageSize, len(matches))]
+	}
+
 	objects := []any{}
-	for _, match := range matches {
+	for _, match := range page {
 		var object map[string]any
 		_ = json.Unmarshal(match.body, &object)
 		object["id"] = match.id
 		object["self"] = s.selfLink(match.id)
+
+		// The platform only returns parents when asked, and a caller that reads
+		// them without asking would see none and call everything a root.
+		if params.Get("withParents") == "true" {
+			for collection, parents := range s.parentsOf(match.id) {
+				object[collection] = map[string]any{"references": parents}
+			}
+		}
 		objects = append(objects, object)
 	}
 
@@ -525,10 +568,158 @@ func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 		"self":           s.Server.URL + "/inventory/managedObjects",
 		"managedObjects": objects,
 		"statistics": map[string]any{
-			"pageSize": 2000, "currentPage": 1,
-			"totalElements": len(objects), "totalPages": 1,
+			"pageSize": pageSize, "currentPage": currentPage,
+			"totalElements": len(matches), "totalPages": totalPages,
 		},
 	})
+}
+
+// parentsOf inverts the hierarchy: who holds this object as a child, and as
+// which kind of child.
+//
+// The fixture knows the relationships in one direction only, which is how the
+// real platform stores them too - and it is why a listing has to be asked for
+// parents rather than deducing them from a fragment. There is no fragment.
+func (s *Server) parentsOf(id string) map[string][]any {
+	collections := map[string]string{
+		"asset":    "assetParents",
+		"device":   "deviceParents",
+		"addition": "additionParents",
+	}
+	parents := map[string][]any{
+		"assetParents":    {},
+		"deviceParents":   {},
+		"additionParents": {},
+	}
+
+	// Under the lock: the caller released it before writing the page, and a test
+	// is free to change the hierarchy while a request is in flight.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for parentID, device := range s.hierarchy {
+		for childType, children := range device.Children {
+			collection, known := collections[childType]
+			if !known {
+				continue
+			}
+			for _, childID := range children {
+				if childID != id {
+					continue
+				}
+				parents[collection] = append(parents[collection], map[string]any{
+					"managedObject": map[string]any{
+						"id":   parentID,
+						"self": s.selfLink(parentID),
+					},
+				})
+			}
+		}
+	}
+	return parents
+}
+
+// number reads a positive integer, or zero for anything else - a fixture has no
+// business refusing what the platform would.
+func number(raw string) int {
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0
+	}
+	return value
+}
+
+// condition is one bracketed part of a filter: the fragments it names, the
+// comparisons it makes, and whether any of them is enough.
+type condition struct {
+	fragments []string
+	equals    [][2]string
+
+	// any means the parts were joined by "or" rather than "and".
+	any bool
+}
+
+// conditions splits a filter into the parts joined by "and".
+//
+// Enough of the query language to answer what this service actually asks, which
+// now includes a disjunction: the device picker wants devices or groups or
+// assets, and a fixture that treated that as a conjunction answered every such
+// query with nothing. Anything more elaborate than this belongs in a real
+// platform, not here - if a query needs more, that is a sign it should be
+// simpler.
+func conditions(query string) []condition {
+	filter := query
+	if at := strings.Index(filter, "$filter="); at >= 0 {
+		filter = filter[at+len("$filter="):]
+	}
+	if at := strings.Index(filter, "$orderby="); at >= 0 {
+		filter = filter[:at]
+	}
+
+	var parsed []condition
+	for _, part := range splitTop(filter, " and ") {
+		group := condition{
+			fragments: hasTerms(part),
+			equals:    equalTerms(part),
+			any:       strings.Contains(part, " or "),
+		}
+		if len(group.fragments) > 0 || len(group.equals) > 0 {
+			parsed = append(parsed, group)
+		}
+	}
+	return parsed
+}
+
+// splitTop splits on a separator that is not inside brackets.
+func splitTop(text, separator string) []string {
+	var parts []string
+	depth, start := 0, 0
+
+	for i := 0; i < len(text); i++ {
+		switch text[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+		if depth == 0 && strings.HasPrefix(text[i:], separator) {
+			parts = append(parts, text[start:i])
+			i += len(separator) - 1
+			start = i + 1
+		}
+	}
+	return append(parts, text[start:])
+}
+
+// satisfies is whether an object matches every part of a filter.
+func satisfies(body []byte, groups []condition) bool {
+	for _, group := range groups {
+		if group.any {
+			if !matchesAny(body, group) {
+				return false
+			}
+			continue
+		}
+		if !matchesAll(body, group.fragments) || !equalsAll(body, group.equals) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesAny is whether an object matches at least one part of a disjunction.
+func matchesAny(body []byte, group condition) bool {
+	for _, fragment := range group.fragments {
+		if matchesAll(body, []string{fragment}) {
+			return true
+		}
+	}
+	for _, term := range group.equals {
+		if equalsAll(body, [][2]string{term}) {
+			return true
+		}
+	}
+	return false
 }
 
 // equalTerms pulls the "<path> eq '<value>'" comparisons out of a query.

@@ -126,9 +126,9 @@ func TestPreflightProvesBothTenants(t *testing.T) {
 	if source["tenant"] != "t-source" || target["tenant"] != "t-target" {
 		t.Fatalf("tenants not reported back: %s", recorder.Body)
 	}
-	// Proof that the service user really authenticated: the fixture answers
-	// /tenant/currentTenant with its own name.
-	if source["reportedTenant"] != "t-fixture" {
+	// Proof that the service user really authenticated, and against the right
+	// tenant: each fixture answers /tenant/currentTenant with its own identity.
+	if source["reportedTenant"] != "t-source" {
 		t.Fatalf("the source credentials were never proven: %s", recorder.Body)
 	}
 	if source["serviceUser"] != serviceUser {
@@ -298,4 +298,103 @@ func TestRefreshingSubscriptionsRacesNothing(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// An id identifies a tenant and describes nothing. What somebody choosing
+// between two of them reads is the name, and what tells two look-alike names
+// apart is the domain.
+func TestTenantsAreListedWithWhatTheyAreCalled(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	described := svc.TenantDescriptions(t.Context())
+	if len(described) == 0 {
+		t.Fatal("no tenants at all")
+	}
+
+	for _, tenant := range described {
+		if tenant.ID == "" {
+			t.Errorf("a tenant with no id: %+v", tenant)
+		}
+		if tenant.Name != "Werk "+tenant.ID {
+			t.Errorf("%s is called %q, and tenant management says otherwise", tenant.ID, tenant.Name)
+		}
+		if tenant.Domain != tenant.ID+".example.com" {
+			t.Errorf("%s has domain %q", tenant.ID, tenant.Domain)
+		}
+	}
+}
+
+// One call describes every tenant, and it is made once: this list is drawn every
+// time somebody opens the screen, and every refresh after that.
+func TestTenantNamesAreReadOnceForAllOfThem(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	for range 3 {
+		svc.TenantDescriptions(t.Context())
+	}
+
+	if asked := p.TenantListCalls(); asked != 1 {
+		t.Errorf("read tenant management %d times, want 1", asked)
+	}
+	if asked := p.CurrentTenantCalls("t-source"); asked != 0 {
+		t.Errorf("asked t-source about itself %d times, and tenant management had already said",
+			asked)
+	}
+}
+
+// Without ROLE_TENANT_MANAGEMENT_READ there are no company names - but each
+// tenant can still say where it lives, which is the more useful half anyway.
+func TestWithoutTenantManagementTheHostsStillArrive(t *testing.T) {
+	p := twoTenants(t)
+	p.RefuseTenantManagement()
+	svc := p.start(t)
+
+	for _, tenant := range svc.TenantDescriptions(t.Context()) {
+		if tenant.Name != "" {
+			t.Errorf("%s was given a name nobody could read: %q", tenant.ID, tenant.Name)
+		}
+		if tenant.Domain != tenant.ID+".example.com" {
+			t.Errorf("%s has host %q, which is not what the tenant said", tenant.ID, tenant.Domain)
+		}
+	}
+}
+
+// A tenant nobody can describe is still a tenant somebody may need to migrate.
+// Losing the name is cosmetic; losing the tenant is not.
+func TestATenantThatCannotBeDescribedIsStillListed(t *testing.T) {
+	p := twoTenants(t)
+	p.RefuseTenantManagement()
+	p.Unsubscribe("t-source") // no service user, so nothing can ask it anything
+	svc := p.start(t)
+
+	described := svc.TenantDescriptions(t.Context())
+	for _, tenant := range described {
+		if tenant.ID == "" {
+			t.Errorf("a tenant with no id at all: %+v", tenant)
+		}
+	}
+	if len(described) == 0 {
+		t.Error("the whole list disappeared")
+	}
+}
+
+// The endpoint answers with the same thing, since that is what the UI reads.
+func TestTheTenantsEndpointCarriesTheNames(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	body := decode(t, call(t, svc, request(t, http.MethodGet, "/tenants", nil)))
+	tenants, _ := body["tenants"].([]any)
+	if len(tenants) == 0 {
+		t.Fatalf("no tenants in %v", body)
+	}
+
+	first, _ := tenants[0].(map[string]any)
+	for _, field := range []string{"id", "name", "domain"} {
+		if first[field] == nil || first[field] == "" {
+			t.Errorf("the listing has no %s: %v", field, first)
+		}
+	}
 }

@@ -222,8 +222,17 @@ paths:
         session belongs to one tenant and the hierarchy being migrated is in
         another, so without this there is no way to offer a choice.
 
+        Only devices, groups and assets are offered - the same three fragments
+        the platform's own inventory search looks for - so dashboards, smart
+        rules and this service's job records are never returned as something to
+        migrate.
+
         `text` matches on name. `onlyRoots` keeps objects that nothing holds as a
-        child, which is the top of a hierarchy. Reads only.
+        child, which is the top of a hierarchy; it is resolved from the objects'
+        parents, so a page of roots is a page of the inventory with the children
+        taken out and can hold fewer objects than `pageSize`. Use `more` rather
+        than the number of objects to decide whether to ask for another page.
+        Reads only.
       operationId: listInventory
       parameters:
         - $ref: "#/components/parameters/TenantID"
@@ -234,7 +243,9 @@ paths:
             type: string
         - name: onlyRoots
           in: query
-          description: Keep only objects that are nobody's child.
+          description: >-
+            Keep only objects that are nobody's child. Costs the objects' parents
+            on the way, and returns fewer objects than `pageSize`.
           schema:
             type: boolean
         - name: pageSize
@@ -314,6 +325,112 @@ paths:
         "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+
+  /tenants/{tenant}/platform/inventory/managedObjects:
+    get:
+      tags: [tenants]
+      summary: The platform's inventory listing, for one tenant
+      description: |
+        The platform's own `GET /inventory/managedObjects`, performed in a
+        subscribed tenant with that tenant's service user, and answered with
+        exactly what the platform said — envelope, `statistics` and ordering
+        included.
+
+        This exists so the platform's own components can browse a tenant the
+        browser has no session in. A Cumulocity client given
+        `/service/devicemigration/tenants/{tenant}/platform` as its base URL
+        behaves as though it were signed in to that tenant, which is what lets
+        the asset selector search, page and expand a group here without any of
+        that being reimplemented.
+
+        The whole query string is forwarded, so every filter, page and ordering
+        the platform understands works. Reads only, and only the inventory: three
+        routes exist and there is no wildcard, so anything else is a 404.
+      operationId: proxyInventoryList
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+      responses:
+        "200":
+          description: The platform's answer, unchanged apart from its links.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: >-
+                  A Cumulocity managed object collection. Not described further
+                  here on purpose: it is the platform's shape, and restating it
+                  would be a second definition to keep in step.
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /tenants/{tenant}/platform/inventory/managedObjects/{id}:
+    get:
+      tags: [tenants]
+      summary: The platform's managed object read, for one tenant
+      description: |
+        The platform's own `GET /inventory/managedObjects/{id}` in a subscribed
+        tenant. Query parameters are forwarded, so `withParents` and
+        `withChildren` behave as they do on the platform.
+      operationId: proxyInventoryObject
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+        - $ref: "#/components/parameters/ObjectID"
+      responses:
+        "200":
+          description: The platform's answer, unchanged apart from its links.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: A Cumulocity managed object.
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /tenants/{tenant}/platform/inventory/managedObjects/{id}/{relationship}:
+    get:
+      tags: [tenants]
+      summary: One of an object's reference collections, for one tenant
+      description: |
+        The platform's own reference collections: `childAssets`, `childDevices`,
+        `childAdditions`, `assetParents`, `deviceParents` and
+        `additionParents`. Expanding a group is one of these reads, which is
+        most of what choosing a root consists of.
+
+        Any other value is a 400 rather than a forwarded request, so a path
+        parameter cannot become a way to reach the rest of the platform API.
+      operationId: proxyInventoryReferences
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+        - $ref: "#/components/parameters/ObjectID"
+        - name: relationship
+          in: path
+          required: true
+          description: Which collection to read.
+          schema:
+            type: string
+            enum:
+              - childAssets
+              - childDevices
+              - childAdditions
+              - assetParents
+              - deviceParents
+              - additionParents
+      responses:
+        "200":
+          description: The platform's answer, unchanged apart from its links.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: A Cumulocity managed object reference collection.
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
 
   /migrations:
     post:
@@ -401,6 +518,12 @@ paths:
       description: |
         The job stops at its next platform call, so this returns before it has.
 
+        A job that is not running here is not an error. Either it finished
+        between the screen being drawn and the button being pressed, or its
+        container was replaced and the record was left saying `RUNNING` - and in
+        the second case this settles that record as `INTERRUPTED` rather than
+        refusing. Asking to cancel a job that is already over is a **409**.
+
         A cancelled job reports `countsVerified: false`, and that is not a
         formality: the engine has no cancellation checks, so a cancelled import
         counts the records it never sent as failures. Check the target tenant by
@@ -410,7 +533,10 @@ paths:
         - $ref: "#/components/parameters/JobID"
       responses:
         "202":
-          description: The cancellation has been asked for.
+          description: |
+            The cancellation has been asked for. Also the answer when the job was
+            not running here after all and its record has been settled instead -
+            see the description above.
           content:
             application/json:
               schema:
@@ -422,12 +548,8 @@ paths:
                     type: string
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
-        "404":
-          description: No job with this id is running.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /reverts:
     post:
@@ -521,7 +643,9 @@ paths:
         - $ref: "#/components/parameters/JobID"
       responses:
         "202":
-          description: The cancellation has been asked for.
+          description: |
+            The cancellation has been asked for, or the job's record has been
+            settled - see cancelMigration.
           content:
             application/json:
               schema:
@@ -533,12 +657,8 @@ paths:
                     type: string
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
-        "404":
-          description: No job with this id is running.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /loggers:
     get:
@@ -694,10 +814,35 @@ components:
           type: array
           description: Every tenant subscribed to this application.
           items:
-            type: string
+            $ref: "#/components/schemas/TenantDescription"
       example:
         ownerTenant: t10001
-        tenants: [t10001, t11111, t22222]
+        tenants:
+          - {id: t10001, name: Operations, domain: t10001.eu-latest.cumulocity.com}
+          - {id: t11111, name: Werk Berlin, domain: t11111.eu-latest.cumulocity.com}
+
+    TenantDescription:
+      type: object
+      description: |
+        A tenant as a person would recognise it. The id is what every other
+        endpoint takes; the name and the host are what somebody choosing between
+        two tenants reads.
+
+        They come from two places, because the platform keeps them in two: the
+        name is the company in tenant management, which only the owner tenant can
+        read and only with `ROLE_TENANT_MANAGEMENT_READ`; the host is from each
+        tenant's own `currentTenant`, which its service user can always read.
+        Either can be absent - a tenant that cannot be described is still listed
+        with its id, because that is what a migration needs.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: The company name, from tenant management.
+        domain:
+          type: string
+          description: The host this tenant is reached at.
 
     PreflightRequest:
       type: object
@@ -871,7 +1016,10 @@ components:
             $ref: "#/components/schemas/InventoryObject"
         more:
           type: boolean
-          description: Another page exists.
+          description: >-
+            Another page exists, from the platform's own page count rather than
+            from how many objects came back - a filtered page can be short and
+            still not be the last one.
 
     EstimateRequest:
       type: object
@@ -1038,6 +1186,14 @@ components:
         requestedBy:
           type: string
           description: The tenant and user who asked for this migration.
+        rootName:
+          type: string
+          description: |
+            What the migrated object was called when the migration was accepted.
+            Recorded because an id identifies the object and describes nothing,
+            and because the object may not be there to ask later. Absent when the
+            source tenant could not be read at the time, and on records written
+            before this field existed.
         queuedAt:
           type: string
           format: date-time
@@ -1142,6 +1298,14 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: No job with this id is on record.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: |
+        Nothing is wrong with the request; the job's state does not allow it -
+        asking to cancel one that has already finished, for instance.
       content:
         application/json:
           schema:

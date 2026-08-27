@@ -471,3 +471,259 @@ func deletions(t *testing.T, target *testfixture.Server) string {
 	sort.Strings(deleted)
 	return strings.Join(deleted, "\n")
 }
+
+// A job that reports itself finished has to be finished on the record too.
+//
+// This is the flake that found a real race: the API answers from the running
+// job while it is still in memory, and the worker used to publish SUCCEEDED
+// there before writing the record. A caller that polled until the job was done
+// and then acted on it - which is exactly what the UI does, and what these tests
+// do - could read the previous record: still RUNNING, no run id.
+//
+// The platform is slowed down so the window is wide enough to be certain rather
+// than lucky. Without the fix this fails; with it, the record is written before
+// anything says the job is over.
+func TestAFinishedJobIsFinishedOnTheRecordToo(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	// Writes are slow and reads are not, which is what makes the ordering
+	// visible: a caller can be served the record while the write that finishes
+	// the job is still in flight.
+	p.SlowDownWrites(100 * time.Millisecond)
+
+	migration := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1", NoChildren: true,
+	})
+	if migration["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the migration failed: %v", migration["error"])
+	}
+
+	// Straight away, with no waiting: the point is that no waiting is needed.
+	record, err := svc.Record(t.Context(), fmt.Sprint(migration["id"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != service.StatusSucceeded {
+		t.Errorf("the API said the job succeeded, the record says %q", record.Status)
+	}
+	if record.RunID == "" {
+		t.Error("the record carries no run id, so nothing could undo this migration")
+	}
+}
+
+// The same thing, as somebody doing it: watch a migration finish, undo it. That
+// path was refused with "has no run id" often enough to fail the suite.
+func TestAMigrationCanBeRevertedTheMomentItReportsSuccess(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+	p.SlowDownWrites(100 * time.Millisecond)
+
+	migration := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1", NoChildren: true,
+	})
+	if migration["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the migration failed: %v", migration["error"])
+	}
+
+	job := revert1(t, svc, service.RevertRequest{JobID: fmt.Sprint(migration["id"])})
+	if job["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the revert failed: %v", job["error"])
+	}
+}
+
+// A progress write must not outlive the job it reports.
+//
+// The record is refreshed while a job runs, so a long migration can be followed.
+// Those writes carry a snapshot of the job as it was, and the last word has to
+// belong to the write that finishes it - a progress write landing afterwards
+// would put RUNNING back, without a run id, on a job that had succeeded.
+//
+// Progress every millisecond and writes that take fifty guarantees one is in
+// flight when the job ends, which is what makes this a test rather than a hope.
+func TestAProgressWriteCannotOutliveTheJobItReports(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.startWith(t, service.Options{ProgressInterval: time.Millisecond})
+	p.SlowDownWrites(50 * time.Millisecond)
+
+	migration := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1", NoChildren: true,
+	})
+	if migration["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the migration failed: %v", migration["error"])
+	}
+
+	// Read repeatedly: a late write would arrive after the first read.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		record, err := svc.Record(t.Context(), fmt.Sprint(migration["id"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Status != service.StatusSucceeded {
+			t.Fatalf("the record went back to %q after the job had finished", record.Status)
+		}
+		if record.RunID == "" {
+			t.Fatal("the record lost its run id after the job had finished")
+		}
+	}
+}
+
+// A record left saying RUNNING by a container that no longer exists.
+//
+// This is what happens when the microservice is redeployed while a job is going,
+// and it is what a person then sees: a row saying Running, and a Cancel button
+// that answered "running job ... does not exist" - true, and no use to anybody.
+// Nothing is running, so the row is settled instead: by the listing, so it
+// settles itself, and by Cancel, so pressing it does what it looks like it does.
+func staleRunning(t *testing.T, svc *service.Service, kind service.JobKind) *service.Job {
+	t.Helper()
+
+	job := service.Job{
+		ID: "20260827T092609Z_053ed3", Kind: kind, Status: service.StatusRunning,
+		RunID:   "20260827T092609Z_abcdef",
+		Request: &service.MigrationRequest{SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1"},
+		Revert:  &service.RevertRequest{TargetTenant: "t-target", RunID: "20260827T092609Z_abcdef"},
+	}
+	if _, err := svc.CreateRecord(t.Context(), &job); err != nil {
+		t.Fatal(err)
+	}
+	return &job
+}
+
+func TestAJobLeftRunningByAReplacedContainerSettlesWhenListed(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+	stale := staleRunning(t, svc, service.KindRevert)
+
+	// The listing a screen reads, and nothing else.
+	listed := decode(t, call(t, svc, request(t, http.MethodGet, "/reverts", nil)))
+	if listed["reverts"] == nil {
+		t.Fatalf("no reverts came back: %v", listed)
+	}
+
+	settled, err := svc.Record(t.Context(), stale.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.Status != service.StatusInterrupted {
+		t.Errorf("status = %q, want INTERRUPTED", settled.Status)
+	}
+	if settled.CountsVerified {
+		t.Error("an interrupted job's counts cannot be believed, and it says they can")
+	}
+	if !strings.Contains(settled.Error, "replaced") {
+		t.Errorf("the record does not say what happened: %q", settled.Error)
+	}
+	if settled.RunID != stale.RunID {
+		t.Errorf("run id = %q, and without it nothing can be undone", settled.RunID)
+	}
+}
+
+func TestCancellingAJobLeftRunningSettlesItInsteadOfRefusing(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+	stale := staleRunning(t, svc, service.KindRevert)
+
+	recorder := call(t, svc, request(t, http.MethodPost, "/reverts/"+stale.ID+"/cancel", nil))
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("cancel answered %d, body %s", recorder.Code, recorder.Body)
+	}
+
+	settled, err := svc.Record(t.Context(), stale.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.Status != service.StatusInterrupted {
+		t.Errorf("status = %q, want INTERRUPTED", settled.Status)
+	}
+}
+
+// A job that is genuinely over is a different thing: the state is wrong for the
+// request, and saying so is more use than pretending to cancel something.
+func TestCancellingAFinishedJobIsRefusedAsAConflict(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	done := service.Job{
+		ID: "20260827T090000Z_done", Kind: service.KindMigration, Status: service.StatusSucceeded,
+		Request: &service.MigrationRequest{SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1"},
+	}
+	if _, err := svc.CreateRecord(t.Context(), &done); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := call(t, svc, request(t, http.MethodPost, "/migrations/"+done.ID+"/cancel", nil))
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("cancel answered %d, want 409: %s", recorder.Code, recorder.Body)
+	}
+	if !strings.Contains(recorder.Body.String(), "already SUCCEEDED") {
+		t.Errorf("the refusal does not say why: %s", recorder.Body)
+	}
+}
+
+// A job that never existed is still a 404. Settling records must not become a
+// way to invent them.
+func TestCancellingAJobNobodyHasHeardOfIsStillNotFound(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	recorder := call(t, svc, request(t, http.MethodPost, "/migrations/no-such-job/cancel", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("cancel answered %d, want 404: %s", recorder.Code, recorder.Body)
+	}
+}
+
+// What is still going to happen is not stale either, however often the list is
+// read: the job that is running now, and the ones waiting behind it.
+//
+// The distinction SettleStale relies on is that this container knows which job is
+// running. A queued one it cannot tell from a leftover at all, which is why it
+// leaves QUEUED records alone and startup - where nothing is queued yet - is what
+// closes those.
+func TestListingDoesNotSettleWhatIsStillGoingToHappen(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	// Slow enough that the first job is still going while the assertions run.
+	p.SlowDown(30 * time.Millisecond)
+	go svc.Work(t.Context())
+
+	first := accept(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1", DataTypes: "all",
+	})
+	second := accept(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "2",
+	})
+
+	// Until the record says RUNNING there is nothing here for SettleStale to be
+	// wrong about - a record still saying QUEUED is left alone whatever happens.
+	waitFor(t, "the first job's record to say it is running", func() bool {
+		record, err := svc.Record(t.Context(), first)
+		return err == nil && record.Status == service.StatusRunning
+	})
+
+	// The listing a screen reads, which is what settles stale records.
+	call(t, svc, request(t, http.MethodGet, "/migrations", nil))
+
+	for what, id := range map[string]string{"the running job": first, "the queued job": second} {
+		record, err := svc.Record(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Status == service.StatusInterrupted {
+			t.Errorf("%s was closed as interrupted by a listing: %s", what, record.Error)
+		}
+	}
+}
+
+// accept posts a migration and returns its id, without waiting for it.
+func accept(t *testing.T, svc *service.Service, spec service.MigrationRequest) string {
+	t.Helper()
+
+	recorder := call(t, svc, request(t, http.MethodPost, "/migrations", spec))
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("the migration was not accepted: %s", recorder.Body)
+	}
+	return fmt.Sprint(decode(t, recorder)["id"])
+}

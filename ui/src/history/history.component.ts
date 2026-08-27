@@ -1,44 +1,154 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { CoreModule } from '@c8y/ngx-components';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import {
+  type ActionControl,
+  C8yTranslatePipe,
+  type Column,
+  ColumnDataType,
+  CoreModule,
+  DatePipe
+} from '@c8y/ngx-components';
+import { BsModalService } from 'ngx-bootstrap/modal';
 
-import { ApiError, type Job } from '../api/client';
+import { type Job } from '../api/client';
 import { MigrationService } from '../api/migration.service';
-import { present, type StatusPresentation } from '../progress';
-
-/** One row: the job, and how it should read. */
-interface Row {
-  job: Job;
-  shown: StatusPresentation;
-  /** Whether undoing this run is possible at all. */
-  revertable: boolean;
-}
+import { gettext, message, type Message } from '../i18n';
+import { MigrateComponent } from '../migrate/migrate.component';
+import { byId } from '../tenants';
+import { OutputComponent } from './output.component';
+import { explain, hasDetail, refreshInterval, rows, type GridRow, type Row } from './rows';
 
 /**
- * Past migrations, and the button that undoes one.
+ * What has been migrated, and the button that starts another.
  *
- * The first screen built, because it is read-only and proves the whole chain in
- * a browser - the session cookie, the role, the job records - before any wizard
- * exists to depend on it.
+ * The list is the screen somebody arrives at: migrations are occasional, and the
+ * useful question on opening this is what happened last time, not what to do
+ * next. Starting one is a dialogue over the top of it.
+ *
+ * The table is the platform's own data grid, given rows rather than a callback -
+ * which is what makes it sort, page and search through them itself. The service
+ * has no paged listing to offer it, so all the records are fetched and the grid
+ * pages what it is given; see docs/ui.md for what that does and does not bound.
  */
 @Component({
   selector: 'c8y-device-migration-history',
   standalone: true,
-  imports: [CommonModule, CoreModule, RouterLink],
-  templateUrl: './history.component.html'
+  imports: [CommonModule, CoreModule],
+  templateUrl: './history.component.html',
+  // Both are pipes, injected so a row can be built as text; a pipe has to be
+  // provided to be injectable.
+  providers: [C8yTranslatePipe, DatePipe],
+  styles: [
+    `
+      /* Running text, kept to a readable measure rather than the width of the
+         table below it. */
+      .device-migration-intro .intro-text {
+        max-width: 68ch;
+      }
+      .device-migration-emblem {
+        font-size: 96px;
+        opacity: 0.35;
+        margin-left: auto;
+        padding-right: 24px;
+      }
+    `
+  ]
 })
-export class HistoryComponent implements OnInit {
-  readonly rows = signal<Row[]>([]);
+export class HistoryComponent implements OnInit, OnDestroy {
+  readonly rows = signal<GridRow[]>([]);
   readonly loading = signal(true);
 
   /** What went wrong, in the service's own words. */
   readonly problem = signal<{ title: string; detail: string } | undefined>(undefined);
 
-  constructor(private readonly migration: MigrationService) {}
+  /**
+   * The columns, and how they behave.
+   *
+   * Sortable, with "Asked for" descending to begin with: the useful order for a
+   * list of things that happened is the order they happened in, newest first.
+   * Source and target are columns of their own rather than a phrase in "What",
+   * because a column can be sorted and read down, and a phrase cannot.
+   */
+  readonly columns: Column[] = [
+    text('status', gettext('Status')),
+    text('what', gettext('What')),
+    text('source', gettext('Migrated from')),
+    text('target', gettext('Migrated to')),
+    { ...text('askedFor', gettext('Asked for')), sortOrder: 'desc' },
+    text('took', gettext('Took')),
+    text('by', gettext('By')),
+    text('runId', gettext('Run id'))
+  ];
+
+  /**
+   * What can be done to a row.
+   *
+   * The grid's own row actions, so there are no button columns to keep aligned,
+   * and each one appears only where it applies - which is the whole of the rule
+   * about what can be undone.
+   */
+  readonly actions: ActionControl[] = [
+    {
+      type: 'CANCEL_JOB',
+      text: gettext('Cancel'),
+      icon: 'ban',
+      showIf: (row: GridRow) => row.cancellable,
+      callback: (row: GridRow) => void this.cancel(row.job)
+    },
+    {
+      type: 'REVERT_JOB',
+      text: gettext('Revert'),
+      icon: 'undo',
+      showIf: (row: GridRow) => row.revertable,
+      callback: (row: GridRow) => void this.revert(row.job)
+    },
+    {
+      type: 'SHOW_OUTPUT',
+      text: gettext('Output'),
+      icon: 'file-text-o',
+      showIf: (row: GridRow) => row.hasOutput,
+      callback: (row: GridRow) => this.showOutput(row.job)
+    }
+  ];
+
+  private polling?: ReturnType<typeof setTimeout>;
+
+  constructor(
+    private readonly migration: MigrationService,
+    private readonly modals: BsModalService,
+    // The pipe rather than a service: this is what the platform gives a plugin
+    // for translating in code, and the grid needs finished text.
+    private readonly translator: C8yTranslatePipe,
+    private readonly dates: DatePipe
+  ) {}
 
   async ngOnInit(): Promise<void> {
     await this.load();
+  }
+
+  ngOnDestroy(): void {
+    clearTimeout(this.polling);
+  }
+
+  /** Opens the dialogue, and reloads once it has started something. */
+  newMigration(): void {
+    const dialogue = this.modals.show(MigrateComponent, {
+      // The dialogue sizes itself; see the styles on MigrateComponent.
+      class: 'device-migration-dialogue',
+      ignoreBackdropClick: true
+    });
+
+    dialogue.content?.started.subscribe(() => {
+      void this.load();
+    });
+  }
+
+  /** The engine's own output for one job. */
+  showOutput(job: Job): void {
+    this.modals.show(OutputComponent, {
+      class: 'modal-lg',
+      initialState: { job }
+    });
   }
 
   async load(): Promise<void> {
@@ -46,22 +156,22 @@ export class HistoryComponent implements OnInit {
     this.problem.set(undefined);
 
     try {
-      // Both listings, because a revert is a job too and the two together are
-      // the history of what was done.
-      const [migrations, reverts] = await Promise.all([
+      // All three together: the tenants are what turn an id in a record into a
+      // name somebody recognises, and the two listings are the history.
+      const [migrations, reverts, tenants] = await Promise.all([
         this.migration.api.migrations(),
-        this.migration.api.reverts()
+        this.migration.api.reverts(),
+        this.migration.api.tenants()
       ]);
 
       this.rows.set(
-        [...migrations, ...reverts]
-          .sort((a, b) => (b.queuedAt ?? '').localeCompare(a.queuedAt ?? ''))
-          .map(job => ({ job, shown: present(job), revertable: revertable(job) }))
+        rows(migrations, reverts, { tenants: byId(tenants.tenants) }).map(row => this.forGrid(row))
       );
     } catch (error) {
-      this.problem.set(describe(error));
+      this.problem.set(explain(error));
     } finally {
       this.loading.set(false);
+      this.poll();
     }
   }
 
@@ -70,37 +180,92 @@ export class HistoryComponent implements OnInit {
       await this.migration.api.startRevert({ jobId: job.id });
       await this.load();
     } catch (error) {
-      this.problem.set(describe(error));
+      this.problem.set(explain(error));
     }
   }
-}
 
-/**
- * Whether a run can be undone through the service.
- *
- * A migration marked its objects with the run id, which is how they are found
- * again. A run with noFlag did not, so only its mapping file could find them -
- * and that lived in a job directory the container removed. A revert creates
- * nothing, so there is never anything to undo about one.
- */
-function revertable(job: Job): boolean {
-  return job.kind !== 'REVERT' && !!job.runId && !job.request?.noFlag;
-}
-
-/** A failure, as a screen should put it. */
-function describe(error: unknown): { title: string; detail: string } {
-  if (!(error instanceof ApiError)) {
-    return { title: 'Something went wrong', detail: String(error) };
+  async cancel(job: Job): Promise<void> {
+    if (!job.id) {
+      return;
+    }
+    try {
+      await this.migration.api.cancelMigration(job.id);
+      await this.load();
+    } catch (error) {
+      this.problem.set(explain(error));
+    }
   }
 
-  switch (error.kind) {
-    case 'unauthenticated':
-      return { title: 'Sign in again', detail: error.message };
-    case 'forbidden':
-      return { title: 'Not allowed here', detail: error.message };
-    case 'busy':
-      return { title: 'The service is busy', detail: error.message };
-    default:
-      return { title: 'The migration service refused this', detail: error.message };
+  /**
+   * One row, as the grid needs it: flat, and in words.
+   *
+   * The translating happens here because this is the only place with a
+   * translator - the grid sorts and searches on what is in the row, so a key
+   * would sort and search as a key.
+   */
+  private forGrid(row: Row): GridRow {
+    const progress = row.progress;
+    return {
+      job: row.job,
+      id: row.job.id ?? '',
+      // Status, and what qualifies it: how far a running job has got, and what
+      // cannot be believed about a finished one. In the column rather than
+      // beside it, so it sorts and searches with the status it belongs to.
+      status: [
+        this.say(row.shown.label),
+        progress &&
+          this.say(
+            message('roughly at device {{ current }} of {{ total }}', {
+              current: progress.current,
+              total: progress.total
+            })
+          ),
+        row.undone && this.say(message('already undone')),
+        row.shown.caveat && this.say(row.shown.caveat)
+      ]
+        .filter(Boolean)
+        .join(' — '),
+      what: this.say(row.what),
+      source: row.source,
+      target: row.target,
+      // The platform's own date formatting, in the reader's language.
+      askedFor: this.dates.transform(row.job.queuedAt, 'short') ?? '',
+      took: row.took ? this.say(row.took) : '',
+      by: row.job.requestedBy ?? '',
+      runId: row.job.runId ?? '',
+      revertable: row.revertable,
+      cancellable: row.cancellable,
+      hasOutput: hasDetail(row)
+    };
   }
+
+  /** A message as text, in the reader's language. */
+  private say(message: Message | string): string {
+    const { text, params } = typeof message === 'string' ? { text: message, params: {} } : message;
+    return text ? this.translator.transform(text, params) : '';
+  }
+
+  /**
+   * Reads the list again, sooner while something is running.
+   *
+   * Always reading, because a migration can be started from another session or
+   * from the command line and a list that only followed its own work would go
+   * quietly out of date. How often is refreshInterval's decision.
+   */
+  private poll(): void {
+    clearTimeout(this.polling);
+    this.polling = setTimeout(() => void this.load(), refreshInterval(this.rows()));
+  }
+}
+
+/** A sortable text column reading one field of the row. */
+function text(name: string, header: string): Column {
+  return {
+    name,
+    header,
+    path: name,
+    dataType: ColumnDataType.TextShort,
+    sortable: true,
+    filterable: false
+  };
 }

@@ -27,14 +27,15 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 .PHONY: check test test-fast test-bash3 lint workflow-lint parser-freshness docs docs-freshness \
 	go-build go-test go-lint install install-completion bootstrap clean \
 	service-build service-image service-package service-deploy dist \
-	ui-install ui-types ui-types-freshness ui-test ui-typecheck ui-build ui-package ui-deploy
+	ui-install ui-types ui-types-freshness ui-test ui-typecheck ui-build ui-package ui-deploy \
+	version version-check tag
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
 # that no longer exists - which happened once, with a bug that had already been
 # fixed in the source.
-check: lint parser-freshness docs-freshness ui-types-freshness go-lint go-build go-test \
-	ui-typecheck ui-test test
+check: version-check lint parser-freshness docs-freshness ui-types-freshness go-lint go-build \
+	go-test ui-typecheck ui-test test
 
 bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
 
@@ -130,15 +131,107 @@ parser-freshness:
 # visited set makes the export recurse forever rather than fail.
 GO_TIMEOUT := 300s
 
-# What a build calls itself. From the newest v-tag so a release artefact can be
-# identified from the outside; "dev" plus a commit for anything else, because a
-# local build claiming to be a release is worse than one admitting it is not.
+# What a build calls itself.
+#
+# ./VERSION holds the version being developed - the one the next release will
+# carry - and it is the only place it is written down. Everything else is derived
+# from it and from git:
+#
+#   a release      an exact v-tag on a clean tree, so 0.2.0
+#   anything else  a snapshot of the version being developed, so
+#                  0.2.0-SNAPSHOT
+#
+# Snapshots by default, because the alternative has already cost an afternoon:
+# the old default took the nearest tag, so a working tree with a fortnight of
+# unreleased work in it built an image labelled exactly like the released
+# version. Nothing about the running service then said whether it was current,
+# and the answer to "why is my change not there" was a deploy nobody had done.
+#
+# One snapshot version rather than one per commit, deliberately: every upload
+# replaces the same version instead of leaving a list of them behind, which is
+# what you want while iterating. The cost is that two snapshot builds cannot be
+# told apart by their version - if that question comes up, the answer is to
+# release, or to pass VERSION explicitly.
+#
+# The leading v is stripped with sed rather than $${v\#v}: a '#' inside a
+# $(shell ...) is escaped differently by make 3.81 and make 4.4, and the version
+# that gets it wrong silently comes out empty.
+VERSION_FILE := VERSION
+DEVELOPING := $(shell head -1 $(VERSION_FILE) 2>/dev/null | tr -d '[:space:]')
+
 VERSION ?= $(shell \
-	v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null | sed 's/^v//'); \
-	if [ -n "$$v" ]; then echo "$$v"; \
-	else echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"; fi)
+	tag=$$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --exact-match 2>/dev/null \
+		| sed 's/^v//'); \
+	dirty=$$(git status --porcelain 2>/dev/null | head -1); \
+	if [ -n "$$tag" ] && [ -z "$$dirty" ]; then echo "$$tag"; \
+	else echo "$(DEVELOPING)-SNAPSHOT"; fi)
 
 GO_LDFLAGS := -s -w -X github.com/Cumulocity-IoT/c8y-devicemigration/internal/version.Version=$(VERSION)
+
+# What this build would call itself, without building anything. Worth having:
+# the version is derived from three things at once, and "which one am I looking
+# at" is a question that has already been answered wrongly.
+version:
+	@echo "$(VERSION)"
+
+# Tags still decide what a release is; ./VERSION decides what it is allowed to be
+# called. This does the tagging, so the two cannot drift:
+#
+#   1. bump VERSION, commit it
+#   2. make tag       -> creates v<VERSION> on that commit
+#   3. push the tag   -> the release workflow builds and publishes it
+#   4. bump VERSION again, so snapshots move on to the next version
+#
+# It refuses a dirty tree, because a tag names a commit and uncommitted work is
+# not in one - the version derivation would call that build a snapshot anyway,
+# and a tag pointing at a commit that was never built is the kind of thing
+# nobody notices until a release is wrong.
+#
+# Pushing is left to you: it is the irreversible half, and `git push origin
+# v0.2.0` is not the part that needed automating.
+tag: version-check
+	@dirty=$$(git status --porcelain 2>/dev/null | head -1); \
+	if [ -n "$$dirty" ]; then \
+		echo "the working tree has uncommitted changes, so there is nothing to tag."; \
+		echo "Commit them - including $(VERSION_FILE) - and try again."; exit 1; fi
+	@if git rev-parse -q --verify "refs/tags/v$(DEVELOPING)" >/dev/null; then \
+		echo "v$(DEVELOPING) already exists. Bump $(VERSION_FILE) first, or delete the tag."; \
+		exit 1; fi
+	git tag -a "v$(DEVELOPING)" -m "v$(DEVELOPING)"
+	@echo
+	@echo "tagged v$(DEVELOPING). To release it:"
+	@echo "    git push origin v$(DEVELOPING)"
+	@echo "Then bump $(VERSION_FILE) to the next version, so builds go back to"
+	@echo "calling themselves snapshots of something newer."
+
+# The version being developed has to be a plain SemVer version, and a release
+# has to be the version somebody declared.
+#
+# The second half only bites on a release build - an exact tag on a clean tree -
+# and compares the tag being released with ./VERSION, so tagging v0.3.0 while the
+# file still says 0.2.0 fails here rather than shipping a release nobody wrote
+# down. Bump the file first, in the commit that gets tagged.
+#
+# A dirty tree at a tag is the normal state straight after a release: the version
+# in the file is the next one, and the work in the tree is a snapshot of it. That
+# must not fail anything.
+version-check:
+	@test -n "$(DEVELOPING)" || { \
+		echo "$(VERSION_FILE) is missing or empty, so nothing knows what is being built."; \
+		exit 1; }
+	@echo "$(DEVELOPING)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+		echo "$(VERSION_FILE) says '$(DEVELOPING)', which is not a plain X.Y.Z version."; \
+		echo "The suffixes are added by the build: a snapshot gets one, a release does not."; \
+		exit 1; }
+	@tag=$$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --exact-match 2>/dev/null \
+		| sed 's/^v//'); \
+	dirty=$$(git status --porcelain 2>/dev/null | head -1); \
+	if [ -n "$$tag" ] && [ -z "$$dirty" ] && [ "$$tag" != "$(DEVELOPING)" ]; then \
+		echo "this commit is tagged v$$tag but $(VERSION_FILE) says $(DEVELOPING)."; \
+		echo "Put $$tag in $(VERSION_FILE) and tag that commit, or tag v$(DEVELOPING) instead."; \
+		exit 1; \
+	fi
+	@echo "version: $(VERSION)"
 
 go-build:
 	@test -n "$(VERSION)" || { \
@@ -193,14 +286,10 @@ SERVICE_NAME := devicemigration
 # The manifest version has to be SemVer or the platform refuses the upload, so
 # this takes the newest v-prefixed tag and falls back to a snapshot rather than
 # to `git describe`, whose output for an untagged tree ("f8faeb2-dirty") is not
-# a version at all.
-# The leading v is stripped with sed rather than $${v\#v}: a '#' inside a
-# $(shell ...) is escaped differently by make 3.81 and make 4.4, and the version
-# that gets it wrong silently comes out empty.
-SERVICE_VERSION ?= $(shell \
-	v=$$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0 2>/dev/null \
-		| sed 's/^v//'); \
-	if [ -n "$$v" ]; then echo "$$v"; else echo 0.1.0-SNAPSHOT; fi)
+# a version at all. It is VERSION unless the caller says otherwise, so the
+# manifest, the image tag, the archives and the plugin all say the same thing -
+# they used to be derived separately, and the two derivations disagreed.
+SERVICE_VERSION ?= $(VERSION)
 
 SERVICE_DIR := build
 SERVICE_ZIP := $(SERVICE_DIR)/$(SERVICE_NAME)-$(SERVICE_VERSION).zip

@@ -32,6 +32,10 @@ jobs:
       publish: ${{ steps.resolve.outputs.publish }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
+      # For ./VERSION: the version being released has to be the version this
+      # repository says it is developing.
+      - uses: actions/checkout@v7
+
       - id: resolve
         env:
           REQUESTED: ${{ inputs.version }}
@@ -49,6 +53,24 @@ jobs:
           # where the error is easy to find.
           if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$'; then
             echo "::error::'$version' is not a SemVer version, so the microservice manifest would be refused"
+            exit 1
+          fi
+
+          # The version has to be the one somebody declared. ./VERSION holds the
+          # version being developed, and every build derives its own name from
+          # it; a tag that disagrees means the bump was forgotten, and publishing
+          # it would produce a release the repository never claimed to be
+          # working towards.
+          #
+          # Compared on the X.Y.Z core, so 0.3.0-rc1 may be released while the
+          # file says 0.3.0 - a pre-release of a declared version is still that
+          # version.
+          declared=$(head -1 VERSION | tr -d '[:space:]')
+          core=${version%%-*}
+          core=${core%%+*}
+          if [ "$core" != "$declared" ]; then
+            echo "::error::releasing $version, but VERSION says $declared."
+            echo "::error::Bump VERSION in the commit being tagged, or tag v$declared."
             exit 1
           fi
 

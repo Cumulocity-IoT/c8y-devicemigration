@@ -1,14 +1,17 @@
 package service_test
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -55,7 +58,14 @@ type platform struct {
 	subscriptionCalls int
 	// delay slows every tenant API call, which is what makes a migration last
 	// long enough to be cancelled while it is running.
-	delay time.Duration
+	delay      time.Duration
+	writeDelay time.Duration
+
+	// What tenant management will say, and how often each source of names was
+	// asked.
+	refuseTenantManagement bool
+	tenantListCalls        int
+	currentTenantCalls     map[string]int
 	// tfaTokens is the tfatoken header of every /user/currentUser call, so a
 	// test can assert that a two-factor session's token was forwarded.
 	tfaTokens []string
@@ -80,9 +90,17 @@ func newPlatform(t *testing.T, tenants map[string]*testfixture.Server) *platform
 		tenants: tenants,
 		users:   make(map[string]platformUser),
 		options: make(map[string]map[string]string),
+
+		currentTenantCalls: make(map[string]int),
 	}
 	for tenant := range tenants {
 		p.subscribed = append(p.subscribed, tenant)
+	}
+
+	// Each tenant's fixture says who it is, so a request landing in the wrong one
+	// is visible rather than merely wrong.
+	for name, backend := range tenants {
+		backend.SetIdentity(name, name+".example.com")
 	}
 
 	p.Server = httptest.NewTLSServer(http.HandlerFunc(p.handle))
@@ -144,6 +162,39 @@ func (p *platform) SlowDown(d time.Duration) {
 	p.delay = d
 }
 
+// RefuseTenantManagement withholds ROLE_TENANT_MANAGEMENT_READ, which is what a
+// tenant that has not approved the application's permissions looks like.
+func (p *platform) RefuseTenantManagement() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.refuseTenantManagement = true
+}
+
+// TenantListCalls is how often tenant management was read. Names are cached, and
+// a cache nobody checks is a cache that quietly is not one.
+func (p *platform) TenantListCalls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.tenantListCalls
+}
+
+// CurrentTenantCalls is how often a tenant was asked about itself.
+func (p *platform) CurrentTenantCalls(tenant string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.currentTenantCalls[tenant]
+}
+
+// SlowDownWrites delays only the calls that change something, which is what
+// makes an ordering visible: a reader can then be served while a write that
+// started before it is still in flight. A real platform does exactly this - a
+// write is slower than a read, and neither waits for the other.
+func (p *platform) SlowDownWrites(d time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.writeDelay = d
+}
+
 // SubscriptionCalls is how often the subscriptions endpoint was read.
 func (p *platform) SubscriptionCalls() int {
 	p.mu.Lock()
@@ -182,6 +233,30 @@ func (p *platform) handle(w http.ResponseWriter, r *http.Request) {
 		p.writeCurrentUser(w, tenant, username, password, kind)
 		return
 
+	case "/tenant/tenants":
+		// Tenant management, which only the owner tenant's service user may read
+		// and only with ROLE_TENANT_MANAGEMENT_READ. A platform that has not been
+		// granted it answers 403, which is the case that has to degrade well.
+		p.mu.Lock()
+		refused := p.refuseTenantManagement
+		p.tenantListCalls++
+		subscribed := append([]string(nil), p.subscribed...)
+		p.mu.Unlock()
+
+		if refused || tenant != bootstrapTenant {
+			forbidden(w)
+			return
+		}
+		listed := make([]map[string]any, 0, len(subscribed))
+		for _, name := range subscribed {
+			listed = append(listed, map[string]any{
+				"id":      name,
+				"company": "Werk " + name,
+				"domain":  name + ".example.com"})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tenants": listed})
+		return
+
 	case "/application/currentApplication":
 		// Bootstrap logs a warning and carries on when this is missing, so the
 		// fixture leaves it missing on purpose - that path should stay covered.
@@ -205,6 +280,13 @@ func (p *platform) handle(w http.ResponseWriter, r *http.Request) {
 	if kind != authBasic || username != serviceUser {
 		unauthorized(w)
 		return
+	}
+	if r.URL.Path == "/tenant/currentTenant" {
+		// Counted, not answered: it goes on to the tenant's own fixture, and the
+		// answer coming from there is what proves the credentials landed there.
+		p.mu.Lock()
+		p.currentTenantCalls[tenant]++
+		p.mu.Unlock()
 	}
 	p.proxy(w, r, tenant, password)
 }
@@ -259,6 +341,9 @@ func (p *platform) proxy(w http.ResponseWriter, r *http.Request, tenant, passwor
 	p.mu.Lock()
 	backend, known := p.tenants[tenant]
 	delay := p.delay
+	if r.Method != http.MethodGet {
+		delay += p.writeDelay
+	}
 	subscribed := false
 	for _, name := range p.subscribed {
 		if name == tenant {
@@ -291,7 +376,32 @@ func (p *platform) proxy(w http.ResponseWriter, r *http.Request, tenant, passwor
 		// The fixture behind this also serves TLS with its own certificate.
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test fixture
 	}
+
+	// One platform, one address. Behind this handler there is a separate fixture
+	// server per tenant, but a real platform answers with the host the caller
+	// asked - so the inner address is rewritten out of every body, and a self
+	// link here says what a self link would say in production.
+	reverse.ModifyResponse = func(response *http.Response) error {
+		return rewriteHost(response, backend.URL, p.URL)
+	}
 	reverse.ServeHTTP(w, r)
+}
+
+// rewriteHost replaces one host with another throughout a response body.
+func rewriteHost(response *http.Response, from, to string) error {
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+	if err := response.Body.Close(); err != nil {
+		return err
+	}
+
+	body = bytes.ReplaceAll(body, []byte(from), []byte(to))
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	response.ContentLength = int64(len(body))
+	response.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	return nil
 }
 
 // servicePassword is the service user's password in a tenant. Derived rather
@@ -354,6 +464,14 @@ func (p *platform) TFATokens() []string {
 	return append([]string(nil), p.tfaTokens...)
 }
 
+// forbidden is a verified caller who may not do this - a missing role, which is
+// a different thing from bad credentials and has to be handled differently.
+func forbidden(w http.ResponseWriter) {
+	writeJSON(w, http.StatusForbidden, map[string]any{
+		"error":   "security/Forbidden",
+		"message": "access is denied"})
+}
+
 func unauthorized(w http.ResponseWriter) {
 	writeJSON(w, http.StatusUnauthorized, map[string]string{
 		"error":   "security/Unauthorized",
@@ -372,8 +490,17 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // start builds a service against this platform, as main does.
 func (p *platform) start(t *testing.T) *service.Service {
 	t.Helper()
+	return p.startWith(t, service.Options{})
+}
 
-	svc, err := service.New(t.Context(), service.Options{InsecureSkipVerify: true})
+// startWith is start for a test that needs the service configured differently.
+// InsecureSkipVerify is set either way: the fixture serves TLS with its own
+// certificate, and a test that forgot it would fail for the wrong reason.
+func (p *platform) startWith(t *testing.T, opts service.Options) *service.Service {
+	t.Helper()
+
+	opts.InsecureSkipVerify = true
+	svc, err := service.New(t.Context(), opts)
 	if err != nil {
 		t.Fatalf("the service did not start: %v", err)
 	}

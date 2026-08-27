@@ -13,7 +13,6 @@
           "options": {
             "outputPath": "dist/devicemigration-ui",
             "main": "src/main.ts",
-            "index": "src/index.html",
             "tsConfig": "tsconfig.json",
             "polyfills": [
               "zone.js"
@@ -33,6 +32,7 @@
         "serve": {
           "builder": "@c8y/devkit:dev-server",
           "options": {
+            "buildTarget": "devicemigration-ui:build",
             "shell": "administration"
           },
           "configurations": {

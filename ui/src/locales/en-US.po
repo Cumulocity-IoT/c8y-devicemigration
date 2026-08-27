@@ -1,0 +1,17 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: c8y-devicemigration\n"
+"Language: en-US\n"
+"Language-Team: English (United States)\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+# American English. The source is British, so this holds the spellings that
+# differ and nothing else.
+
+msgid "From`date`"
+msgstr "From"
+
+msgid "Cancelled"
+msgstr "Canceled"

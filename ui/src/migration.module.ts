@@ -1,8 +1,7 @@
 import { NgModule } from '@angular/core';
-import { CoreModule, hookNavigator, hookRoute, NavigatorNode } from '@c8y/ngx-components';
+import { CoreModule, gettext, hookNavigator, hookRoute, NavigatorNode } from '@c8y/ngx-components';
 
 import { HistoryComponent } from './history/history.component';
-import { WizardComponent } from './wizard/wizard.component';
 
 /**
  * The plugin, as an application loads it.
@@ -12,16 +11,15 @@ import { WizardComponent } from './wizard/wizard.component';
  * accepts are already working - or to any other application without changes.
  */
 @NgModule({
-  imports: [CoreModule, HistoryComponent, WizardComponent],
+  imports: [CoreModule, HistoryComponent],
   providers: [
     hookRoute([
-      { path: 'device-migration', redirectTo: 'device-migration/history', pathMatch: 'full' },
-      { path: 'device-migration/history', component: HistoryComponent },
-      { path: 'device-migration/new', component: WizardComponent }
+      { path: 'device-migration', component: HistoryComponent }
     ]),
     hookNavigator(
       new NavigatorNode({
-        label: 'Device migration',
+        // The shell translates a navigator label; this is the marker for it.
+        label: gettext('Device migration'),
         icon: 'exchange',
         path: '/device-migration',
         priority: 100,

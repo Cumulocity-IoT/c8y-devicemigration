@@ -1,79 +1,78 @@
-<c8y-title>Device migration</c8y-title>
+<c8y-title>{{ 'Device migration' | translate }}</c8y-title>
 
 <div class="p-16">
+  <!--
+    What this is, for somebody who has arrived here without being told. It stays
+    on the page rather than hiding behind a help link: a migration is rare enough
+    that almost everybody doing one is doing it for the first time.
+  -->
+  <div class="device-migration-intro d-flex gap-24 a-i-center m-b-24">
+    <div class="intro-text">
+      <h2 class="m-t-0">{{ 'Migrate devices to another tenant' | translate }}</h2>
+      <p>
+        {{
+          "Devices can be moved between the sub-tenants of this tenant — out of an onboarding or test tenant into a customer's, or from one customer to another."
+            | translate
+        }}
+      </p>
+      <p>
+        {{
+          'A single device can move, or a whole hierarchy of them, with or without their measurements, events and alarms.'
+            | translate
+        }}
+      </p>
+      <p class="text-medium m-b-4">
+        {{ 'Before you begin, both tenants need to be ready:' | translate }}
+      </p>
+      <ul>
+        <li>
+          {{ 'the tenant the devices are in now, subscribed to the migration microservice' | translate }}
+        </li>
+        <li>{{ 'the tenant they are moving to, subscribed to it as well' | translate }}</li>
+      </ul>
+      <p>
+        {{
+          'Then choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below.'
+            | translate
+        }}
+      </p>
+    </div>
+    <i class="device-migration-emblem text-muted hidden-xs hidden-sm" c8yIcon="in-transit"></i>
+  </div>
+
   <div class="d-flex a-i-center gap-8 m-b-16">
-    <h3 class="m-0">Past migrations</h3>
-    <button class="btn btn-default btn-sm" type="button" (click)="load()" [disabled]="loading()">
-      Refresh
-    </button>
     <span class="flex-grow"></span>
-    <a class="btn btn-primary btn-sm" [routerLink]="['/device-migration/new']">New migration</a>
+    <button class="btn btn-primary" type="button" (click)="newMigration()">
+      {{ 'New migration' | translate }}
+    </button>
   </div>
 
   @if (problem(); as failure) {
     <div class="alert alert-danger">
-      <strong>{{ failure.title }}</strong>
-      <p class="m-0">{{ failure.detail }}</p>
+      <strong>{{ failure.title | translate }}</strong>
+      <p class="m-0">{{ failure.detail | translate }}</p>
     </div>
   }
 
-  @if (loading()) {
-    <c8y-loading />
-  } @else if (!rows().length && !problem()) {
+  <!--
+    The platform's own grid, given rows rather than a callback: that is what makes
+    it sort, page and search through them itself. Refresh, paging and the column
+    chooser are all its own.
+  -->
+  <c8y-data-grid
+    [title]="'Migrations' | translate"
+    [columns]="columns"
+    [rows]="rows()"
+    [pagination]="{ pageSize: 20, currentPage: 1 }"
+    [actionControls]="actions"
+    [selectable]="false"
+    [showSearch]="true"
+    (onReload)="load()"
+  >
     <c8y-ui-empty-state
       [icon]="'exchange'"
-      [title]="'Nothing has been migrated yet'"
-      [subtitle]="'A migration started here is listed with its run id, so it can be undone.'"
-    />
-  } @else {
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Status</th>
-          <th>What</th>
-          <th>Asked for</th>
-          <th>By</th>
-          <th>Run id</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of rows(); track row.job.id) {
-          <tr>
-            <td>
-              <span class="label">{{ row.shown.label }}</span>
-              @if (row.shown.caveat) {
-                <div class="text-warning small">{{ row.shown.caveat }}</div>
-              }
-            </td>
-            <td>
-              @if (row.job.kind === 'REVERT') {
-                Undo of {{ row.job.revert?.runId }} in {{ row.job.revert?.targetTenant }}
-              } @else {
-                {{ row.job.request?.rootId }} &middot; {{ row.job.request?.sourceTenant }} &rarr;
-                {{ row.job.request?.targetTenant }}
-              }
-              @if (row.job.error) {
-                <div class="text-danger small">{{ row.job.error }}</div>
-              }
-            </td>
-            <td>{{ row.job.queuedAt }}</td>
-            <td>{{ row.job.requestedBy }}</td>
-            <td>
-              <code>{{ row.job.runId }}</code>
-            </td>
-            <td class="text-right">
-              @if (row.revertable) {
-                <button class="btn btn-danger btn-sm" type="button" (click)="revert(row.job)">
-                  Revert
-                </button>
-              } @else if (row.job.kind !== 'REVERT') {
-                <span class="text-muted small">cannot be undone here</span>
-              }
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
-  }
+      [title]="'Nothing has been migrated yet' | translate"
+      [subtitle]="'Whatever is migrated appears here, with the run id that can undo it.' | translate"
+    ></c8y-ui-empty-state>
+  </c8y-data-grid>
 </div>

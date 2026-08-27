@@ -183,8 +183,17 @@ export interface paths {
          *     session belongs to one tenant and the hierarchy being migrated is in
          *     another, so without this there is no way to offer a choice.
          *
+         *     Only devices, groups and assets are offered - the same three fragments
+         *     the platform's own inventory search looks for - so dashboards, smart
+         *     rules and this service's job records are never returned as something to
+         *     migrate.
+         *
          *     `text` matches on name. `onlyRoots` keeps objects that nothing holds as a
-         *     child, which is the top of a hierarchy. Reads only.
+         *     child, which is the top of a hierarchy; it is resolved from the objects'
+         *     parents, so a page of roots is a page of the inventory with the children
+         *     taken out and can hold fewer objects than `pageSize`. Use `more` rather
+         *     than the number of objects to decide whether to ask for another page.
+         *     Reads only.
          */
         get: operations["listInventory"];
         put?: never;
@@ -232,6 +241,88 @@ export interface paths {
          *     one vocabulary.
          */
         get: operations["listInventoryChildren"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenant}/platform/inventory/managedObjects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platform's inventory listing, for one tenant
+         * @description The platform's own `GET /inventory/managedObjects`, performed in a
+         *     subscribed tenant with that tenant's service user, and answered with
+         *     exactly what the platform said — envelope, `statistics` and ordering
+         *     included.
+         *
+         *     This exists so the platform's own components can browse a tenant the
+         *     browser has no session in. A Cumulocity client given
+         *     `/service/devicemigration/tenants/{tenant}/platform` as its base URL
+         *     behaves as though it were signed in to that tenant, which is what lets
+         *     the asset selector search, page and expand a group here without any of
+         *     that being reimplemented.
+         *
+         *     The whole query string is forwarded, so every filter, page and ordering
+         *     the platform understands works. Reads only, and only the inventory: three
+         *     routes exist and there is no wildcard, so anything else is a 404.
+         */
+        get: operations["proxyInventoryList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenant}/platform/inventory/managedObjects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platform's managed object read, for one tenant
+         * @description The platform's own `GET /inventory/managedObjects/{id}` in a subscribed
+         *     tenant. Query parameters are forwarded, so `withParents` and
+         *     `withChildren` behave as they do on the platform.
+         */
+        get: operations["proxyInventoryObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenant}/platform/inventory/managedObjects/{id}/{relationship}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of an object's reference collections, for one tenant
+         * @description The platform's own reference collections: `childAssets`, `childDevices`,
+         *     `childAdditions`, `assetParents`, `deviceParents` and
+         *     `additionParents`. Expanding a group is one of these reads, which is
+         *     most of what choosing a root consists of.
+         *
+         *     Any other value is a 400 rather than a forwarded request, so a path
+         *     parameter cannot become a way to reach the rest of the platform API.
+         */
+        get: operations["proxyInventoryReferences"];
         put?: never;
         post?: never;
         delete?: never;
@@ -307,6 +398,12 @@ export interface paths {
         /**
          * Ask a running migration to stop
          * @description The job stops at its next platform call, so this returns before it has.
+         *
+         *     A job that is not running here is not an error. Either it finished
+         *     between the screen being drawn and the button being pressed, or its
+         *     container was replaced and the record was left saying `RUNNING` - and in
+         *     the second case this settles that record as `INTERRUPTED` rather than
+         *     refusing. Asking to cancel a job that is already over is a **409**.
          *
          *     A cancelled job reports `countsVerified: false`, and that is not a
          *     formality: the engine has no cancellation checks, so a cancelled import
@@ -454,9 +551,16 @@ export interface components {
          * @example {
          *       "ownerTenant": "t10001",
          *       "tenants": [
-         *         "t10001",
-         *         "t11111",
-         *         "t22222"
+         *         {
+         *           "id": "t10001",
+         *           "name": "Operations",
+         *           "domain": "t10001.eu-latest.cumulocity.com"
+         *         },
+         *         {
+         *           "id": "t11111",
+         *           "name": "Werk Berlin",
+         *           "domain": "t11111.eu-latest.cumulocity.com"
+         *         }
          *       ]
          *     }
          */
@@ -467,7 +571,26 @@ export interface components {
              */
             ownerTenant?: string;
             /** @description Every tenant subscribed to this application. */
-            tenants?: string[];
+            tenants?: components["schemas"]["TenantDescription"][];
+        };
+        /**
+         * @description A tenant as a person would recognise it. The id is what every other
+         *     endpoint takes; the name and the host are what somebody choosing between
+         *     two tenants reads.
+         *
+         *     They come from two places, because the platform keeps them in two: the
+         *     name is the company in tenant management, which only the owner tenant can
+         *     read and only with `ROLE_TENANT_MANAGEMENT_READ`; the host is from each
+         *     tenant's own `currentTenant`, which its service user can always read.
+         *     Either can be absent - a tenant that cannot be described is still listed
+         *     with its id, because that is what a migration needs.
+         */
+        TenantDescription: {
+            id?: string;
+            /** @description The company name, from tenant management. */
+            name?: string;
+            /** @description The host this tenant is reached at. */
+            domain?: string;
         };
         /**
          * @example {
@@ -616,7 +739,7 @@ export interface components {
         InventoryResponse: {
             tenant?: string;
             objects?: components["schemas"]["InventoryObject"][];
-            /** @description Another page exists. */
+            /** @description Another page exists, from the platform's own page count rather than from how many objects came back - a filtered page can be short and still not be the last one. */
             more?: boolean;
         };
         /**
@@ -747,6 +870,14 @@ export interface components {
             runId?: string;
             /** @description The tenant and user who asked for this migration. */
             requestedBy?: string;
+            /**
+             * @description What the migrated object was called when the migration was accepted.
+             *     Recorded because an id identifies the object and describes nothing,
+             *     and because the object may not be there to ask later. Absent when the
+             *     source tenant could not be read at the time, and on records written
+             *     before this field existed.
+             */
+            rootName?: string;
             /** Format: date-time */
             queuedAt?: string;
             /** Format: date-time */
@@ -850,6 +981,18 @@ export interface components {
         };
         /** @description No job with this id is on record. */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description Nothing is wrong with the request; the job's state does not allow it -
+         *     asking to cancel one that has already finished, for instance.
+         */
+        Conflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1076,7 +1219,7 @@ export interface operations {
             query?: {
                 /** @description Match objects whose name contains this. */
                 text?: string;
-                /** @description Keep only objects that are nobody's child. */
+                /** @description Keep only objects that are nobody's child. Costs the objects' parents on the way, and returns fewer objects than `pageSize`. */
                 onlyRoots?: boolean;
                 /** @description Objects per page, at most 200. */
                 pageSize?: number;
@@ -1183,6 +1326,108 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    proxyInventoryList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description A tenant subscribed to this microservice.
+                 * @example t11106993
+                 */
+                tenant: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The platform's answer, unchanged apart from its links. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    proxyInventoryObject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description A tenant subscribed to this microservice.
+                 * @example t11106993
+                 */
+                tenant: components["parameters"]["TenantID"];
+                /**
+                 * @description A managed object id. An id, not a path.
+                 * @example 1399229
+                 */
+                id: components["parameters"]["ObjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The platform's answer, unchanged apart from its links. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    proxyInventoryReferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description A tenant subscribed to this microservice.
+                 * @example t11106993
+                 */
+                tenant: components["parameters"]["TenantID"];
+                /**
+                 * @description A managed object id. An id, not a path.
+                 * @example 1399229
+                 */
+                id: components["parameters"]["ObjectID"];
+                /** @description Which collection to read. */
+                relationship: "childAssets" | "childDevices" | "childAdditions" | "assetParents" | "deviceParents" | "additionParents";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The platform's answer, unchanged apart from its links. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listMigrations: {
         parameters: {
             query?: never;
@@ -1282,7 +1527,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The cancellation has been asked for. */
+            /**
+             * @description The cancellation has been asked for. Also the answer when the job was
+             *     not running here after all and its record has been settled instead -
+             *     see the description above.
+             */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -1296,15 +1545,8 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description No job with this id is running. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listReverts: {
@@ -1404,7 +1646,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The cancellation has been asked for. */
+            /**
+             * @description The cancellation has been asked for, or the job's record has been
+             *     settled - see cancelMigration.
+             */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -1418,15 +1663,8 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description No job with this id is running. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listLoggers: {

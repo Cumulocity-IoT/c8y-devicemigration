@@ -20,11 +20,18 @@ import (
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api"
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/microservices"
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/model"
+	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/pagination"
+	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/tenants"
+	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/tenants/currenttenant"
 	"github.com/reubenmiller/go-c8y/v2/pkg/microservice"
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 )
+
+// tenantPageSize is how many tenants are read per page from tenant management.
+// One page covers any realistic parent tenant; the iterator pages beyond it.
+const tenantPageSize = 200
 
 // SubscriptionRefreshInterval is how often the subscribed tenants are reloaded.
 // The SDK refreshes on a cache miss, so this only matters for a tenant that
@@ -50,6 +57,14 @@ type Options struct {
 	// deployed microservice always verifies - the same arrangement as
 	// session.Session.InsecureSkipVerify.
 	InsecureSkipVerify bool
+
+	// ProgressInterval overrides how often a running job's record is refreshed
+	// with what the engine has printed. Zero means ProgressInterval, which is
+	// what a deployment gets: nothing reads this from the environment or from a
+	// file either. The tests shorten it so that a progress write is in flight
+	// when a job finishes, which is the only way to prove that one cannot land
+	// after the record that finishes it.
+	ProgressInterval time.Duration
 }
 
 // Service holds what the whole microservice needs: the platform connection, the
@@ -67,6 +82,10 @@ type Service struct {
 
 	insecureSkipVerify bool
 
+	// progressInterval is how often a running job's record is refreshed. See
+	// Options.ProgressInterval.
+	progressInterval time.Duration
+
 	queue chan *queuedJob
 
 	// stagingRoot is this process's own temporary directory. Everything a job
@@ -82,6 +101,14 @@ type Service struct {
 	mu      sync.Mutex
 	clients map[string]*tenantClient
 	running map[string]*queuedJob
+
+	// tenantNames is how each tenant has been described, once asked, and
+	// managementNames is what tenant management said about all of them - with
+	// managementAsked recording that it was asked, since a refusal is an answer.
+	// See TenantDescriptions.
+	tenantNames     map[string]TenantDescription
+	managementNames map[string]TenantDescription
+	managementAsked bool
 }
 
 // tenantClient is one subscribed tenant's service user and the client built
@@ -122,14 +149,21 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		return nil, fmt.Errorf("could not load the application subscriptions: %w", err)
 	}
 
+	progressInterval := opts.ProgressInterval
+	if progressInterval <= 0 {
+		progressInterval = ProgressInterval
+	}
+
 	s := &Service{
 		ms:                 ms,
 		baseURL:            baseURL,
 		ownerTenant:        tenant,
 		insecureSkipVerify: opts.InsecureSkipVerify,
+		progressInterval:   progressInterval,
 		queue:              make(chan *queuedJob, QueueDepth),
 		clients:            make(map[string]*tenantClient),
 		running:            make(map[string]*queuedJob),
+		tenantNames:        make(map[string]TenantDescription),
 	}
 
 	if err := s.prepareStaging(); err != nil {
@@ -168,6 +202,114 @@ func (s *Service) Tenants(ctx context.Context) []string {
 		names = append(names, user.Tenant)
 	}
 	subscribedTenants.Set(float64(len(names)))
+	return names
+}
+
+// TenantDescriptions is every subscribed tenant, with what it is called.
+//
+// An id identifies a tenant and describes nothing, so this adds the two things a
+// person recognises: the company name and the host. They come from two different
+// places, because the platform keeps them in two:
+//
+//   - the company name is in tenant management, readable only from the owner
+//     tenant and only with ROLE_TENANT_MANAGEMENT_READ. One call describes every
+//     subtenant at once.
+//   - the host is in each tenant's own /tenant/currentTenant, which its own
+//     service user can always read. `name` there is the tenant's id, not a name,
+//     which is why it is not used for one.
+//
+// Both are best effort and cached. A tenant nobody can describe is still listed
+// with its id: the id is what the API needs, and a missing name is a cosmetic
+// loss rather than a reason to hide a tenant somebody has to migrate.
+func (s *Service) TenantDescriptions(ctx context.Context) []TenantDescription {
+	names := s.tenantManagementNames(ctx)
+
+	described := make([]TenantDescription, 0)
+	for _, id := range s.Tenants(ctx) {
+		described = append(described, s.describeTenant(ctx, id, names[id]))
+	}
+	return described
+}
+
+func (s *Service) describeTenant(
+	ctx context.Context, id string, fromManagement TenantDescription) TenantDescription {
+
+	s.mu.Lock()
+	cached, known := s.tenantNames[id]
+	s.mu.Unlock()
+	if known {
+		return cached
+	}
+
+	described := TenantDescription{ID: id, Name: fromManagement.Name, Domain: fromManagement.Domain}
+	if described.Domain == "" {
+		described.Domain = s.tenantHost(ctx, id)
+	}
+
+	// Cached either way: a tenant that could not be described once will not be
+	// describable the next time either, and this is read every time somebody
+	// opens the list.
+	s.mu.Lock()
+	s.tenantNames[id] = described
+	s.mu.Unlock()
+	return described
+}
+
+// tenantHost asks a tenant where it lives, with its own service user.
+func (s *Service) tenantHost(ctx context.Context, id string) string {
+	tenant, err := s.tenant(id)
+	if err != nil {
+		return ""
+	}
+
+	result := tenant.client.Tenants.Current.Get(ctx, currenttenant.GetOptions{})
+	if result.Err != nil {
+		slog.WarnContext(ctx, "could not read a tenant's host",
+			"tenant", id, "error", result.Err)
+		return ""
+	}
+	return result.Data.DomainName()
+}
+
+// tenantManagementNames is every subtenant's company name, in one call.
+//
+// Read once and remembered, including a refusal: a tenant that has not granted
+// ROLE_TENANT_MANAGEMENT_READ will not grant it on the next request either, and
+// asking again per refresh would be a 403 per refresh in the log.
+func (s *Service) tenantManagementNames(ctx context.Context) map[string]TenantDescription {
+	s.mu.Lock()
+	cached, asked := s.managementNames, s.managementAsked
+	s.mu.Unlock()
+	if asked {
+		return cached
+	}
+
+	names := map[string]TenantDescription{}
+	if owner, err := s.tenant(s.ownerTenant); err == nil {
+		iterator := owner.client.Tenants.ListAll(ctx, tenants.ListOptions{
+			PaginationOptions: pagination.PaginationOptions{PageSize: tenantPageSize},
+		})
+		for tenant, err := range iterator.Items() {
+			if err != nil {
+				// Almost always a 403: the application may read the inventory of
+				// the tenants it is subscribed to without being allowed to read
+				// the list of tenants. The hosts below still work.
+				slog.WarnContext(ctx, "could not read the tenant names from tenant management",
+					"error", err)
+				break
+			}
+			id := tenant.ID()
+			names[id] = TenantDescription{
+				ID:     id,
+				Name:   tenant.Get("company").String(),
+				Domain: tenant.Domain(),
+			}
+		}
+	}
+
+	s.mu.Lock()
+	s.managementNames, s.managementAsked = names, true
+	s.mu.Unlock()
 	return names
 }
 

@@ -506,6 +506,8 @@ func TestTheManifestGrantsEveryPermissionTheServiceUses(t *testing.T) {
 		"ROLE_ALARM_READ":             "reading alarms",
 		"ROLE_ALARM_ADMIN":            "writing alarms",
 		"ROLE_OPTION_MANAGEMENT_READ": "reading its settings from tenant options",
+		"ROLE_TENANT_MANAGEMENT_READ": "reading what the subscribed tenants are called, " +
+			"so a list of them says more than their ids",
 	} {
 		if !granted[role] {
 			t.Errorf("the service needs %s for %s, and the manifest does not grant it", role, why)

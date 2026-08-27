@@ -55,6 +55,17 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/tenants/{tenant}/inventory/{id}/children",
 			handler: s.handleListChildren},
 
+		// The platform's own inventory reads, for one named tenant, so that the
+		// platform's own components can browse it. Three routes and no wildcard:
+		// the router is the allowlist. See proxy.go.
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/platform/inventory/managedObjects",
+			handler: s.handleProxyList},
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/platform/inventory/managedObjects/{id}",
+			handler: s.handleProxyObject},
+		{Method: http.MethodGet,
+			Path:    "/tenants/{tenant}/platform/inventory/managedObjects/{id}/{relationship}",
+			handler: s.handleProxyChildren},
+
 		{Method: http.MethodPost, Path: "/migrations", handler: s.handleCreateMigration},
 		{Method: http.MethodGet, Path: "/migrations", handler: s.handleListMigrations},
 		{Method: http.MethodGet, Path: "/migrations/{id}", handler: s.handleGetMigration},
@@ -162,6 +173,11 @@ func (s *Service) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+
+	// A listing that writes, on purpose: a record left saying RUNNING by a
+	// container that no longer exists is settled here, so the screen showing it
+	// stops offering a Cancel that cannot work. See SettleStale.
+	s.SettleStale(r.Context(), jobs)
 	writeJSON(w, r, http.StatusOK, MigrationsResponse{Migrations: jobs})
 }
 
@@ -211,6 +227,10 @@ func (s *Service) handleListReverts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+
+	// As for migrations: a revert is a job, and one left running by a replaced
+	// container is the case that brought this about.
+	s.SettleStale(r.Context(), jobs)
 	writeJSON(w, r, http.StatusOK, RevertsResponse{Reverts: jobs})
 }
 
@@ -251,7 +271,7 @@ func (s *Service) handleCancelMigration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.Cancel(r.PathValue("id")); err != nil {
+	if err := s.Cancel(r.Context(), r.PathValue("id")); err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -266,8 +286,21 @@ func (s *Service) handleCancelMigration(w http.ResponseWriter, r *http.Request) 
 
 // TenantsResponse says which tenants this microservice can act on.
 type TenantsResponse struct {
-	OwnerTenant string   `json:"ownerTenant"`
-	Tenants     []string `json:"tenants"`
+	OwnerTenant string              `json:"ownerTenant"`
+	Tenants     []TenantDescription `json:"tenants"`
+}
+
+// TenantDescription is a tenant as a person would recognise it.
+//
+// An id like t11106993 identifies a tenant and describes nothing; the name and
+// the domain are what somebody choosing between two of them actually reads. Both
+// come from the tenant's own /tenant/currentTenant, read with its service user -
+// so a tenant that cannot be reached still appears, with its id and nothing else,
+// rather than disappearing from the list.
+type TenantDescription struct {
+	ID     string `json:"id"`
+	Name   string `json:"name,omitempty"`
+	Domain string `json:"domain,omitempty"`
 }
 
 func (s *Service) handleTenants(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +311,7 @@ func (s *Service) handleTenants(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, r, http.StatusOK, TenantsResponse{
 		OwnerTenant: s.ownerTenant,
-		Tenants:     s.Tenants(r.Context()),
+		Tenants:     s.TenantDescriptions(r.Context()),
 	})
 }
 
@@ -423,6 +456,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var unsubscribed *UnsubscribedTenantError
 	var bad *BadRequestError
 	var notFound *NotFoundError
+	var conflict *ConflictError
 	var full *QueueFullError
 
 	switch {
@@ -436,6 +470,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, kind = http.StatusBadRequest, "devicemigration/badRequest"
 	case errors.As(err, &notFound):
 		status, kind = http.StatusNotFound, "devicemigration/notFound"
+	case errors.As(err, &conflict):
+		status, kind = http.StatusConflict, "devicemigration/conflict"
 	case errors.As(err, &full):
 		status, kind = http.StatusTooManyRequests, "devicemigration/busy"
 	}

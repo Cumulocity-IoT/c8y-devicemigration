@@ -1,0 +1,326 @@
+<c8y-modal
+  [title]="'New migration' | translate"
+  [labels]="{ ok: 'Start migration' | translate, cancel: 'Cancel' | translate }"
+  [disabled]="blocked()"
+  [close]="submit"
+>
+  <!--
+    p-24 because the platform zeroes the modal body's own padding inside
+    c8y-modal: content projected into it is expected to bring its own, and
+    without this it sits against the edges.
+  -->
+  <div class="p-24">
+    @if (view(); as v) {
+      @if (v.failure; as failure) {
+        <div
+          class="alert"
+          [class.alert-warning]="failure.retryable"
+          [class.alert-danger]="!failure.retryable"
+        >
+          <strong>{{ failure.title | translate }}</strong>
+          <p class="m-0">{{ failure.detail | translate }}</p>
+        </div>
+      }
+
+      <div class="device-migration-panes">
+        <!-- Where it comes from, and what in it. -->
+        <div class="pane-source">
+          <c8y-form-group>
+            <label for="sourceTenant">{{ 'Migrate from' | translate }}</label>
+            <select
+              id="sourceTenant"
+              class="form-control"
+              [ngModel]="v.choices.sourceTenant"
+              (ngModelChange)="chooseSource($event)"
+            >
+              <option [ngValue]="undefined">{{ 'Choose a tenant' | translate }}</option>
+              @for (tenant of v.tenants.source; track tenant.id) {
+                <option [ngValue]="tenant.id" [disabled]="!!tenant.unavailable">
+                  {{ tenant.label
+                  }}{{ tenant.unavailable ? ' — ' + (tenant.unavailable | translate) : '' }}
+                </option>
+              }
+            </select>
+          </c8y-form-group>
+
+          <!--
+            The platform's own asset selector, reading the source tenant through
+            the microservice's proxy. Keyed on the tenant so that choosing a
+            different source builds a new one: the selector and its services
+            cache what they have fetched, and a cache filled from one tenant must
+            not be shown for another.
+          -->
+          @for (tenant of [v.choices.sourceTenant]; track tenant) {
+            @if (tenant) {
+              <c8y-device-migration-root-picker
+                [tenant]="tenant"
+                (picked)="chooseRoot($event)"
+              ></c8y-device-migration-root-picker>
+
+              @if (v.choices.root; as root) {
+                <div class="alert alert-info m-t-8">
+                  {{ 'Migrating' | translate }} <strong>{{ root.name }}</strong>
+                  <code>{{ root.id }}</code>
+                </div>
+              }
+            }
+          }
+        </div>
+
+        <!-- Where it goes, and what comes with it. -->
+        <div class="pane-scope">
+          <c8y-form-group>
+            <label for="targetTenant">{{ 'Migrate to' | translate }}</label>
+            <select
+              id="targetTenant"
+              class="form-control"
+              [ngModel]="v.choices.targetTenant"
+              (ngModelChange)="chooseTarget($event)"
+            >
+              <option [ngValue]="undefined">{{ 'Choose a tenant' | translate }}</option>
+              @for (tenant of v.tenants.target; track tenant.id) {
+                <option [ngValue]="tenant.id" [disabled]="!!tenant.unavailable">
+                  {{ tenant.label
+                  }}{{ tenant.unavailable ? ' — ' + (tenant.unavailable | translate) : '' }}
+                </option>
+              }
+            </select>
+            @if (v.preflightPassed) {
+              <p class="text-success small m-t-4">
+                {{
+                  'Both tenants can be reached. Nothing has been read from either hierarchy yet.'
+                    | translate
+                }}
+              </p>
+            }
+          </c8y-form-group>
+
+          <c8y-form-group>
+            <label>{{ 'Relationships to follow' | translate }}</label>
+            @for (kind of childTypes; track kind) {
+              <label class="c8y-checkbox">
+                <input
+                  type="checkbox"
+                  [checked]="ticked('childTypes', kind)"
+                  (change)="toggle('childTypes', kind)"
+                />
+                <span></span>
+                <span>{{ label(kind) | translate }}</span>
+              </label>
+            }
+            <p class="help-block m-0">
+              {{ 'Nothing ticked migrates only the object itself.' | translate }}
+            </p>
+          </c8y-form-group>
+
+          <c8y-form-group>
+            <label>{{ 'Device data to migrate' | translate }}</label>
+            @for (kind of dataTypes; track kind) {
+              <label class="c8y-checkbox">
+                <input
+                  type="checkbox"
+                  [checked]="ticked('dataTypes', kind)"
+                  (change)="toggle('dataTypes', kind)"
+                />
+                <span></span>
+                <span>{{ label(kind) | translate }}</span>
+              </label>
+            }
+          </c8y-form-group>
+
+          <!--
+            One field, two ways to fill it in: type the syntax the engine takes,
+            or open the calendar in the button beside it. The text is the value -
+            the picker writes into it - so there is nowhere for the two to
+            disagree.
+
+            Always rendered, even before device data is chosen: a form group that
+            appears when the first box is ticked resizes the dialogue.
+          -->
+          <c8y-form-group [hasError]="!!v.windowError">
+            <label for="dateFrom">{{ 'From`date`' | translate }}</label>
+            <div class="input-group">
+              <input
+                id="dateFrom"
+                class="form-control"
+                [placeholder]="'-14d, or 2026-01-01' | translate"
+                [disabled]="!v.choices.dataTypes"
+                [ngModel]="v.choices.dateFrom"
+                (ngModelChange)="changeScope({ dateFrom: $event })"
+              />
+              <!--
+                btn-dot in an input-group-btn, which is how the platform's own
+                search and filter fields put a button inside a field: a bordered
+                button of its own next to a disabled input is what made this look
+                like two controls that had come apart.
+
+                Only there when the field can be used. A live-looking button
+                beside a disabled field is a mixed message as well as a misaligned
+                one.
+              -->
+              @if (v.choices.dataTypes) {
+                <span class="input-group-btn" dropdown [insideClick]="true">
+                  <button
+                    class="btn btn-dot"
+                    type="button"
+                    [title]="'Pick a date and time' | translate"
+                    dropdownToggle
+                  >
+                    <i c8yIcon="calendar"></i>
+                  </button>
+                  <!--
+                    Keyed on the value so the picker is rebuilt when the field
+                    stops naming a moment: its writeValue ignores an empty string,
+                    so it cannot be cleared, and a picker still showing a date
+                    beside a field that says -14d would be lying about the window.
+                  -->
+                  <div class="dropdown-menu dropdown-menu-right p-16" *dropdownMenu>
+                    @for (moment of [pickedMoment()]; track moment) {
+                      <c8y-date-time-picker
+                        [placeholder]="'Choose a date and time' | translate"
+                        [ngModel]="moment"
+                        (ngModelChange)="pickDate($event)"
+                      ></c8y-date-time-picker>
+                    }
+                  </div>
+                </span>
+              }
+            </div>
+            @if (v.windowError; as problem) {
+              <p class="text-danger small m-t-4 m-b-0">
+                {{ problem.text | translate: problem.params }}
+              </p>
+            } @else if (!v.choices.dataTypes) {
+              <p class="help-block m-b-0">
+                {{ 'Applies once there is device data to migrate.' | translate }}
+              </p>
+            } @else {
+              <p class="help-block m-b-0">
+                {{
+                  "A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the service's configured default applies."
+                    | translate
+                }}
+              </p>
+            }
+          </c8y-form-group>
+        </div>
+      </div>
+
+      <!--
+        What would move. The rows are always here, with dashes until the counts
+        arrive, and the block has a floor under its height - so learning how much
+        would move does not resize the dialogue somebody is reading.
+      -->
+      <div class="separator-top p-t-16 m-t-8 device-migration-estimate">
+        <table class="table table-condensed m-b-8">
+          <!--
+            Widths declared rather than left to the content. Without this the
+            columns move sideways as the numbers arrive and as rows change from a
+            figure to "not included" - the table is laid out from whatever is in
+            it, so every cell shifts when any cell does.
+          -->
+          <colgroup>
+            <col class="estimate-what" />
+            <col class="estimate-count" />
+            <col />
+          </colgroup>
+          <tbody>
+            <tr>
+              <td>{{ 'Managed objects' | translate }}</td>
+              <td class="text-right">
+                <strong>{{ v.estimate ? (v.estimate.objects | number) : '—' }}</strong>
+              </td>
+              <td class="text-muted">
+                {{
+                  '{{ allowed }} children allowed'
+                    | translate: { allowed: v.estimate?.limits?.maxChildObjects || '—' }
+                }}
+              </td>
+            </tr>
+            <tr>
+              <td>{{ 'External identities' | translate }}</td>
+              <td class="text-right">
+                <strong>{{ v.estimate ? (v.estimate.identities | number) : '—' }}</strong>
+              </td>
+              <td class="text-muted">{{ 'no limit' | translate }}</td>
+            </tr>
+            <!-- Every kind, ticked or not: a row that appears when something is
+                 ticked would resize the dialogue. -->
+            @for (kind of dataTypes; track kind) {
+              <tr [class.text-muted]="!ticked('dataTypes', kind)">
+                <td>{{ label(kind) | translate }}</td>
+                <td class="text-right">
+                  @if (ticked('dataTypes', kind)) {
+                    <strong>{{
+                      v.estimate?.records?.[kind] === undefined
+                        ? '—'
+                        : (v.estimate?.records?.[kind] | number)
+                    }}</strong>
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+                <td class="text-muted">
+                  @if (!ticked('dataTypes', kind)) {
+                    {{ 'not included' | translate }}
+                  } @else if (v.estimate?.busiest?.[kind] !== undefined) {
+                    {{
+                      'busiest device {{ busiest }} of {{ allowed }} allowed'
+                        | translate
+                            : {
+                                busiest: v.estimate?.busiest?.[kind] | number,
+                                allowed: v.estimate?.limits?.perDevice?.[kind] | number
+                              }
+                    }}
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+
+        @if (v.busy) {
+          <p class="text-muted small m-b-8">
+            {{ 'Working out how much would move…' | translate }}
+          </p>
+        }
+
+        @if (v.estimate && !v.estimate.withinLimits) {
+          <div class="alert alert-danger">
+            <strong>{{ 'Over the export limits' | translate }}</strong>
+            @for (breach of v.estimate.breaches; track breach.kind) {
+              <p class="m-0">
+                {{
+                  '{{ kind }}: {{ count }} where {{ allowed }} is allowed'
+                    | translate
+                        : {
+                            kind: label(breach.kind || '') | translate,
+                            count: breach.count | number,
+                            allowed: breach.allowed | number
+                          }
+                }}
+                @if (breach.objectId) {
+                  {{
+                    '(worst is {{ objectId }}; {{ objects }} objects breach this limit)'
+                      | translate
+                          : { objectId: breach.objectId, objects: breach.objects | number }
+                  }}
+                }
+              </p>
+            }
+          </div>
+        }
+
+        @if (v.readiness.outstanding.length) {
+          <ul class="list-unstyled text-muted small m-0">
+            @for (item of v.readiness.outstanding; track item) {
+              <li>{{ item | translate }}</li>
+            }
+          </ul>
+        }
+      </div>
+    } @else {
+      <c8y-loading />
+    }
+  </div>
+</c8y-modal>

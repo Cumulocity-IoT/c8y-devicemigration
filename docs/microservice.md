@@ -41,11 +41,17 @@ eval "$(c8y sessions set --sessionFilter parent-tenant)"
 make service-deploy
 ```
 
-The version in the manifest comes from the newest `v<major>.<minor>.<patch>` tag,
-or `0.1.0-SNAPSHOT` when there is none. Override it with
-`make service-package SERVICE_VERSION=1.2.0`. The platform rejects anything that
-is not SemVer, so `service-package` checks that before building the zip rather
-than letting the upload fail.
+The version in the manifest is `0.2.0-SNAPSHOT` — a snapshot of the version being
+developed — unless the commit is exactly a release tag, in which case it is that
+release. `make version` prints it; `make service-package SERVICE_VERSION=1.2.0`
+overrides it. Every snapshot upload replaces the same version, which is what you
+want while iterating. The platform rejects anything that is not SemVer, so
+`service-package` checks that before building the zip rather than letting the
+upload fail. See [internals](internals.md#versions) for how it is derived.
+
+That matters more than it sounds: the version in **Administration → Ecosystem →
+Microservices** and in the service's own startup log is the only thing that
+answers "is the code I just wrote actually running there".
 
 CI builds the same zip on every push and attaches it to the run as an artifact,
 so a deployable package exists for any commit without building locally.
@@ -124,6 +130,9 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /tenants/{tenant}/inventory` | find something to migrate, by name or only roots |
 | `GET /tenants/{tenant}/inventory/{id}` | one object and its child counts |
 | `GET /tenants/{tenant}/inventory/{id}/children` | what is directly under it |
+| `GET /tenants/{tenant}/platform/inventory/managedObjects` | the platform's own listing, in that tenant |
+| `GET /tenants/{tenant}/platform/inventory/managedObjects/{id}` | the platform's own read, in that tenant |
+| `GET /tenants/{tenant}/platform/inventory/managedObjects/{id}/{relationship}` | one of its reference collections |
 | `POST /estimates` | how much a migration would move, and whether the limits allow it |
 
 ```sh
@@ -204,12 +213,58 @@ A job ends in one of:
 | `CANCELLED` | asked to stop. **Its counts are not verified** — see below |
 | `INTERRUPTED` | the container stopped existing while the job was running or queued. **Counts are not verified** |
 
+**A record cannot be left saying `RUNNING` for good.** A container that is
+replaced mid-job takes the job with it — there is no persistent storage and no way
+to resume — so the record would otherwise claim to be running for ever, with a
+Cancel that answers *"running job … does not exist"*. Two things close it: startup
+reconciles every record that says `RUNNING` or `QUEUED`, and the listings settle
+any record that says `RUNNING` while this container knows it is not the job it is
+running. Both mark it `INTERRUPTED`, with `countsVerified: false` and the run id,
+which is what an undo needs.
+
+`QUEUED` records are left alone at runtime on purpose: a job queued *here* has one
+too, and from inside a request the two cannot be told apart. Startup can tell,
+because nothing is queued then.
+
+Cancelling a job that is not running is therefore not an error either. If its
+record still says `RUNNING`, cancelling settles it; if the job is genuinely over,
+the answer is **409** and says so.
+
+**A job reports itself finished only once its record says so.** While a job is
+running, `GET /migrations/{id}` answers from the running job rather than from the
+record, because the record is only as fresh as the last progress write. The
+outcome is the other way round: the record is written first, and only then does
+the running job start reporting it. The other order was a real defect — a caller
+that polled until a migration was `SUCCEEDED` and then asked to undo it could be
+refused with *"has no run id"*, because the record it was refused from still said
+`RUNNING`. Between the two writes a caller sees `RUNNING` for a few milliseconds
+longer, which is merely out of date rather than wrong.
+
 `countsVerified` is false for a cancelled job, and that is not a formality. The
 engine has no cancellation checks anywhere: a cancelled import counts the records
 it never sent as *failures*, and a cancelled revert reports objects as deleted
 that are still there. So a job that did not finish reports its run id and says
 its numbers cannot be trusted, rather than presenting them as fact. Check the
 target tenant by run id before retrying.
+
+### Naming things, not just identifying them
+
+`GET /tenants` answers with each subscribed tenant's id, its company name and its
+host, because `t11106993` identifies a tenant and describes nothing. The two names
+come from two places, since the platform keeps them in two:
+
+| | |
+| --- | --- |
+| the company name | tenant management, read once from the owner tenant. Needs `ROLE_TENANT_MANAGEMENT_READ`; without it there are no names |
+| the host | each tenant's own `currentTenant`, which its service user can always read. Note that `name` there is the tenant's *id*, which is why it is not used as one |
+
+Both are cached and both are best effort: a tenant nobody can describe is still
+listed with its id, because the id is what a migration needs.
+
+A job record carries `rootName` for the same reason — what the migrated object was
+called when the migration was accepted. It is read once, at that moment, and
+recorded: the object may not be there to ask later, and a list of ids describes
+nothing either.
 
 ### Choosing what to migrate, and knowing how big it is
 
@@ -222,6 +277,58 @@ c8y api GET '/service/devicemigration/tenants/t11111/inventory?text=berlin'
 c8y api GET  /service/devicemigration/tenants/t11111/inventory/1399229
 c8y api GET '/service/devicemigration/tenants/t11111/inventory/1399229/children?childTypes=asset,device'
 ```
+
+Two things about the listing are worth knowing, because both were wrong once.
+
+**Only devices, groups and assets come back.** The condition is part of the query
+the platform runs — `has(c8y_IsDevice) or has(c8y_IsDeviceGroup) or
+has(c8y_IsAsset)`, the same three the platform's own inventory search looks for —
+so dashboards, smart rules, retention rules and this service's job records are
+never offered as something to migrate. It has to be inside `query`: the platform
+ignores `type` and `fragmentType` whenever a query is present.
+
+**`onlyRoots=true` is resolved from the objects' parents.** There is no fragment
+marking an object as somebody's child, so the service asks for the parents and
+drops anything that has one — which is how the platform's own asset picker
+decides it too. The consequence is that a page of roots is a page of the
+inventory with the children taken out, and can hold fewer objects than
+`pageSize`; `more` comes from the platform's page count, so it stays right when
+that happens.
+
+### The inventory proxy
+
+The picker in [the UI](ui.md) is the platform's own asset selector, and that
+component reads through Cumulocity's own client. It cannot be handed data. So
+three more routes exist, which are the platform's inventory reads performed in a
+named tenant and answered with exactly what the platform said:
+
+```sh
+c8y api GET '/service/devicemigration/tenants/t11111/platform/inventory/managedObjects?pageSize=10'
+c8y api GET  /service/devicemigration/tenants/t11111/platform/inventory/managedObjects/1399229
+c8y api GET  /service/devicemigration/tenants/t11111/platform/inventory/managedObjects/1399229/childAssets
+```
+
+A Cumulocity client given `/service/devicemigration/tenants/t11111/platform` as
+its base URL behaves as though it were signed in to `t11111`. That is what makes
+the asset selector work over a tenant the browser has no session in, without any
+of its searching, paging or drill-down being reimplemented.
+
+Four things about it are deliberate:
+
+- **The whole query string is forwarded.** Every filter, page and ordering the
+  platform understands works, because deciding here which ones are allowed would
+  be deciding which of the platform's own components are allowed to work.
+- **The answer is verbatim.** The envelope, the `statistics` and the ordering are
+  what make the platform's paging and search work; reshaping any of it would
+  break the component this exists for.
+- **The links are rewritten.** `self`, `next` and `prev` come back from the
+  platform naming the platform's *internal* address — a host no browser can
+  reach and none should be told about. Each becomes the proxy path that produced
+  it, so a client that follows a link stays in the tenant it was reading.
+- **There is no wildcard.** Three routes exist and the router is the allowlist:
+  the inventory listing, one managed object, and one of its reference
+  collections. Anything else — `user/currentUser`, a measurement, a second path
+  segment — is a 404, and an unknown collection name is a 400.
 
 These are reads and nothing else. **They do grant something new**, though: an
 owner-tenant administrator holding `ROLE_DEVICE_MIGRATION_ADMIN` can now read
@@ -332,8 +439,8 @@ blank in Administration with no idea what it does.
 
 So the service seeds `-14d`, and a migration that does not name a window carries
 **fourteen days of measurements, events and alarms alike**. That is narrower than
-[the command line](cli.md) would take, never wider, and the wizard's review step
-shows the window it counted over beside the counts. Set the option to something
+[the command line](cli.md) would take, never wider, and the estimate
+[the UI](ui.md) shows names the window it counted over beside the counts. Set the option to something
 longer if a migration needs more, or name `dateFrom` on the request.
 
 Clearing the option entirely returns to the engine's own asymmetric defaults —

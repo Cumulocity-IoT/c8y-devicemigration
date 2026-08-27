@@ -112,20 +112,69 @@ to build for it.
 
 Both carry the same version, and both binaries report it — `c8y-devicemigration
 --version`, and the microservice logs it at startup. It is stamped at link time
-from `internal/version`, so a local build says `dev-<commit>` rather than
-claiming to be a release.
+from `internal/version`.
+
+### Versions
+
+[VERSION](../VERSION) holds the version being developed — the one the next
+release will carry — and it is the only place a version is written down. What a
+build calls itself is derived from that file and from git:
+
+| the build | what it says |
+| --- | --- |
+| an exact `v` tag on a clean tree | `0.2.0` — a release |
+| anything else | `0.2.0-SNAPSHOT` |
 
 ```sh
+make version                    # what this build would call itself
 make dist                       # the archives, into dist/
 make service-package            # the microservice zip, into build/
 make dist VERSION=1.2.0         # what a release of 1.2.0 would contain
 ```
 
-To release, push a tag:
+**Snapshots are the default.** The old default took the *nearest* tag, so a
+working tree with a fortnight of unreleased work in it built an image labelled
+exactly like the released version — and once that is deployed, nothing about the
+running service says whether it is current. That cost an afternoon of looking for
+a bug in code the platform was not running. `0.2.0-SNAPSHOT` cannot be mistaken
+for `0.2.0`.
+
+**One snapshot version rather than one per commit**, so every upload replaces the
+same version instead of leaving a list behind. The cost is that two snapshot
+builds cannot be told apart by their version; when that question comes up, the
+answers are to release, or to pass `VERSION` explicitly.
+
+`make check` runs `version-check`, which refuses a `VERSION` file that is not a
+plain `X.Y.Z` — the suffix is the build's to add — and, on a release build,
+refuses a tag that disagrees with the file.
+
+### Tags, and releasing
+
+Tags still decide what a release is; `VERSION` decides what it is allowed to be
+called. Four steps:
 
 ```sh
-git tag v1.2.0 && git push origin v1.2.0
+$EDITOR VERSION                      # 1. the version being released
+git commit -am "release 1.2.0"       # 2. it has to be in a commit to be tagged
+make tag                             # 3. creates v1.2.0 on that commit
+git push origin v1.2.0               # 4. builds and publishes it
 ```
+
+`make tag` refuses a dirty tree — a tag names a commit, and uncommitted work is
+not in one — refuses a version that is already tagged, and refuses anything
+`version-check` would refuse. It does not push: that is the irreversible half,
+and it was never the part that needed automating. Tagging by hand
+(`git tag v1.2.0`) works exactly as before; the target is a shortcut, not a
+gate.
+
+Afterwards, bump `VERSION` again so builds go back to calling themselves
+snapshots of something newer.
+
+The tag and the file must agree on their `X.Y.Z` core. A tag that disagrees is
+refused by the release workflow in its first job, before anything is built —
+publishing a version this repository never said it was working towards is worse
+than a failed release. A pre-release of a declared version is fine: `v0.3.0-rc1`
+while the file says `0.3.0`.
 
 That runs [.github/workflows/release.yml](../.github/workflows/release.yml),
 which resolves the version once, refuses it unless it is SemVer — the platform

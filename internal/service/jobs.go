@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/inventory/managedobjects"
+
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/migrate"
 )
@@ -100,6 +102,12 @@ type Job struct {
 
 	RequestedBy string `json:"requestedBy,omitempty"`
 
+	// RootName is what the migrated object was called when the migration was
+	// accepted. Recorded because an id identifies the object and describes
+	// nothing, and because the object may not be there to ask later - a revert
+	// deletes the copy, and the source can change or go away.
+	RootName string `json:"rootName,omitempty"`
+
 	QueuedAt   string `json:"queuedAt,omitempty"`
 	StartedAt  string `json:"startedAt,omitempty"`
 	FinishedAt string `json:"finishedAt,omitempty"`
@@ -154,6 +162,28 @@ func (q *queuedJob) with(change func(*Job)) Job {
 	return q.job.clone()
 }
 
+// pending applies a change to a copy, leaving what readers see untouched.
+//
+// The pair with publish exists for one reason: a job must not report itself
+// finished before its record says so. The API answers from the running job while
+// there is one, so publishing a terminal status first meant a caller could poll
+// until a migration was done, act on it, and be refused by a record that still
+// said RUNNING with no run id - which is a migration nobody can undo.
+func (q *queuedJob) pending(change func(*Job)) Job {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prepared := q.job.clone()
+	change(&prepared)
+	return prepared
+}
+
+// publish makes a prepared job the one readers see.
+func (q *queuedJob) publish(job Job) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.job = job.clone()
+}
+
 // snapshot is the job as it is now.
 func (q *queuedJob) snapshot() Job {
 	q.mu.Lock()
@@ -177,6 +207,15 @@ func (j Job) clone() Job {
 	copied.Progress = append([]string(nil), j.Progress...)
 	return copied
 }
+
+// ConflictError means the request was well formed and asks for something this
+// job's state does not allow - cancelling one that is already over, most of the
+// time. Separate from a bad request because nothing about the request is wrong.
+type ConflictError struct {
+	Reason string
+}
+
+func (e *ConflictError) Error() string { return e.Reason }
 
 // QueueFullError means the service is already holding as much work as it will.
 type QueueFullError struct{}
@@ -209,6 +248,7 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 		Status:   StatusQueued,
 		Request:  &request,
 		QueuedAt: recordTime(time.Now()),
+		RootName: s.rootName(ctx, request),
 	}
 	if caller != nil {
 		job.RequestedBy = caller.Tenant + "/" + caller.Username
@@ -262,18 +302,33 @@ func (s *Service) Work(ctx context.Context) {
 }
 
 // Cancel stops a running or queued job.
-func (s *Service) Cancel(jobID string) error {
+func (s *Service) Cancel(ctx context.Context, jobID string) error {
 	s.mu.Lock()
 	running, ok := s.running[jobID]
 	s.mu.Unlock()
 
-	if !ok {
-		return &NotFoundError{What: fmt.Sprintf("running job %s", jobID)}
+	if ok {
+		// Outside the service lock: stopping takes the job's own lock, and
+		// holding both at once is how lock orders get learned the hard way.
+		running.stop()
+		return nil
 	}
-	// Outside the service lock: stopping takes the job's own lock, and holding
-	// both at once is how lock orders get learned the hard way.
-	running.stop()
-	return nil
+
+	// Not running here. Either it finished between the screen being drawn and
+	// the button being pressed, or its container was replaced and the record was
+	// left saying RUNNING. Both deserve better than "running job X does not
+	// exist", which is what this used to answer: the first is over, and the
+	// second is settled by asking.
+	job, err := s.Record(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if job.Status == StatusRunning {
+		s.SettleStale(ctx, []*Job{job})
+		return nil
+	}
+	return &ConflictError{Reason: fmt.Sprintf(
+		"job %s is already %s, so there is nothing to cancel", jobID, job.Status)}
 }
 
 // Running is the job being worked on, if any.
@@ -326,7 +381,9 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 		err = s.migrate(ctx, queued)
 	}
 
-	finished := queued.with(func(job *Job) {
+	// Prepared, not published: what readers see changes only once the record
+	// agrees with it, a few lines further down.
+	finished := queued.pending(func(job *Job) {
 		job.FinishedAt = recordTime(time.Now())
 		switch {
 		case err == nil:
@@ -355,7 +412,33 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 	defer closingCancel()
 	s.record(closing, &finished)
 
+	// Only now. Until this line the API answers RUNNING from memory, which is
+	// merely out of date; the other order was wrong - it said SUCCEEDED while
+	// the record, which is what everything else reads, said nothing of the kind.
+	queued.publish(finished)
+
 	slog.Info("job finished", "job", finished.ID, "status", finished.Status, "runId", finished.RunID)
+}
+
+// rootName asks the source tenant what the object being migrated is called.
+//
+// Best effort, deliberately: this is the one thing on the record that is only
+// there to be read, and a name that could not be fetched must not stop a
+// migration from being accepted. A root that does not exist at all is still
+// discovered by the migration itself, which fails saying so.
+func (s *Service) rootName(ctx context.Context, request MigrationRequest) string {
+	source, err := s.tenant(request.SourceTenant)
+	if err != nil {
+		return ""
+	}
+
+	result := source.client.ManagedObjects.Get(ctx, request.RootID, managedobjects.GetOptions{})
+	if result.Err != nil {
+		slog.WarnContext(ctx, "could not read the name of the object being migrated",
+			"tenant", request.SourceTenant, "object", request.RootID, "error", result.Err)
+		return ""
+	}
+	return objectFrom(result.Data.Bytes()).Name
 }
 
 // migrate is the part that reuses the engine unchanged.
@@ -575,11 +658,13 @@ func (s *Service) sweepStaging(before map[string]bool, jobID string) {
 // reportProgress copies the running job's output into its record periodically,
 // and returns a function that stops doing so.
 func (s *Service) reportProgress(ctx context.Context, queued *queuedJob, output *progress) func() {
-	ticker := time.NewTicker(ProgressInterval)
+	ticker := time.NewTicker(s.progressInterval)
 	done := make(chan struct{})
+	exited := make(chan struct{})
 	var once sync.Once
 
 	go func() {
+		defer close(exited)
 		for {
 			select {
 			case <-done:
@@ -601,6 +686,17 @@ func (s *Service) reportProgress(ctx context.Context, queued *queuedJob, output 
 			ticker.Stop()
 			close(done)
 		})
+		// Waits for the goroutine to be out of any write it had started, so the
+		// record that finishes a job is the last word on it. A progress write
+		// landing afterwards would put RUNNING back, without a run id, on a job
+		// that had succeeded.
+		//
+		// No test fails without this line: forcing that interleaving needs a
+		// platform where a write started earlier finishes later, and the fixture
+		// delays every write equally. It is kept because a real platform does
+		// exactly that, and because a shutdown that leaves its own goroutine
+		// mid-write is wrong on its own terms.
+		<-exited
 	}
 }
 

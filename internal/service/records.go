@@ -223,6 +223,51 @@ func (s *Service) OfKind(ctx context.Context, kind JobKind) ([]*Job, error) {
 	return wanted, nil
 }
 
+// SettleStale closes the records of jobs that claim to be running when nothing
+// is.
+//
+// At most one job runs at a time and this container knows which one, and the
+// manifest pins replicas to 1 - so a record saying RUNNING that is not that job
+// belongs to a container that no longer exists. Reconcile does this once at
+// startup; this is the same reasoning applied while running, for the container
+// that was replaced while somebody had the list open in front of them.
+//
+// Without it the row sits there saying RUNNING with a Cancel button that answers
+// "running job ... does not exist", which is true and useless. The listing is
+// what calls this, so the row settles itself within one refresh.
+//
+// QUEUED records are deliberately left alone: a job queued in this container has
+// one of those too, and from here the two cannot be told apart. Startup can tell
+// - nothing is queued then - which is why Reconcile closes those and this does
+// not.
+func (s *Service) SettleStale(ctx context.Context, jobs []*Job) {
+	live := ""
+	if running := s.Running(); running != nil {
+		live = running.ID
+	}
+
+	for _, job := range jobs {
+		if job.Status != StatusRunning || job.ID == live {
+			continue
+		}
+
+		job.Status = StatusInterrupted
+		job.CountsVerified = false
+		job.FinishedAt = recordTime(time.Now())
+		job.Error = "the microservice was replaced while this job was running, so what it " +
+			"reached is not known: check the target tenant by run id"
+
+		if err := s.UpdateRecord(ctx, job); err != nil {
+			// Best effort: a listing must still answer. The record keeps saying
+			// RUNNING and the next refresh tries again.
+			slog.Warn("could not close a stale running job's record", "job", job.ID, "error", err)
+			continue
+		}
+		slog.Info("closed a job left running by a replaced container",
+			"job", job.ID, "runId", job.RunID)
+	}
+}
+
 // Reconcile closes the records of jobs that were running when this container
 // stopped existing.
 //

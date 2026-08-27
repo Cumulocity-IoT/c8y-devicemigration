@@ -5,7 +5,8 @@
 // which download it came from.
 package version
 
-// Version is set with -ldflags "-X .../internal/version.Version=1.2.3" by the
-// release build. A local build leaves it as it is, which is the honest answer
-// for one.
+// Version is set with -ldflags "-X .../internal/version.Version=..." by the
+// Makefile: a release version at a tag, and 0.2.0-SNAPSHOT - a snapshot of the
+// version being developed - anywhere else. A `go build` or `go run` that skips
+// the ldflags leaves it as it is, which is the honest answer for one.
 var Version = "dev"

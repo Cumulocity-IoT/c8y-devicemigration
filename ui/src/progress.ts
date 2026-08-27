@@ -1,3 +1,4 @@
+import { gettext } from './i18n';
 import type { components } from './api/types';
 
 type Job = components['schemas']['Job'];
@@ -83,33 +84,33 @@ export interface StatusPresentation {
 export function present(job: Job): StatusPresentation {
   switch (job.status) {
     case 'QUEUED':
-      return { label: 'Waiting', tone: 'muted' };
+      return { label: gettext('Waiting'), tone: 'muted' };
     case 'RUNNING':
-      return { label: 'Running', tone: 'info' };
+      return { label: gettext('Running'), tone: 'info' };
     case 'SUCCEEDED':
-      return { label: 'Succeeded', tone: 'success' };
+      return { label: gettext('Succeeded'), tone: 'success' };
     case 'FAILED':
       return {
-        label: 'Failed',
+        label: gettext('Failed'),
         tone: 'danger',
         caveat: job.runId
-          ? 'Objects may already exist in the target tenant. Undo it with this run id.'
+          ? gettext('Objects may already exist in the target tenant. Undo it with this run id.')
           : undefined
       };
     case 'CANCELLED':
       return {
-        label: 'Cancelled',
+        label: gettext('Cancelled'),
         tone: 'warning',
         caveat: caveatFor(job)
       };
     case 'INTERRUPTED':
       return {
-        label: 'Interrupted',
+        label: gettext('Interrupted'),
         tone: 'warning',
         caveat: caveatFor(job)
       };
     default:
-      return { label: job.status ?? 'Unknown', tone: 'muted' };
+      return { label: job.status ?? gettext('Unknown'), tone: 'muted' };
   }
 }
 
@@ -125,6 +126,6 @@ function caveatFor(job: Job): string {
     return '';
   }
   return job.runId
-    ? 'What reached the target tenant is not known. Check it by run id before retrying.'
-    : 'What reached the target tenant is not known.';
+    ? gettext('What reached the target tenant is not known. Check it by run id before retrying.')
+    : gettext('What reached the target tenant is not known.');
 }

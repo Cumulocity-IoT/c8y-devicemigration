@@ -1,0 +1,317 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: c8y-devicemigration\n"
+"Language: de\n"
+"Language-Team: German\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Device migration"
+msgstr "Gerätemigration"
+
+msgid "Migrate devices to another tenant"
+msgstr "Geräte in einen anderen Mandanten migrieren"
+
+msgid "Devices can be moved between the sub-tenants of this tenant — out of an onboarding or test tenant into a customer's, or from one customer to another."
+msgstr "Geräte können zwischen den Untermandanten dieses Mandanten verschoben werden — aus einem Onboarding- oder Testmandanten in den eines Kunden oder von einem Kunden zu einem anderen."
+
+msgid "A single device can move, or a whole hierarchy of them, with or without their measurements, events and alarms."
+msgstr "Es kann ein einzelnes Gerät verschoben werden oder eine ganze Hierarchie, mit oder ohne deren Messwerte, Ereignisse und Alarme."
+
+msgid "Before you begin, both tenants need to be ready:"
+msgstr "Bevor Sie beginnen, müssen beide Mandanten vorbereitet sein:"
+
+msgid "the tenant the devices are in now, subscribed to the migration microservice"
+msgstr "der Mandant, in dem die Geräte jetzt sind, mit abonniertem Migrations-Microservice"
+
+msgid "the tenant they are moving to, subscribed to it as well"
+msgstr "der Mandant, in den sie verschoben werden, ebenfalls mit abonniertem Microservice"
+
+msgid "Then choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below."
+msgstr "Wählen Sie dann „Neue Migration“. Bis dahin wird aus keinem der beiden Mandanten gelesen, und aus dem Mandanten, aus dem die Geräte kommen, wird nie etwas gelöscht — sie werden kopiert, und jede Kopie kann in der Liste unten rückgängig gemacht werden."
+
+msgid "Migrations"
+msgstr "Migrationen"
+
+
+msgid "New migration"
+msgstr "Neue Migration"
+
+msgid "Nothing has been migrated yet"
+msgstr "Es wurde noch nichts migriert"
+
+msgid "Whatever is migrated appears here, with the run id that can undo it."
+msgstr "Was migriert wird, erscheint hier — mit der Ausführungs-ID, mit der es rückgängig gemacht werden kann."
+
+msgid "Status"
+msgstr "Status"
+
+msgid "What"
+msgstr "Was"
+
+msgid "Asked for"
+msgstr "Angefordert"
+
+msgid "By"
+msgstr "Von wem"
+
+msgid "Run id"
+msgstr "Ausführungs-ID"
+
+msgid "Cancel"
+msgstr "Abbrechen"
+
+msgid "Revert"
+msgstr "Rückgängig machen"
+
+
+msgid "Output"
+msgstr "Ausgabe"
+
+
+msgid "The last {{ lines }} lines the engine printed. The whole output is in the microservice log."
+msgstr "Die letzten {{ lines }} Zeilen der Ausgabe. Die vollständige Ausgabe steht im Protokoll des Microservice."
+
+
+msgid "roughly at device {{ current }} of {{ total }}"
+msgstr "etwa bei Gerät {{ current }} von {{ total }}"
+
+msgid "running for {{ seconds }} s"
+msgstr "läuft seit {{ seconds }} s"
+
+msgid "running for {{ minutes }} min"
+msgstr "läuft seit {{ minutes }} Min."
+
+msgid "running for {{ hours }} h"
+msgstr "läuft seit {{ hours }} Std."
+
+msgid "running for {{ hours }} h {{ minutes }} min"
+msgstr "läuft seit {{ hours }} Std. {{ minutes }} Min."
+
+msgid "took {{ seconds }} s"
+msgstr "dauerte {{ seconds }} s"
+
+msgid "took {{ minutes }} min"
+msgstr "dauerte {{ minutes }} Min."
+
+msgid "took {{ hours }} h"
+msgstr "dauerte {{ hours }} Std."
+
+msgid "took {{ hours }} h {{ minutes }} min"
+msgstr "dauerte {{ hours }} Std. {{ minutes }} Min."
+
+msgid "Waiting"
+msgstr "Wartet"
+
+msgid "Running"
+msgstr "Läuft"
+
+msgid "Succeeded"
+msgstr "Erfolgreich"
+
+msgid "Failed"
+msgstr "Fehlgeschlagen"
+
+msgid "Cancelled"
+msgstr "Abgebrochen"
+
+msgid "Interrupted"
+msgstr "Unterbrochen"
+
+msgid "Unknown"
+msgstr "Unbekannt"
+
+msgid "Objects may already exist in the target tenant. Undo it with this run id."
+msgstr "Im Zielmandanten können bereits Objekte vorhanden sein. Machen Sie sie mit dieser Ausführungs-ID rückgängig."
+
+msgid "What reached the target tenant is not known."
+msgstr "Was den Zielmandanten erreicht hat, ist nicht bekannt."
+
+msgid "What reached the target tenant is not known. Check it by run id before retrying."
+msgstr "Was den Zielmandanten erreicht hat, ist nicht bekannt. Prüfen Sie es anhand der Ausführungs-ID, bevor Sie es erneut versuchen."
+
+msgid "Something went wrong"
+msgstr "Etwas ist schiefgegangen"
+
+msgid "Sign in again"
+msgstr "Melden Sie sich erneut an"
+
+msgid "Not allowed here"
+msgstr "Hier nicht erlaubt"
+
+msgid "Not found"
+msgstr "Nicht gefunden"
+
+msgid "The service is busy"
+msgstr "Der Dienst ist beschäftigt"
+
+msgid "The migration service refused this"
+msgstr "Der Migrationsdienst hat dies abgelehnt"
+
+msgid "The migration service could not answer"
+msgstr "Der Migrationsdienst konnte nicht antworten"
+
+msgid "That cannot be done"
+msgstr "Das ist nicht möglich"
+
+msgid "Start migration"
+msgstr "Migration starten"
+
+msgid "Migrate from"
+msgstr "Migrieren aus"
+
+msgid "Migrate to"
+msgstr "Migrieren nach"
+
+msgid "Choose a tenant"
+msgstr "Mandanten wählen"
+
+msgid "Choose what to migrate"
+msgstr "Wählen, was migriert wird"
+
+msgid "Migrating"
+msgstr "Migriert wird"
+
+msgid "Both tenants can be reached. Nothing has been read from either hierarchy yet."
+msgstr "Beide Mandanten sind erreichbar. Aus keiner der beiden Hierarchien wurde bisher gelesen."
+
+msgid "Relationships to follow"
+msgstr "Zu folgende Beziehungen"
+
+msgid "Nothing ticked migrates only the object itself."
+msgstr "Ohne Auswahl wird nur das Objekt selbst migriert."
+
+msgid "Device data to migrate"
+msgstr "Zu migrierende Gerätedaten"
+
+msgid "Asset"
+msgstr "Asset"
+
+msgid "Device"
+msgstr "Gerät"
+
+msgid "Addition"
+msgstr "Addition"
+
+msgid "Measurements"
+msgstr "Messwerte"
+
+msgid "Events"
+msgstr "Ereignisse"
+
+msgid "Alarms"
+msgstr "Alarme"
+
+msgid "From`date`"
+msgstr "Von"
+
+msgid "-14d, or 2026-01-01"
+msgstr "-14d oder 2026-01-01"
+
+msgid "Pick a date and time"
+msgstr "Datum und Uhrzeit wählen"
+
+msgid "Choose a date and time"
+msgstr "Datum und Uhrzeit wählen"
+
+msgid "Applies once there is device data to migrate."
+msgstr "Gilt, sobald Gerätedaten migriert werden."
+
+msgid "A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the service's configured default applies."
+msgstr "Ein relativer Zeitraum wie -14d ist die bessere Angabe: er bedeutet nächste Woche noch dasselbe. Bleibt das Feld leer, gilt die konfigurierte Vorgabe des Dienstes."
+
+msgid "Use a relative offset like -14d, or a date like 2026-01-01."
+msgstr "Verwenden Sie einen relativen Abstand wie -14d oder ein Datum wie 2026-01-01."
+
+msgid "There is no such date as {{ date }}."
+msgstr "Ein Datum {{ date }} gibt es nicht."
+
+msgid "That is not a time of day."
+msgstr "Das ist keine Uhrzeit."
+
+msgid "Managed objects"
+msgstr "Managed Objects"
+
+msgid "{{ allowed }} children allowed"
+msgstr "{{ allowed }} untergeordnete Objekte erlaubt"
+
+msgid "External identities"
+msgstr "Externe Identitäten"
+
+msgid "no limit"
+msgstr "keine Begrenzung"
+
+msgid "not included"
+msgstr "nicht enthalten"
+
+msgid "busiest device {{ busiest }} of {{ allowed }} allowed"
+msgstr "stärkstes Gerät {{ busiest }} von {{ allowed }} erlaubt"
+
+msgid "Working out how much would move…"
+msgstr "Es wird ermittelt, wie viel verschoben würde…"
+
+msgid "Over the export limits"
+msgstr "Über den Exportgrenzen"
+
+msgid "{{ kind }}: {{ count }} where {{ allowed }} is allowed"
+msgstr "{{ kind }}: {{ count }}, erlaubt sind {{ allowed }}"
+
+msgid "(worst is {{ objectId }}; {{ objects }} objects breach this limit)"
+msgstr "(am stärksten {{ objectId }}; {{ objects }} Objekte überschreiten diese Grenze)"
+
+msgid "Choose the tenant to migrate from."
+msgstr "Wählen Sie den Mandanten, aus dem migriert wird."
+
+msgid "Choose the device or group to migrate."
+msgstr "Wählen Sie das Gerät oder die Gruppe, die migriert wird."
+
+msgid "Choose the tenant to migrate to."
+msgstr "Wählen Sie den Mandanten, in den migriert wird."
+
+msgid "The source and target cannot be the same tenant."
+msgstr "Quelle und Ziel können nicht derselbe Mandant sein."
+
+msgid "Checking that both tenants can be reached."
+msgstr "Es wird geprüft, ob beide Mandanten erreichbar sind."
+
+msgid "The start date cannot be read."
+msgstr "Das Startdatum kann nicht gelesen werden."
+
+msgid "Working out how much would move."
+msgstr "Es wird ermittelt, wie viel verschoben würde."
+
+msgid "This migration is over the export limits. Narrow the data window or the child types."
+msgstr "Diese Migration liegt über den Exportgrenzen. Verkleinern Sie den Zeitraum oder die Beziehungstypen."
+
+msgid "this tenant, where migrations are recorded"
+msgstr "dieser Mandant, in dem Migrationen aufgezeichnet werden"
+
+msgid "already the source"
+msgstr "bereits die Quelle"
+
+msgid "Migrated from"
+msgstr "Migriert aus"
+
+msgid "Migrated to"
+msgstr "Migriert nach"
+
+msgid "Took"
+msgstr "Dauer"
+
+msgid "Undo of {{ runId }}"
+msgstr "Rücknahme von {{ runId }}"
+
+msgid "already undone"
+msgstr "bereits rückgängig gemacht"
+
+# A format rather than a sentence: the parts are an object's name and its id, and
+# a language is free to order them differently.
+msgid "{{ name }} ({{ id }})"
+msgstr "{{ name }} ({{ id }})"
+
+msgid "{{ id }}"
+msgstr "{{ id }}"
+
+msgid "Close"
+msgstr "Schließen"

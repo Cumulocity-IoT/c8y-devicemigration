@@ -90,6 +90,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # For the same reason as the microservice job: the tags are what tell a
+          # release build from a snapshot of one.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -113,8 +117,10 @@ jobs:
       - name: Test
         run: make ui-test
 
+      # Same as the microservice: the default is a snapshot of the version being
+      # developed, not a pinned placeholder.
       - name: Build the plugin
-        run: make ui-package VERSION=0.0.0-ci
+        run: make ui-package
 
       - uses: actions/upload-artifact@v7
         with:
@@ -132,16 +138,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # `make service-package` derives the version from the newest v-tag, so
-          # a shallow clone without tags would silently produce a snapshot.
+          # The version is derived from ./VERSION and from git, and the tags are
+          # what tell a release build from a snapshot. A shallow clone has none,
+          # and would label a tagged commit as a snapshot of it.
           fetch-depth: 0
 
       # The runner is amd64 already, so no emulation is needed here - the
       # --platform pin in the Dockerfile just becomes a no-op.
-      # An explicit CI version, so a package built from a branch cannot be
-      # mistaken for a release of whatever tag happens to be nearest.
+      #
+      # No version is passed: the default is a snapshot of the version being
+      # developed, which is what a package built from a branch is. It used to be
+      # pinned to 0.0.0-ci, which said nothing at all. The commit this came from
+      # is the run's own, and the artifact below is named after it.
       - name: Build the package
-        run: make service-package SERVICE_VERSION=0.0.0-ci
+        run: make service-package
 
       - name: Show what will be deployed
         run: |

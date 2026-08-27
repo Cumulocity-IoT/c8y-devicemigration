@@ -1,0 +1,17 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: c8y-devicemigration\n"
+"Language: en\n"
+"Language-Team: English (United Kingdom)\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+# The source strings are British English, so this catalogue is almost empty by
+# design: a key with no entry falls back to the source. What is here is what the
+# source cannot say for itself.
+
+# Disambiguated in the source because "From" alone is ambiguous in several
+# languages - the backtick part is a note to translators, never shown.
+msgid "From`date`"
+msgstr "From"

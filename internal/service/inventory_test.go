@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -406,5 +407,166 @@ func TestAnEstimateAgreesWithTheMigrationThatFollowsIt(t *testing.T) {
 	}
 	if _, ok := fmt.Sprint(job["runId"]), true; !ok {
 		t.Fatal("unreachable")
+	}
+}
+
+// A tenant's inventory holds far more than devices: dashboards, smart rules,
+// binaries, retention rules, and this service's own job records. Offering those
+// as things to migrate is worse than unhelpful - somebody would pick one.
+func TestOnlyDevicesGroupsAndAssetsAreOffered(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	// A migration into the owner tenant, so that tenant then holds job records
+	// as well as migrated devices - two kinds of object the picker must treat
+	// differently.
+	job := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: bootstrapTenant, RootID: "1",
+	})
+	if job["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("the migration failed: %v", job["error"])
+	}
+
+	response := inventory(t, svc, "/tenants/"+bootstrapTenant+"/inventory")
+	if len(response.Objects) == 0 {
+		t.Fatal("nothing was offered at all")
+	}
+
+	for _, object := range response.Objects {
+		if !object.IsDevice && !object.IsGroup {
+			t.Errorf("%s (%s) is neither a device nor a group, so it should not be offered",
+				object.ID, object.Type)
+		}
+		if object.Type == service.RecordType {
+			t.Errorf("job record %s was offered as something to migrate", object.ID)
+		}
+	}
+}
+
+// The filter has to be part of the query the platform runs. Filtering here
+// instead would read the whole inventory and page through objects nobody asked
+// for - which is the mistake this repository keeps making.
+func TestTheDeviceFilterIsSentToThePlatform(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	inventory(t, svc, "/tenants/t-source/inventory")
+
+	sent := false
+	for _, query := range p.tenants["t-source"].Queries() {
+		if !strings.HasPrefix(query, "/inventory/managedObjects?") {
+			continue
+		}
+		decoded, err := url.QueryUnescape(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(decoded, "c8y_IsDevice") && strings.Contains(decoded, "c8y_IsDeviceGroup") {
+			sent = true
+		}
+	}
+	if !sent {
+		t.Fatalf("the platform was never asked to filter:\n%s",
+			strings.Join(p.tenants["t-source"].Queries(), "\n"))
+	}
+}
+
+// onlyRoots used to be a lie. It filtered on c8y_IsChildAsset and
+// c8y_IsChildDevice, fragments the platform does not have - so the condition was
+// true of everything and the picker offered every child in the tenant as
+// somewhere to start. The platform decides this by looking at an object's
+// parents, and so does this now.
+func TestOnlyRootsOffersOnlyWhatNothingElseHolds(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	everything := inventory(t, svc, "/tenants/t-source/inventory")
+	roots := inventory(t, svc, "/tenants/t-source/inventory?onlyRoots=true")
+
+	if len(roots.Objects) == 0 {
+		t.Fatal("no roots at all, and the fixture has one")
+	}
+	if len(roots.Objects) >= len(everything.Objects) {
+		t.Fatalf("onlyRoots returned %d of %d objects, so it filtered nothing",
+			len(roots.Objects), len(everything.Objects))
+	}
+
+	// 1 is the only object in the fixture nothing holds as a child.
+	var ids []string
+	for _, object := range roots.Objects {
+		ids = append(ids, object.ID)
+	}
+	if len(ids) != 1 || ids[0] != "1" {
+		t.Errorf("roots = %v, want just the top of the hierarchy", ids)
+	}
+}
+
+// The parents have to be asked for. Without withParents the platform sends no
+// parent collections at all, every object looks parentless, and the filter above
+// silently passes everything - which is the same bug in a new place.
+func TestTheRootsFilterAsksThePlatformForParents(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	inventory(t, svc, "/tenants/t-source/inventory?onlyRoots=true")
+
+	asked := false
+	for _, query := range p.tenants["t-source"].Queries() {
+		if strings.HasPrefix(query, "/inventory/managedObjects?") &&
+			strings.Contains(query, "withParents=true") {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Fatalf("the platform was never asked for parents:\n%s",
+			strings.Join(p.tenants["t-source"].Queries(), "\n"))
+	}
+}
+
+// A page whose children were filtered out is shorter than the page size, so
+// counting what came back would call the middle of an inventory the end of it.
+func TestAnotherPageIsReportedFromThePlatformsOwnCount(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	first := inventory(t, svc, "/tenants/t-source/inventory?pageSize=2")
+	if !first.More {
+		t.Errorf("the first page of two says there is nothing after it")
+	}
+
+	// Deliberately past the end: the fixture holds eleven objects.
+	last := inventory(t, svc, "/tenants/t-source/inventory?pageSize=2&currentPage=99")
+	if last.More {
+		t.Errorf("page 99 of a small inventory says there is more after it")
+	}
+
+	// The same page asked for as roots is one object of a much longer listing,
+	// and still has to say that the listing goes on.
+	roots := inventory(t, svc, "/tenants/t-source/inventory?pageSize=2&onlyRoots=true")
+	if len(roots.Objects) >= 2 {
+		t.Fatalf("the fixture's first page of two holds %d roots, so this proves nothing",
+			len(roots.Objects))
+	}
+	if !roots.More {
+		t.Errorf("a page filtered down to %d objects reported the end of the inventory",
+			len(roots.Objects))
+	}
+}
+
+// Paging has to reach the platform, or a picker that asks for the second page
+// gets the first one again and looks like it has stopped loading.
+func TestPagingReachesThePlatform(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	first := inventory(t, svc, "/tenants/t-source/inventory?pageSize=2")
+	second := inventory(t, svc, "/tenants/t-source/inventory?pageSize=2&currentPage=2")
+
+	if len(first.Objects) != 2 || len(second.Objects) != 2 {
+		t.Fatalf("pages of two returned %d and %d objects",
+			len(first.Objects), len(second.Objects))
+	}
+	if first.Objects[0].ID == second.Objects[0].ID {
+		t.Errorf("both pages start at %s, so currentPage was ignored", first.Objects[0].ID)
 	}
 }

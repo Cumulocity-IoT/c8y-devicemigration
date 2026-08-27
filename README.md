@@ -49,10 +49,10 @@ against a live tenant.
 
 **[The user interface](docs/ui.md)** is an Angular plugin that drives the
 microservice, for people who should not have to learn any of the above. Install
-it into Administration and a migration becomes four steps and a progress screen.
+it into Administration and a migration becomes a list of what has been migrated,
+a dialogue that starts another, and a progress bar in that list.
 
-Being built incrementally: the plugin, its navigator entry and the history view
-with revert work today; the wizard and live progress are next.
+Built, but not yet opened in a browser against a real tenant.
 
 ## What gets migrated
 
