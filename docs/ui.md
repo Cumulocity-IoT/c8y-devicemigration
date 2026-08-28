@@ -185,6 +185,14 @@ Unticking every relationship sends `noChildren`, which is not the same as sendin
 nothing: the API's default is `asset,device`, so silence would have migrated more
 than was asked for.
 
+**The target can be a tenant this instance is not subscribed to.** A checkbox
+under the target dropdown opens a panel for a remote target — a different parent,
+or a different platform. The operator enters its host and tenant, the service
+mints a certificate and shows the **public CA** to register on that target, and
+once it is registered the connection is checked like any other preflight. The
+private half of the certificate never leaves the service. The mechanism is in
+[the microservice docs](microservice.md#remote-targets).
+
 **The device picker is the platform's own asset selector.** `c8y-asset-selector`,
 with its search, its drill-down, its paging and the look every other picker in
 Cumulocity has — because it is the same component. Nothing about it is patched or

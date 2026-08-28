@@ -315,3 +315,21 @@ msgstr "{{ id }}"
 
 msgid "Close"
 msgstr "Schließen"
+
+msgid "Target is not listed here (a remote or unsubscribed tenant)"
+msgstr "Ziel ist nicht aufgeführt (ein entfernter oder nicht abonnierter Mandant)"
+
+msgid "Target host"
+msgstr "Ziel-Host"
+
+msgid "Target tenant id"
+msgstr "Ziel-Mandanten-ID"
+
+msgid "Establish connection"
+msgstr "Verbindung herstellen"
+
+msgid "Register this certificate as trusted, with auto-registration enabled, in the target tenant. Then check the connection."
+msgstr "Hinterlegen Sie dieses Zertifikat im Zielmandanten als vertrauenswürdig, mit aktivierter automatischer Registrierung. Prüfen Sie anschließend die Verbindung."
+
+msgid "I have registered it — check connection"
+msgstr "Ich habe es hinterlegt — Verbindung prüfen"

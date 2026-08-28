@@ -70,6 +70,13 @@ type MigrationRequest struct {
 	DateTo    string `json:"dateTo,omitempty"`
 
 	NoFlag bool `json:"noFlag,omitempty"`
+
+	// RemoteTargetID references a remote target established with
+	// POST /remote-targets, for a target this instance is not subscribed to. It
+	// is a handle, not a secret - the certificate behind it lives only in memory
+	// (see remotetarget.go) - so it is safe on the record. When set, TargetTenant
+	// is filled in from the remote target and need not be sent.
+	RemoteTargetID string `json:"remoteTargetId,omitempty"`
 }
 
 // RevertRequest undoes what a migration created.
@@ -235,11 +242,33 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 	if _, err := s.resolveOptions(request, ""); err != nil {
 		return nil, err
 	}
+
+	// A remote target names its tenant on the record for the listing to show,
+	// taken from the established connection rather than trusted from the request.
+	// Resolved here but filled in only after the pre-flight: the pre-flight wants
+	// exactly one of a tenant or a remote id, so targetTenant must stay empty
+	// while it runs.
+	var remoteTenant string
+	if request.RemoteTargetID != "" {
+		rt, ok := s.remoteTargets.get(request.RemoteTargetID)
+		if !ok {
+			return nil, &BadRequestError{Reason: fmt.Sprintf(
+				"remote target %s is not known to this instance - establish it again",
+				request.RemoteTargetID)}
+		}
+		remoteTenant = rt.Tenant
+	}
+
 	if _, err := s.Preflight(ctx, PreflightRequest{
-		SourceTenant: request.SourceTenant,
-		TargetTenant: request.TargetTenant,
+		SourceTenant:   request.SourceTenant,
+		TargetTenant:   request.TargetTenant,
+		RemoteTargetID: request.RemoteTargetID,
 	}); err != nil {
 		return nil, err
+	}
+
+	if remoteTenant != "" {
+		request.TargetTenant = remoteTenant
 	}
 
 	job := Job{
@@ -453,7 +482,7 @@ func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 	if err != nil {
 		return err
 	}
-	target, err := s.tenant(job.Request.TargetTenant)
+	target, err := s.targetClient(job.Request.RemoteTargetID, job.Request.TargetTenant)
 	if err != nil {
 		return err
 	}

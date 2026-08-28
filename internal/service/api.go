@@ -46,6 +46,13 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodPost, Path: "/preflight", handler: s.handlePreflight},
 		{Method: http.MethodPost, Path: "/estimates", handler: s.handleEstimate},
 
+		// Establishing a certificate connection to a target this instance is not
+		// subscribed to. See remotetarget.go and docs/concepts/remote-targets.md.
+		{Method: http.MethodPost, Path: "/remote-targets", handler: s.handleCreateRemoteTarget},
+		{Method: http.MethodGet, Path: "/remote-targets", handler: s.handleListRemoteTargets},
+		{Method: http.MethodDelete, Path: "/remote-targets/{id}",
+			handler: s.handleDeleteRemoteTarget},
+
 		// Reads over a tenant the caller has no session in, so that a user
 		// interface can offer a hierarchy to choose from.
 		{Method: http.MethodGet, Path: "/tenants/{tenant}/inventory",
@@ -318,7 +325,11 @@ func (s *Service) handleTenants(w http.ResponseWriter, r *http.Request) {
 // PreflightRequest names the two tenants a migration would run between.
 type PreflightRequest struct {
 	SourceTenant string `json:"sourceTenant"`
-	TargetTenant string `json:"targetTenant"`
+	TargetTenant string `json:"targetTenant,omitempty"`
+
+	// RemoteTargetID checks a remote target instead of a subscribed one. Exactly
+	// one of TargetTenant and RemoteTargetID is given.
+	RemoteTargetID string `json:"remoteTargetId,omitempty"`
 }
 
 // PreflightResponse reports what the platform said about each side, so a
@@ -371,15 +382,18 @@ func (s *Service) handlePreflight(w http.ResponseWriter, r *http.Request) {
 // one platform. Every migration passes through here, so nothing downstream
 // repeats the check.
 func (s *Service) Preflight(ctx context.Context, request PreflightRequest) (*PreflightResponse, error) {
-	if request.SourceTenant == "" || request.TargetTenant == "" {
-		return nil, &BadRequestError{Reason: "sourceTenant and targetTenant are both required"}
+	if request.SourceTenant == "" {
+		return nil, &BadRequestError{Reason: "sourceTenant is required"}
+	}
+	if (request.TargetTenant == "") == (request.RemoteTargetID == "") {
+		return nil, &BadRequestError{Reason: "give exactly one of targetTenant or remoteTargetId"}
 	}
 
 	source, err := s.tenant(request.SourceTenant)
 	if err != nil {
 		return nil, err
 	}
-	target, err := s.tenant(request.TargetTenant)
+	target, err := s.targetClient(request.RemoteTargetID, request.TargetTenant)
 	if err != nil {
 		return nil, err
 	}

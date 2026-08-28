@@ -102,6 +102,10 @@ type Service struct {
 	clients map[string]*tenantClient
 	running map[string]*queuedJob
 
+	// remoteTargets are the certificate connections to tenants this instance is
+	// not subscribed to. In memory only; see remotetarget.go.
+	remoteTargets *remoteTargetStore
+
 	// tenantNames is how each tenant has been described, once asked, and
 	// managementNames is what tenant management said about all of them - with
 	// managementAsked recording that it was asked, since a refusal is an answer.
@@ -164,6 +168,7 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		clients:            make(map[string]*tenantClient),
 		running:            make(map[string]*queuedJob),
 		tenantNames:        make(map[string]TenantDescription),
+		remoteTargets:      newRemoteTargetStore(),
 	}
 
 	if err := s.prepareStaging(); err != nil {

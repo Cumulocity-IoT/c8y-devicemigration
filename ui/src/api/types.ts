@@ -331,6 +331,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/remote-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The established remote targets
+         * @description Without their certificates - the secret material is never listed.
+         */
+        get: operations["listRemoteTargets"];
+        put?: never;
+        /**
+         * Establish a certificate connection to an unsubscribed target
+         * @description Mints a throwaway certificate authority and a client leaf for a target
+         *     tenant this instance is not subscribed to - a different parent, or a
+         *     different system. Returns the **public** CA to register on that target as
+         *     trusted with auto-registration; the private leaf and key stay in memory
+         *     here and are never returned or recorded. A migration then references the
+         *     returned `id` as `remoteTargetId`.
+         *
+         *     Reachable-until-restart: the connection lives in memory, so a container
+         *     restart forgets it and it must be established again.
+         */
+        post: operations["createRemoteTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/remote-targets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Discard a remote target
+         * @description Forgets the certificate before it lapses.
+         */
+        delete: operations["deleteRemoteTarget"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/migrations": {
         parameters: {
             query?: never;
@@ -594,6 +646,47 @@ export interface components {
         };
         /**
          * @example {
+         *       "host": "t22222.eu-latest.cumulocity.com",
+         *       "tenant": "t22222"
+         *     }
+         */
+        RemoteTargetRequest: {
+            /** @description Where the target lives, e.g. t12345.eu-latest.cumulocity.com. Https assumed. */
+            host: string;
+            /** @description The target tenant id, used to reject a same-tenant migration and shown on the job. */
+            tenant: string;
+        };
+        /** @description A remote target without its certificate. */
+        RemoteTargetView: {
+            id?: string;
+            host?: string;
+            tenant?: string;
+            /** @description The common name of the leaf, which the target auto-registers as a device. */
+            subject?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
+        /** @description A newly established remote target and the CA to register on it. */
+        RemoteTargetEstablished: {
+            id?: string;
+            host?: string;
+            tenant?: string;
+            subject?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @description The public CA certificate to register as trusted on the target. */
+            caCertificate?: string;
+            /** @description What to do with the CA, in words. */
+            instructions?: string;
+        };
+        /**
+         * @description Give exactly one of `targetTenant` (a subscribed tenant) or
+         *     `remoteTargetId` (a target established with `POST /remote-targets`).
+         * @example {
          *       "sourceTenant": "t11111",
          *       "targetTenant": "t22222"
          *     }
@@ -601,8 +694,13 @@ export interface components {
         PreflightRequest: {
             /** @description The tenant a migration would read from. */
             sourceTenant: string;
-            /** @description The tenant a migration would write to. Must not be the source. */
-            targetTenant: string;
+            /** @description A subscribed tenant a migration would write to. Must not be the source. */
+            targetTenant?: string;
+            /**
+             * @description A remote target established with `POST /remote-targets`, for a tenant
+             *     this instance is not subscribed to.
+             */
+            remoteTargetId?: string;
         };
         PreflightResponse: {
             /** @description The platform both tenants live on. */
@@ -625,6 +723,10 @@ export interface components {
          * @description The fields are the command line tool's flags, resolved by the same code,
          *     so values mean here exactly what they mean there. An unknown field is
          *     refused rather than ignored, so a typo is a 400.
+         *
+         *     The target is given as exactly one of `targetTenant` (a subscribed
+         *     tenant) or `remoteTargetId` (a target this instance is not subscribed to,
+         *     established with `POST /remote-targets`).
          * @example {
          *       "sourceTenant": "t11111",
          *       "targetTenant": "t22222",
@@ -636,8 +738,13 @@ export interface components {
         MigrationRequest: {
             /** @description The tenant to read from. Must be subscribed to this application. */
             sourceTenant: string;
-            /** @description The tenant to write to. Must be subscribed, and must not be the source. */
-            targetTenant: string;
+            /** @description A subscribed tenant to write to. Must not be the source. */
+            targetTenant?: string;
+            /**
+             * @description A remote target established with `POST /remote-targets`. When given,
+             *     `targetTenant` is filled in from it and need not be sent.
+             */
+            remoteTargetId?: string;
             /**
              * @description The id of the root managed object to migrate. An id, not a path: a
              *     value containing a path separator is refused, because it would end up
@@ -1423,6 +1530,80 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRemoteTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The remote targets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        remoteTargets?: components["schemas"]["RemoteTargetView"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createRemoteTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteTargetRequest"];
+            };
+        };
+        responses: {
+            /** @description The connection, with the CA to register. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteTargetEstablished"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    deleteRemoteTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discarded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

@@ -44,6 +44,8 @@ tags:
     description: What this microservice can act on.
   - name: monitoring
     description: What the platform's probes and operators use. No credentials needed.
+  - name: remote-targets
+    description: Certificate connections to tenants this instance is not subscribed to.
 
 paths:
   /health:
@@ -428,6 +430,76 @@ paths:
                 type: object
                 description: A Cumulocity managed object reference collection.
         "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+
+  /remote-targets:
+    post:
+      tags: [remote-targets]
+      summary: Establish a certificate connection to an unsubscribed target
+      description: |
+        Mints a throwaway certificate authority and a client leaf for a target
+        tenant this instance is not subscribed to - a different parent, or a
+        different system. Returns the **public** CA to register on that target as
+        trusted with auto-registration; the private leaf and key stay in memory
+        here and are never returned or recorded. A migration then references the
+        returned `id` as `remoteTargetId`.
+
+        Reachable-until-restart: the connection lives in memory, so a container
+        restart forgets it and it must be established again.
+      operationId: createRemoteTarget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoteTargetRequest"
+      responses:
+        "201":
+          description: The connection, with the CA to register.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteTargetEstablished"
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    get:
+      tags: [remote-targets]
+      summary: The established remote targets
+      description: Without their certificates - the secret material is never listed.
+      operationId: listRemoteTargets
+      responses:
+        "200":
+          description: The remote targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remoteTargets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RemoteTargetView"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+
+  /remote-targets/{id}:
+    delete:
+      tags: [remote-targets]
+      summary: Discard a remote target
+      description: Forgets the certificate before it lapses.
+      operationId: deleteRemoteTarget
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Discarded.
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
@@ -844,16 +916,83 @@ components:
           type: string
           description: The host this tenant is reached at.
 
+    RemoteTargetRequest:
+      type: object
+      required: [host, tenant]
+      properties:
+        host:
+          type: string
+          description: Where the target lives, e.g. t12345.eu-latest.cumulocity.com. Https assumed.
+        tenant:
+          type: string
+          description: The target tenant id, used to reject a same-tenant migration and shown on the job.
+      example:
+        host: t22222.eu-latest.cumulocity.com
+        tenant: t22222
+
+    RemoteTargetView:
+      type: object
+      description: A remote target without its certificate.
+      properties:
+        id:
+          type: string
+        host:
+          type: string
+        tenant:
+          type: string
+        subject:
+          type: string
+          description: The common name of the leaf, which the target auto-registers as a device.
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+
+    RemoteTargetEstablished:
+      type: object
+      description: A newly established remote target and the CA to register on it.
+      properties:
+        id:
+          type: string
+        host:
+          type: string
+        tenant:
+          type: string
+        subject:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        caCertificate:
+          type: string
+          description: The public CA certificate to register as trusted on the target.
+        instructions:
+          type: string
+          description: What to do with the CA, in words.
+
     PreflightRequest:
       type: object
-      required: [sourceTenant, targetTenant]
+      required: [sourceTenant]
+      description: |
+        Give exactly one of `targetTenant` (a subscribed tenant) or
+        `remoteTargetId` (a target established with `POST /remote-targets`).
       properties:
         sourceTenant:
           type: string
           description: The tenant a migration would read from.
         targetTenant:
           type: string
-          description: The tenant a migration would write to. Must not be the source.
+          description: A subscribed tenant a migration would write to. Must not be the source.
+        remoteTargetId:
+          type: string
+          description: |
+            A remote target established with `POST /remote-targets`, for a tenant
+            this instance is not subscribed to.
       example:
         sourceTenant: t11111
         targetTenant: t22222
@@ -886,18 +1025,27 @@ components:
 
     MigrationRequest:
       type: object
-      required: [sourceTenant, targetTenant, rootId]
+      required: [sourceTenant, rootId]
       description: |
         The fields are the command line tool's flags, resolved by the same code,
         so values mean here exactly what they mean there. An unknown field is
         refused rather than ignored, so a typo is a 400.
+
+        The target is given as exactly one of `targetTenant` (a subscribed
+        tenant) or `remoteTargetId` (a target this instance is not subscribed to,
+        established with `POST /remote-targets`).
       properties:
         sourceTenant:
           type: string
           description: The tenant to read from. Must be subscribed to this application.
         targetTenant:
           type: string
-          description: The tenant to write to. Must be subscribed, and must not be the source.
+          description: A subscribed tenant to write to. Must not be the source.
+        remoteTargetId:
+          type: string
+          description: |
+            A remote target established with `POST /remote-targets`. When given,
+            `targetTenant` is filled in from it and need not be sent.
         rootId:
           type: string
           description: |

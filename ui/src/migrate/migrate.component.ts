@@ -38,6 +38,9 @@ interface View {
   /** What is wrong with the start date, shown under that field. */
   windowError?: Message;
 
+  /** The remote target just established, so its CA can be shown to register. */
+  remoteTarget?: MigrationFlow['remoteTarget'];
+
   busy: boolean;
 }
 
@@ -204,6 +207,33 @@ export class MigrateComponent implements OnInit {
     this.refresh();
   }
 
+  /** Whether the operator is aiming at a tenant this instance is not subscribed to. */
+  readonly remoteMode = signal(false);
+  readonly remoteHost = signal('');
+  readonly remoteTenant = signal('');
+
+  toggleRemote(on: boolean): void {
+    this.remoteMode.set(on);
+    if (!on) {
+      // Back to the dropdown: forget any remote choice so Start is not gated on
+      // a connection nobody is using.
+      void this.chooseTarget(this.view()?.choices.targetTenant ?? '');
+    }
+  }
+
+  /** Establishes the connection and shows the CA to register. */
+  async establishRemote(): Promise<void> {
+    await this.flow.establishRemoteTarget(this.remoteHost().trim(), this.remoteTenant().trim());
+    this.refresh();
+  }
+
+  /** Proves it once the CA has been registered on the target. */
+  async checkRemote(): Promise<void> {
+    await this.flow.checkRemoteTarget();
+    await this.flow.ensureEstimate();
+    this.refresh();
+  }
+
   /** What the asset selector chose, or nothing once it was cleared. */
   async chooseRoot(root: { id: string; name: string } | undefined): Promise<void> {
     this.flow.chooseRoot(root);
@@ -272,6 +302,7 @@ export class MigrateComponent implements OnInit {
       readiness: this.flow.readiness,
       failure: this.flow.failure,
       windowError: this.flow.windowError,
+      remoteTarget: this.flow.remoteTarget,
       busy: this.flow.busy
     });
   }

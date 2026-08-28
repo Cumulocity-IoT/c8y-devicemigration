@@ -293,8 +293,8 @@ func TestTheRequiredFieldsAreTheOnesTheCodeInsistsOn(t *testing.T) {
 	parsed := readSpec(t)
 
 	for schemaName, want := range map[string][]string{
-		"PreflightRequest": {"sourceTenant", "targetTenant"},
-		"MigrationRequest": {"sourceTenant", "targetTenant", "rootId"},
+		"PreflightRequest": {"sourceTenant"},
+		"MigrationRequest": {"sourceTenant", "rootId"},
 	} {
 		documented := parsed.Components.Schemas[schemaName].Required
 		sort.Strings(documented)

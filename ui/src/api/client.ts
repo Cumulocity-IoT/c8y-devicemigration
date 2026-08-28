@@ -25,6 +25,9 @@ export type InventoryResponse = components['schemas']['InventoryResponse'];
 export type EstimateRequest = components['schemas']['EstimateRequest'];
 export type EstimateResponse = components['schemas']['EstimateResponse'];
 export type EstimateBreach = components['schemas']['EstimateBreach'];
+export type RemoteTargetRequest = components['schemas']['RemoteTargetRequest'];
+export type RemoteTargetView = components['schemas']['RemoteTargetView'];
+export type RemoteTargetEstablished = components['schemas']['RemoteTargetEstablished'];
 
 /** The path the platform exposes this microservice at. */
 export const BASE = '/service/devicemigration';
@@ -83,12 +86,17 @@ export interface MigrationApi {
   reverts(): Promise<Job[]>;
   revert(id: string): Promise<Job>;
   startRevert(request: RevertRequest): Promise<Job>;
+
+  establishRemoteTarget(request: RemoteTargetRequest): Promise<RemoteTargetEstablished>;
+  remoteTargets(): Promise<RemoteTargetView[]>;
+  discardRemoteTarget(id: string): Promise<void>;
 }
 
 export function createApi(fetchLike: FetchLike): MigrationApi {
   const read = async <T>(path: string): Promise<T> => request<T>(fetchLike, 'GET', path);
   const write = async <T>(path: string, body?: unknown): Promise<T> =>
     request<T>(fetchLike, 'POST', path, body);
+  const remove = async <T>(path: string): Promise<T> => request<T>(fetchLike, 'DELETE', path);
 
   return {
     tenants: () => read<TenantsResponse>('/tenants'),
@@ -128,13 +136,21 @@ export function createApi(fetchLike: FetchLike): MigrationApi {
 
     reverts: async () => (await read<{ reverts?: Job[] }>('/reverts')).reverts ?? [],
     revert: id => read<Job>(`/reverts/${encodeURIComponent(id)}`),
-    startRevert: request_ => write<Job>('/reverts', request_)
+    startRevert: request_ => write<Job>('/reverts', request_),
+
+    establishRemoteTarget: request_ =>
+      write<RemoteTargetEstablished>('/remote-targets', request_),
+    remoteTargets: async () =>
+      (await read<{ remoteTargets?: RemoteTargetView[] }>('/remote-targets')).remoteTargets ?? [],
+    discardRemoteTarget: async id => {
+      await remove<unknown>(`/remote-targets/${encodeURIComponent(id)}`);
+    }
   };
 }
 
 async function request<T>(
   fetchLike: FetchLike,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'DELETE',
   path: string,
   body?: unknown
 ): Promise<T> {

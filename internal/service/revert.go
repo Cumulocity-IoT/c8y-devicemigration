@@ -98,6 +98,18 @@ func (s *Service) resolveRevert(ctx context.Context, request RevertRequest) (Rev
 					"a run id cannot find it. Undo it with the command line tool and that "+
 					"run's mapping file", request.JobID)}
 		}
+
+		// A remote-target migration authenticated with a certificate whose key
+		// lived only in memory and is now gone. Deleting the objects it created
+		// needs an identity that owns them - the same certificate, or the target
+		// tenant's own admin - which this service no longer has. So say so, rather
+		// than failing later with an unsubscribed-tenant error.
+		if job.Request != nil && job.Request.RemoteTargetID != "" {
+			return request, &BadRequestError{Reason: fmt.Sprintf(
+				"%s migrated to a remote target reached by a certificate this service no "+
+					"longer holds, so it cannot undo it. Revert it from the command line "+
+					"against that tenant, or from the target tenant itself", request.JobID)}
+		}
 		if request.RunID != "" && request.RunID != job.RunID {
 			return request, &BadRequestError{Reason: fmt.Sprintf(
 				"jobId %s ran as %s, but runId says %s",

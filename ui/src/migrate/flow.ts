@@ -40,6 +40,10 @@ export interface Choices {
   sourceTenant?: string;
   root?: InventoryObject;
   targetTenant?: string;
+
+  /** Set instead of a subscribed targetTenant when the target is remote. */
+  remoteTargetId?: string;
+
   childTypes: string;
   noChildren: boolean;
   dataTypes: string;
@@ -63,6 +67,13 @@ export class MigrationFlow {
 
   /** Set once both service users have been proven. */
   preflightPassed = false;
+
+  /**
+   * The remote target just established, if any, so the screen can show the CA to
+   * register. The certificate here is public - the private half never leaves the
+   * service.
+   */
+  remoteTarget?: import('../api/client').RemoteTargetEstablished;
 
   estimate?: EstimateResponse;
   job?: Job;
@@ -150,15 +161,44 @@ export class MigrationFlow {
   }
 
   async chooseTarget(tenant: string): Promise<void> {
-    if (this.choices.targetTenant === tenant) {
+    if (this.choices.targetTenant === tenant && !this.choices.remoteTargetId) {
       return;
     }
     this.choices.targetTenant = tenant;
+    this.choices.remoteTargetId = undefined;
+    this.remoteTarget = undefined;
     this.preflightPassed = false;
     this.estimate = undefined;
 
     // On one screen there is no step to arrive at, so choosing is what makes
     // proving the tenants worth doing.
+    await this.preflight();
+  }
+
+  /**
+   * Establishes a certificate connection to a target this instance is not
+   * subscribed to. Does not prove it yet: the operator has to register the
+   * returned CA on that target first, then call checkRemoteTarget.
+   */
+  async establishRemoteTarget(host: string, tenant: string): Promise<void> {
+    this.choices.remoteTargetId = undefined;
+    this.remoteTarget = undefined;
+    this.preflightPassed = false;
+    this.estimate = undefined;
+
+    await this.attempt(async () => {
+      const established = await this.api.establishRemoteTarget({ host, tenant });
+      this.remoteTarget = established;
+      this.choices.remoteTargetId = established.id;
+      this.choices.targetTenant = established.tenant;
+    });
+  }
+
+  /** Proves a remote target once its CA has been registered. */
+  async checkRemoteTarget(): Promise<void> {
+    if (!this.choices.remoteTargetId) {
+      return;
+    }
     await this.preflight();
   }
 
@@ -220,6 +260,8 @@ export class MigrationFlow {
     if (this.choices.targetTenant === this.choices.sourceTenant) {
       this.choices.targetTenant = undefined;
     }
+    // A remote target is proven against a specific source; changing the source
+    // means proving it again, but the connection itself stays established.
     this.preflightPassed = false;
     this.estimate = undefined;
   }
@@ -235,13 +277,15 @@ export class MigrationFlow {
   }
 
   async preflight(): Promise<void> {
-    const { sourceTenant, targetTenant } = this.choices;
-    if (!sourceTenant || !targetTenant) {
+    const { sourceTenant, targetTenant, remoteTargetId } = this.choices;
+    if (!sourceTenant || (!targetTenant && !remoteTargetId)) {
       return;
     }
 
     await this.attempt(async () => {
-      await this.api.preflight({ sourceTenant, targetTenant });
+      await this.api.preflight(
+        remoteTargetId ? { sourceTenant, remoteTargetId } : { sourceTenant, targetTenant }
+      );
       this.preflightPassed = true;
     });
   }
@@ -316,9 +360,13 @@ export class MigrationFlow {
     const { sourceTenant, targetTenant, root } = this.choices;
     const request: MigrationRequest = {
       sourceTenant: sourceTenant!,
-      targetTenant: targetTenant!,
       rootId: root!.id!,
     };
+    if (this.choices.remoteTargetId) {
+      request.remoteTargetId = this.choices.remoteTargetId;
+    } else {
+      request.targetTenant = targetTenant!;
+    }
 
     // Only what was chosen: an omitted field means the service's own default,
     // and sending an empty one would be refused.

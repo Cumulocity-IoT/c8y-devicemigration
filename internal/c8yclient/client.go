@@ -33,6 +33,23 @@ const Timeout = 10 * time.Minute
 // make every request fail with 401 and never recover; credentials are exchanged
 // for a fresh token by the library instead.
 func New(s *session.Session, passphrase string) (*api.Client, error) {
+	// A certificate-authenticated session reaches a target this instance holds no
+	// service user for. The library does the rest: given the leaf and its key it
+	// attaches them to the TLS transport and fetches - and renews - device access
+	// tokens over mTLS on port 8443 by itself.
+	if s.Certificate != "" && s.CertificateKey != "" {
+		return api.NewClient(api.ClientOptions{
+			BaseURL: s.BaseURL(),
+			Auth: authentication.AuthOptions{
+				Tenant:         s.Tenant,
+				Certificate:    s.Certificate,
+				CertificateKey: s.CertificateKey,
+			},
+			Timeout:            Timeout,
+			InsecureSkipVerify: s.InsecureSkipVerify,
+		}), nil
+	}
+
 	username, password, token, err := s.Credentials(passphrase)
 	if err != nil {
 		if errors.Is(err, session.ErrNoPassphrase) {

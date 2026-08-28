@@ -247,6 +247,51 @@ that are still there. So a job that did not finish reports its run id and says
 its numbers cannot be trusted, rather than presenting them as fact. Check the
 target tenant by run id before retrying.
 
+### Remote targets
+
+A target the instance is not subscribed to — a different parent, or a different
+platform — is reached with a client certificate instead of a service user, which
+is what lets a device authenticate to a tenant nobody handed it a password for.
+The verified basis for this is in
+[docs/concepts/remote-targets.md](concepts/remote-targets.md); the flow the
+service exposes:
+
+```sh
+# 1. establish a connection to the unsubscribed target; get the CA to register
+c8y api POST /service/devicemigration/remote-targets \
+  --data '{"host":"t22222.eu-latest.cumulocity.com","tenant":"t22222"}'
+# -> { id, caCertificate, ... }
+
+# 2. register that caCertificate as trusted, with auto-registration enabled, in
+#    the target tenant (Administration -> Device management -> Trusted certificates)
+
+# 3. migrate, referencing the connection by id rather than a subscribed tenant
+c8y api POST /service/devicemigration/migrations \
+  --data '{"sourceTenant":"t11111","remoteTargetId":"<id>","rootId":"1399229"}'
+```
+
+`GET /remote-targets` lists the established connections (without their
+certificates), and `DELETE /remote-targets/{id}` discards one. The rules that
+make it safe:
+
+- **The secret never rests.** The service mints a throwaway CA and a client leaf,
+  hands out only the public CA, and keeps the leaf and its key **in memory keyed
+  by the connection id**. The migration request carries only that id, so nothing
+  secret reaches the job record, the job responses, or the OpenAPI document. A
+  container restart forgets the connections, exactly as it abandons running jobs.
+- **The target authenticates the certificate.** The platform issues a
+  device access token to whoever presents, over mTLS, a leaf whose issuer it
+  trusts — which is why the operator registers the CA. The token is the
+  platform's own short-lived one, renewed by the client.
+- **Reverting a remote-target migration is refused here** with a message saying
+  why: undoing it needs the certificate that created the objects, which the
+  service no longer holds, so it points at the command line or the target admin.
+
+One thing this has **not** had is an end-to-end run against a live remote tenant;
+the certificate, token and import primitives it rests on were each verified live
+(see the concept), but the assembled service flow has only been exercised against
+the test fixture.
+
 ### Naming things, not just identifying them
 
 `GET /tenants` answers with each subscribed tenant's id, its company name and its
@@ -492,9 +537,10 @@ library is ever fixed — at which point the local decoder can go.
 
 ## Limitations
 
-- **Both tenants must be on the same platform and subscribed to this
-  application.** Credentials come from the subscription mechanism, so migrating
-  between two platforms stays a job for [the CLI](cli.md).
+- **The source tenant must be subscribed to this application.** Its credentials
+  come from the subscription mechanism. The **target** may instead be a tenant
+  this instance is not subscribed to — a different parent, or a different
+  platform — reached with a certificate; see [Remote targets](#remote-targets).
 - **One replica, one migration at a time.** The manifest pins `replicas: 1`. The
   engine keeps its state in files whose paths come from the caller, so two
   containers sharing a mapping file would corrupt it.

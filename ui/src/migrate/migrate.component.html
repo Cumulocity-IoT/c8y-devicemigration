@@ -71,20 +71,23 @@
         <div class="pane-scope">
           <c8y-form-group>
             <label for="targetTenant">{{ 'Migrate to' | translate }}</label>
-            <select
-              id="targetTenant"
-              class="form-control"
-              [ngModel]="v.choices.targetTenant"
-              (ngModelChange)="chooseTarget($event)"
-            >
-              <option [ngValue]="undefined">{{ 'Choose a tenant' | translate }}</option>
-              @for (tenant of v.tenants.target; track tenant.id) {
-                <option [ngValue]="tenant.id" [disabled]="!!tenant.unavailable">
-                  {{ tenant.label
-                  }}{{ tenant.unavailable ? ' — ' + (tenant.unavailable | translate) : '' }}
-                </option>
-              }
-            </select>
+            @if (!remoteMode()) {
+              <select
+                id="targetTenant"
+                class="form-control"
+                [ngModel]="v.choices.targetTenant"
+                (ngModelChange)="chooseTarget($event)"
+              >
+                <option [ngValue]="undefined">{{ 'Choose a tenant' | translate }}</option>
+                @for (tenant of v.tenants.target; track tenant.id) {
+                  <option [ngValue]="tenant.id" [disabled]="!!tenant.unavailable">
+                    {{ tenant.label
+                    }}{{ tenant.unavailable ? ' — ' + (tenant.unavailable | translate) : '' }}
+                  </option>
+                }
+              </select>
+            }
+
             @if (v.preflightPassed) {
               <p class="text-success small m-t-4">
                 {{
@@ -92,6 +95,76 @@
                     | translate
                 }}
               </p>
+            }
+
+            <!--
+              A target this instance is not subscribed to - a different parent,
+              or a different system. The connection is a certificate: the service
+              mints one, the operator registers the public half on the target,
+              and nobody's password is exposed. See docs/concepts/remote-targets.md.
+            -->
+            <label class="c8y-checkbox m-t-8">
+              <input
+                type="checkbox"
+                [checked]="remoteMode()"
+                (change)="toggleRemote($any($event.target).checked)"
+              />
+              <span></span>
+              <span>{{ 'Target is not listed here (a remote or unsubscribed tenant)' | translate }}</span>
+            </label>
+
+            @if (remoteMode()) {
+              <div class="c8y-list--collapse p-8 m-t-4" style="border: 1px solid var(--c8y-component-border-color, #d6dedd); border-radius: 4px">
+                <label class="text-label-small" for="remoteHost">{{ 'Target host' | translate }}</label>
+                <input
+                  id="remoteHost"
+                  class="form-control m-b-4"
+                  placeholder="t22222.eu-latest.cumulocity.com"
+                  [ngModel]="remoteHost()"
+                  (ngModelChange)="remoteHost.set($event)"
+                />
+                <label class="text-label-small" for="remoteTenant">{{ 'Target tenant id' | translate }}</label>
+                <input
+                  id="remoteTenant"
+                  class="form-control m-b-8"
+                  placeholder="t22222"
+                  [ngModel]="remoteTenant()"
+                  (ngModelChange)="remoteTenant.set($event)"
+                />
+
+                @if (!v.remoteTarget) {
+                  <button
+                    class="btn btn-default btn-sm"
+                    type="button"
+                    [disabled]="!remoteHost().trim() || !remoteTenant().trim() || v.busy"
+                    (click)="establishRemote()"
+                  >
+                    {{ 'Establish connection' | translate }}
+                  </button>
+                } @else {
+                  <p class="text-muted small m-b-4">
+                    {{
+                      'Register this certificate as trusted, with auto-registration enabled, in the target tenant. Then check the connection.'
+                        | translate
+                    }}
+                  </p>
+                  <textarea
+                    class="form-control m-b-4"
+                    rows="5"
+                    readonly
+                    style="font-family: monospace; font-size: 11px"
+                    >{{ v.remoteTarget.caCertificate }}</textarea
+                  >
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    [disabled]="v.busy"
+                    (click)="checkRemote()"
+                  >
+                    {{ 'I have registered it — check connection' | translate }}
+                  </button>
+                }
+              </div>
             }
           </c8y-form-group>
 

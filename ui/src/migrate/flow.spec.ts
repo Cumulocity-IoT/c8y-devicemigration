@@ -35,6 +35,9 @@ function stub(overrides: Partial<MigrationApi> = {}): MigrationApi {
     reverts: async () => [],
     revert: nothing as never,
     startRevert: nothing as never,
+    establishRemoteTarget: async () => ({ id: 'rt-1', host: 'h', tenant: 't-remote' }),
+    remoteTargets: async () => [],
+    discardRemoteTarget: async () => undefined,
     ...overrides
   };
 }
@@ -502,5 +505,84 @@ describe('the start date', () => {
 
     expect(flow.windowError).toBeUndefined();
     expect(flow.failure?.detail).toBe('rootId is required');
+  });
+});
+
+describe('a remote target', () => {
+  it('establishes a certificate connection and exposes the CA to register', async () => {
+    const flow = new MigrationFlow(
+      stub({
+        establishRemoteTarget: async () => ({
+          id: 'rt-9',
+          host: 't9.example.com',
+          tenant: 't9',
+          caCertificate: '-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----'
+        })
+      })
+    );
+    await flow.loadTenants();
+    flow.chooseSource('t-a');
+    flow.chooseRoot({ id: '1', name: 'Plant Berlin' });
+
+    await flow.establishRemoteTarget('t9.example.com', 't9');
+
+    expect(flow.choices.remoteTargetId).toBe('rt-9');
+    expect(flow.choices.targetTenant).toBe('t9');
+    expect(flow.remoteTarget?.caCertificate).toContain('BEGIN CERTIFICATE');
+    // Not proven until the CA is registered and the connection checked.
+    expect(flow.preflightPassed).toBe(false);
+  });
+
+  it('preflights a remote target by its id, not its tenant name', async () => {
+    let sawRemoteId = '';
+    const flow = new MigrationFlow(
+      stub({
+        establishRemoteTarget: async () => ({ id: 'rt-9', host: 'h', tenant: 't9' }),
+        preflight: async req => {
+          sawRemoteId = req.remoteTargetId ?? '';
+          return {};
+        }
+      })
+    );
+    await flow.loadTenants();
+    flow.chooseSource('t-a');
+    flow.chooseRoot({ id: '1', name: 'Plant Berlin' });
+    await flow.establishRemoteTarget('h', 't9');
+
+    await flow.checkRemoteTarget();
+
+    expect(sawRemoteId).toBe('rt-9');
+    expect(flow.preflightPassed).toBe(true);
+  });
+
+  it('asks the migration for by remote id, and omits the tenant name', async () => {
+    const flow = new MigrationFlow(
+      stub({ establishRemoteTarget: async () => ({ id: 'rt-9', host: 'h', tenant: 't9' }) })
+    );
+    await flow.loadTenants();
+    flow.chooseSource('t-a');
+    flow.chooseRoot({ id: '1', name: 'Plant Berlin' });
+    await flow.establishRemoteTarget('h', 't9');
+
+    const request = flow.request();
+    expect(request.remoteTargetId).toBe('rt-9');
+    expect(request.targetTenant).toBeUndefined();
+  });
+
+  it('forgets the remote target when a subscribed tenant is chosen instead', async () => {
+    const flow = new MigrationFlow(
+      stub({ establishRemoteTarget: async () => ({ id: 'rt-9', host: 'h', tenant: 't9' }) })
+    );
+    await flow.loadTenants();
+    flow.chooseSource('t-a');
+    flow.chooseRoot({ id: '1', name: 'Plant Berlin' });
+    await flow.establishRemoteTarget('h', 't9');
+
+    await flow.chooseTarget('t-b');
+
+    expect(flow.choices.remoteTargetId).toBeUndefined();
+    expect(flow.remoteTarget).toBeUndefined();
+    expect(flow.request().remoteTargetId).toBeUndefined();
+    expect(flow.request().targetTenant).toBe('t-b');
   });
 });
