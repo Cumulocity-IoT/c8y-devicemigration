@@ -288,6 +288,23 @@ export interface GridRow {
 }
 
 /**
+ * Whether a failure means the microservice is not deployed on this tenant.
+ *
+ * That is not an error to apologise for: it is the signal that this is a target
+ * tenant of a remote migration, where the plugin is installed but the service is
+ * not. The gateway answers a call to an absent microservice with a 404 naming it,
+ * so a 404 on the very first load - or a message that says as much - is read as
+ * "this is a target tenant", and the screen offers to trust a certificate rather
+ * than showing a scary refusal.
+ */
+export function serviceAbsent(error: unknown): boolean {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+  return error.status === 404 || /not found|not subscribed|microservice/i.test(error.message);
+}
+
+/**
  * A failure, as a screen should put it.
  *
  * The title is ours and translated. The detail is the service's own sentence,

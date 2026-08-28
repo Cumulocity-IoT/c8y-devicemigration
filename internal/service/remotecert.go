@@ -24,12 +24,13 @@ import (
 // live-tenant verification used; nothing here introduces a variable that check
 // did not cover.
 
-// certValidity bounds how long a minted certificate works. Generous enough that
-// an operator can register the CA, walk away and come back to start a long
-// migration, short enough that a forgotten one lapses rather than lingering. The
-// device access tokens the certificate yields are the platform's own short-lived
-// ones, renewed by the client; this only bounds the outer credential.
-const certValidity = 7 * 24 * time.Hour
+// certValidity bounds how long a minted certificate works. Long enough that an
+// operator can register the CA, come back and run a migration within the working
+// day, short enough that a forgotten one lapses the same day rather than
+// lingering. The device access tokens the certificate yields are the platform's
+// own short-lived ones, renewed by the client; this only bounds the outer
+// credential.
+const certValidity = 6 * time.Hour
 
 // certMaterial is one generated authority and the leaf signed by it.
 //

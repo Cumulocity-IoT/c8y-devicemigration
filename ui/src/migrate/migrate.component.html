@@ -142,9 +142,12 @@
                     {{ 'Establish connection' | translate }}
                   </button>
                 } @else {
+                  <p class="text-medium m-b-2">
+                    {{ 'Trust this certificate on the target tenant' | translate }}
+                  </p>
                   <p class="text-muted small m-b-4">
                     {{
-                      'Register this certificate as trusted, with auto-registration enabled, in the target tenant. Then check the connection.'
+                      'In the target tenant, open Device migration → Trust a migration certificate and paste the certificate below. Then check the connection here.'
                         | translate
                     }}
                   </p>
@@ -155,6 +158,13 @@
                     style="font-family: monospace; font-size: 11px"
                     >{{ v.remoteTarget.caCertificate }}</textarea
                   >
+                  <div class="d-flex gap-8 a-i-center m-b-4">
+                    <button class="btn btn-default btn-sm" type="button" (click)="copyCertificate()">
+                      {{
+                        certificateCopied() ? ('Copied' | translate) : ('Copy certificate' | translate)
+                      }}
+                    </button>
+                  </div>
                   <button
                     class="btn btn-primary btn-sm"
                     type="button"
@@ -163,6 +173,22 @@
                   >
                     {{ 'I have registered it — check connection' | translate }}
                   </button>
+
+                  <!-- The manual path, for a target without the plugin. -->
+                  <details class="m-t-8">
+                    <summary class="text-muted small" style="cursor: pointer">
+                      {{ 'Without Device Migration UI (Advanced)' | translate }}
+                    </summary>
+                    <p class="text-muted small m-t-4 m-b-4">
+                      {{
+                        'Download the certificate and add it under Administration → Device management → Trusted certificates, with auto-registration enabled.'
+                          | translate
+                      }}
+                    </p>
+                    <button class="btn btn-default btn-sm" type="button" (click)="downloadCertificate()">
+                      {{ 'Download certificate' | translate }}
+                    </button>
+                  </details>
                 }
               </div>
             }

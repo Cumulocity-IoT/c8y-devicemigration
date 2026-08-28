@@ -1,0 +1,68 @@
+<c8y-title>{{ 'Trust a migration certificate' | translate }}</c8y-title>
+
+<div class="p-16" style="max-width: 60em">
+  <p>
+    {{
+      'A migration into this tenant from an instance that is not subscribed here presents a certificate. Paste it below to trust it — then the migration can reach this tenant. This is the same as adding a trusted certificate under Administration, without needing the file.'
+        | translate
+    }}
+  </p>
+
+  @if (registered(); as fingerprint) {
+    <div class="alert alert-success">
+      <strong>{{ 'Certificate trusted' | translate }}</strong>
+      <p class="m-b-0">
+        {{
+          'Fingerprint {{ fingerprint }}. Auto-registration is on, so the migration can now reach this tenant. Return to it and check the connection.'
+            | translate: { fingerprint: fingerprint }
+        }}
+      </p>
+    </div>
+    <button class="btn btn-default" type="button" (click)="again()">
+      {{ 'Trust another' | translate }}
+    </button>
+  } @else {
+    @if (failure(); as reason) {
+      <div class="alert alert-danger">
+        <strong>{{ 'The certificate was not trusted' | translate }}</strong>
+        <p class="m-b-0">{{ reason }}</p>
+      </div>
+    }
+
+    <c8y-form-group>
+      <label for="certName">{{ 'Name (optional)' | translate }}</label>
+      <input
+        id="certName"
+        class="form-control"
+        [placeholder]="'Device migration certificate' | translate"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+      />
+    </c8y-form-group>
+
+    <c8y-form-group>
+      <label for="certPem">{{ 'Certificate' | translate }}</label>
+      <textarea
+        id="certPem"
+        class="form-control"
+        rows="8"
+        style="font-family: monospace; font-size: 12px"
+        placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"
+        [ngModel]="pem()"
+        (ngModelChange)="pem.set($event)"
+      ></textarea>
+      @if (pem() && problem(); as hint) {
+        <p class="text-danger small m-t-4 m-b-0">{{ hint }}</p>
+      }
+    </c8y-form-group>
+
+    <button
+      class="btn btn-primary"
+      type="button"
+      [disabled]="!!problem() || busy()"
+      (click)="register()"
+    >
+      {{ 'Trust this certificate' | translate }}
+    </button>
+  }
+</div>

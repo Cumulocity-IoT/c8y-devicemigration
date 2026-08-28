@@ -234,6 +234,40 @@ export class MigrateComponent implements OnInit {
     this.refresh();
   }
 
+  /**
+   * Saves the CA as a file, for the manual path.
+   *
+   * The platform's own Trusted certificates screen takes a file, not text, which
+   * is the friction this whole panel exists to avoid - but somebody on a target
+   * without the plugin still needs the file, so it is offered under "another way".
+   */
+  /** Whether the certificate was just copied, for the button to say so. */
+  readonly certificateCopied = signal(false);
+
+  /** Copies the CA to the clipboard, the quickest way to feed the paste field. */
+  async copyCertificate(): Promise<void> {
+    const pem = this.view()?.remoteTarget?.caCertificate;
+    if (!pem) {
+      return;
+    }
+    await navigator.clipboard.writeText(pem);
+    this.certificateCopied.set(true);
+    setTimeout(() => this.certificateCopied.set(false), 2000);
+  }
+
+  downloadCertificate(): void {
+    const pem = this.view()?.remoteTarget?.caCertificate;
+    if (!pem) {
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([pem], { type: 'application/x-pem-file' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `migration-${this.view()?.choices.targetTenant ?? 'target'}.pem`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   /** What the asset selector chose, or nothing once it was cleared. */
   async chooseRoot(root: { id: string; name: string } | undefined): Promise<void> {
     this.flow.chooseRoot(root);

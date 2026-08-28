@@ -6,6 +6,7 @@ import {
   IDLE_REFRESH_MS,
   labelClass,
   refreshInterval,
+  serviceAbsent,
   revertable,
   rows,
   RUNNING_REFRESH_MS,

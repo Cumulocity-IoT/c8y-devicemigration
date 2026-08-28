@@ -16,7 +16,8 @@ import { gettext, message, type Message } from '../i18n';
 import { MigrateComponent } from '../migrate/migrate.component';
 import { byId } from '../tenants';
 import { OutputComponent } from './output.component';
-import { explain, hasDetail, refreshInterval, rows, type GridRow, type Row } from './rows';
+import { RegisterCertificateComponent } from '../trust/register-certificate.component';
+import { explain, hasDetail, refreshInterval, rows, serviceAbsent, type GridRow, type Row } from './rows';
 
 /**
  * What has been migrated, and the button that starts another.
@@ -33,7 +34,7 @@ import { explain, hasDetail, refreshInterval, rows, type GridRow, type Row } fro
 @Component({
   selector: 'c8y-device-migration-history',
   standalone: true,
-  imports: [CommonModule, CoreModule],
+  imports: [CommonModule, CoreModule, RegisterCertificateComponent],
   templateUrl: './history.component.html',
   // Both are pipes, injected so a row can be built as text; a pipe has to be
   // provided to be injectable.
@@ -60,6 +61,15 @@ export class HistoryComponent implements OnInit, OnDestroy {
 
   /** What went wrong, in the service's own words. */
   readonly problem = signal<{ title: string; detail: string } | undefined>(undefined);
+
+  /**
+   * Which screen this is. The plugin lives in two kinds of tenant: the one the
+   * microservice runs on, where this lists migrations, and a remote target,
+   * where the microservice is absent and the useful thing to offer is trusting
+   * the incoming certificate. The load below decides which, from whether the
+   * service answers.
+   */
+  readonly mode = signal<'migrations' | 'target'>('migrations');
 
   /**
    * The columns, and how they behave.
@@ -167,8 +177,17 @@ export class HistoryComponent implements OnInit, OnDestroy {
       this.rows.set(
         rows(migrations, reverts, { tenants: byId(tenants.tenants) }).map(row => this.forGrid(row))
       );
+      this.mode.set('migrations');
     } catch (error) {
-      this.problem.set(explain(error));
+      if (serviceAbsent(error)) {
+        // Not an error: the plugin is on a tenant the microservice is not on, so
+        // this is a migration target. Offer to trust the certificate instead of
+        // apologising for a service that was never meant to be here.
+        this.mode.set('target');
+        this.problem.set(undefined);
+      } else {
+        this.problem.set(explain(error));
+      }
     } finally {
       this.loading.set(false);
       this.poll();
@@ -254,6 +273,10 @@ export class HistoryComponent implements OnInit, OnDestroy {
    */
   private poll(): void {
     clearTimeout(this.polling);
+    // Nothing to poll on a target tenant - there is no service to ask.
+    if (this.mode() === 'target') {
+      return;
+    }
     this.polling = setTimeout(() => void this.load(), refreshInterval(this.rows()));
   }
 }

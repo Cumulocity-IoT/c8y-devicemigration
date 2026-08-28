@@ -168,6 +168,15 @@ VERSION ?= $(shell \
 
 GO_LDFLAGS := -s -w -X github.com/Cumulocity-IoT/c8y-devicemigration/internal/version.Version=$(VERSION)
 
+# The web plugin's version has to be a plain release version. The platform's
+# application registry rejects a SemVer pre-release like -SNAPSHOT for a UI
+# plugin, so the package cannot carry the same string the service does. It gets
+# the X.Y.Z core of $(VERSION) instead, with any -SNAPSHOT or +build suffix
+# stripped. The cost is that two snapshot UI builds share a version - the
+# platform's constraint, not one we chose - while a released plugin still says
+# exactly what it is.
+UI_VERSION := $(shell echo "$(VERSION)" | sed 's/[-+].*//')
+
 # What this build would call itself, without building anything. Worth having:
 # the version is derived from three things at once, and "which one am I looking
 # at" is a question that has already been answered wrongly.
@@ -449,17 +458,18 @@ ui-build:
 	cd $(UI_DIR) && ./node_modules/.bin/ng build --configuration production
 
 # The plugin's own version lives in ui/package.json, because npm needs it there.
-# This sets it so the zip the platform is given says the same thing as
-# everything else in a release.
+# This sets it so the zip the platform is given says the same thing as a release
+# of everything else - minus the -SNAPSHOT the platform will not accept on a UI
+# plugin (see UI_VERSION).
 ui-package:
-	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$$' \
-		|| { echo "VERSION '$(VERSION)' is not SemVer, and the platform will reject it"; exit 1; }
-	cd $(UI_DIR) && npm version --no-git-tag-version --allow-same-version $(VERSION) >/dev/null
+	@echo "$(UI_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' \
+		|| { echo "UI_VERSION '$(UI_VERSION)' is not a plain X.Y.Z, and the platform will reject it"; exit 1; }
+	cd $(UI_DIR) && npm version --no-git-tag-version --allow-same-version $(UI_VERSION) >/dev/null
 	$(MAKE) ui-build
 	@mkdir -p $(SERVICE_DIR)
-	cp $(UI_DIR)/dist/devicemigration-ui.zip $(SERVICE_DIR)/devicemigration-ui-$(VERSION).zip
-	@echo "packaged $(SERVICE_DIR)/devicemigration-ui-$(VERSION).zip"
-	@unzip -l $(SERVICE_DIR)/devicemigration-ui-$(VERSION).zip | tail -3
+	cp $(UI_DIR)/dist/devicemigration-ui.zip $(SERVICE_DIR)/devicemigration-ui-$(UI_VERSION).zip
+	@echo "packaged $(SERVICE_DIR)/devicemigration-ui-$(UI_VERSION).zip"
+	@unzip -l $(SERVICE_DIR)/devicemigration-ui-$(UI_VERSION).zip | tail -3
 
 # Needs an active go-c8y-cli session on the tenant to install it into.
 ui-deploy: ui-package

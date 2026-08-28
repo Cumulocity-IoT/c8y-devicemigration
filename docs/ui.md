@@ -190,7 +190,20 @@ under the target dropdown opens a panel for a remote target — a different pare
 or a different platform. The operator enters its host and tenant, the service
 mints a certificate and shows the **public CA** to register on that target, and
 once it is registered the connection is checked like any other preflight. The
-private half of the certificate never leaves the service. The mechanism is in
+private half of the certificate never leaves the service.
+
+Registering that CA on the target is the friction the platform's own screen
+imposes — it wants a file, and what the source shows is text. So the plugin
+carries a **Trust a migration certificate** page
+([src/trust](../ui/src/trust)): opened in the target tenant, by that tenant's own
+admin, it takes the pasted certificate and registers it as trusted with
+auto-registration, using the admin's own session and touching the microservice
+not at all — it is the platform's own trusted-certificate call. That page is
+deliberately **not** gated on the migration role, because the person using it is
+a target-tenant admin who does not hold it; its navigator entry is visible where
+the plugin is installed. For a target without the plugin, the source panel offers
+the certificate as a **download** for the manual Administration upload. The
+mechanism behind the connection is in
 [the microservice docs](microservice.md#remote-targets).
 
 **The device picker is the platform's own asset selector.** `c8y-asset-selector`,

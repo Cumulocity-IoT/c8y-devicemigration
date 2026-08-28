@@ -1,5 +1,20 @@
+@if (mode() === 'target') {
+  <!--
+    A tenant the microservice is not deployed on: this is the target of a
+    migration from elsewhere. The useful thing here is to trust the certificate
+    that migration presents, not to list migrations there are none of.
+  -->
+  <div class="p-16" style="max-width: 60em">
+    <div class="alert alert-info">
+      {{
+        'This tenant has the migration plugin but not the migration service, which means it is the target of a migration from another instance. Trust the incoming certificate below to let that migration reach this tenant.'
+          | translate
+      }}
+    </div>
+    <c8y-device-migration-trust></c8y-device-migration-trust>
+  </div>
+} @else {
 <c8y-title>{{ 'Device migration' | translate }}</c8y-title>
-
 <div class="p-16">
   <!--
     What this is, for somebody who has arrived here without being told. It stays
@@ -28,7 +43,12 @@
         <li>
           {{ 'the tenant the devices are in now, subscribed to the migration microservice' | translate }}
         </li>
-        <li>{{ 'the tenant they are moving to, subscribed to it as well' | translate }}</li>
+        <li>
+          {{
+            'the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate the New migration dialogue helps you set up'
+              | translate
+          }}
+        </li>
       </ul>
       <p>
         {{
@@ -76,3 +96,4 @@
     ></c8y-ui-empty-state>
   </c8y-data-grid>
 </div>
+}

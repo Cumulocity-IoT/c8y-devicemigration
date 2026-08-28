@@ -25,9 +25,6 @@ msgstr "Bevor Sie beginnen, müssen beide Mandanten vorbereitet sein:"
 msgid "the tenant the devices are in now, subscribed to the migration microservice"
 msgstr "der Mandant, in dem die Geräte jetzt sind, mit abonniertem Migrations-Microservice"
 
-msgid "the tenant they are moving to, subscribed to it as well"
-msgstr "der Mandant, in den sie verschoben werden, ebenfalls mit abonniertem Microservice"
-
 msgid "Then choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below."
 msgstr "Wählen Sie dann „Neue Migration“. Bis dahin wird aus keinem der beiden Mandanten gelesen, und aus dem Mandanten, aus dem die Geräte kommen, wird nie etwas gelöscht — sie werden kopiert, und jede Kopie kann in der Liste unten rückgängig gemacht werden."
 
@@ -328,8 +325,68 @@ msgstr "Ziel-Mandanten-ID"
 msgid "Establish connection"
 msgstr "Verbindung herstellen"
 
-msgid "Register this certificate as trusted, with auto-registration enabled, in the target tenant. Then check the connection."
-msgstr "Hinterlegen Sie dieses Zertifikat im Zielmandanten als vertrauenswürdig, mit aktivierter automatischer Registrierung. Prüfen Sie anschließend die Verbindung."
-
 msgid "I have registered it — check connection"
 msgstr "Ich habe es hinterlegt — Verbindung prüfen"
+
+msgid "Trust a migration certificate"
+msgstr "Migrationszertifikat vertrauen"
+
+msgid "Trust this certificate on the target tenant"
+msgstr "Diesem Zertifikat im Zielmandanten vertrauen"
+
+msgid "In the target tenant, open Device migration → Trust a migration certificate and paste the certificate below. Then check the connection here."
+msgstr "Öffnen Sie im Zielmandanten „Gerätemigration → Migrationszertifikat vertrauen“ und fügen Sie das Zertifikat unten ein. Prüfen Sie anschließend hier die Verbindung."
+
+msgid "Download the certificate and add it under Administration → Device management → Trusted certificates, with auto-registration enabled."
+msgstr "Laden Sie das Zertifikat herunter und fügen Sie es unter „Administration → Geräteverwaltung → Vertrauenswürdige Zertifikate“ mit aktivierter automatischer Registrierung hinzu."
+
+msgid "Download certificate"
+msgstr "Zertifikat herunterladen"
+
+msgid "A migration into this tenant from an instance that is not subscribed here presents a certificate. Paste it below to trust it — then the migration can reach this tenant. This is the same as adding a trusted certificate under Administration, without needing the file."
+msgstr "Eine Migration in diesen Mandanten von einer hier nicht abonnierten Instanz weist ein Zertifikat vor. Fügen Sie es unten ein, um ihm zu vertrauen — dann kann die Migration diesen Mandanten erreichen. Das entspricht dem Hinzufügen eines vertrauenswürdigen Zertifikats unter „Administration“, nur ohne Datei."
+
+msgid "Certificate trusted"
+msgstr "Zertifikat als vertrauenswürdig hinterlegt"
+
+msgid "Fingerprint {{ fingerprint }}. Auto-registration is on, so the migration can now reach this tenant. Return to it and check the connection."
+msgstr "Fingerabdruck {{ fingerprint }}. Die automatische Registrierung ist aktiv, sodass die Migration diesen Mandanten nun erreichen kann. Kehren Sie dorthin zurück und prüfen Sie die Verbindung."
+
+msgid "Trust another"
+msgstr "Weiteres vertrauen"
+
+msgid "The certificate was not trusted"
+msgstr "Dem Zertifikat wurde nicht vertraut"
+
+msgid "Name (optional)"
+msgstr "Name (optional)"
+
+msgid "Device migration certificate"
+msgstr "Gerätemigrationszertifikat"
+
+msgid "Certificate"
+msgstr "Zertifikat"
+
+msgid "Paste the certificate first."
+msgstr "Fügen Sie zuerst das Zertifikat ein."
+
+msgid "That does not look like a certificate. Paste the whole thing, including the BEGIN and END lines."
+msgstr "Das sieht nicht wie ein Zertifikat aus. Fügen Sie den gesamten Inhalt einschließlich der BEGIN- und END-Zeilen ein."
+
+msgid "Trust this certificate"
+msgstr "Diesem Zertifikat vertrauen"
+
+msgid "Without Device Migration UI (Advanced)"
+msgstr "Ohne Gerätemigrations-UI (Erweitert)"
+
+msgid "Copy certificate"
+msgstr "Zertifikat kopieren"
+
+msgid "Copied"
+msgstr "Kopiert"
+
+msgid "the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate the New migration dialogue helps you set up"
+msgstr "der Mandant, in den sie verschoben werden — entweder ebenfalls abonniert oder, bei einem Mandanten unter einem anderen übergeordneten Mandanten oder auf einem anderen System, per Zertifikat als vertrauenswürdig hinterlegt, wobei der Dialog „Neue Migration“ dabei hilft"
+
+msgid "This tenant has the migration plugin but not the migration service, which means it is the target of a migration from another instance. Trust the incoming certificate below to let that migration reach this tenant."
+msgstr "Dieser Mandant hat das Migrations-Plugin, aber nicht den Migrationsdienst — er ist also das Ziel einer Migration von einer anderen Instanz. Hinterlegen Sie unten das eingehende Zertifikat als vertrauenswürdig, damit diese Migration diesen Mandanten erreichen kann."
