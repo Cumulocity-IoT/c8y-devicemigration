@@ -1,8 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, EventEmitter, OnInit, Output, signal, ViewEncapsulation } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { BsModalRef } from 'ngx-bootstrap/modal';
-import { CoreModule, DateTimePickerComponent } from '@c8y/ngx-components';
+import { BottomDrawerRef, CoreModule, DateTimePickerComponent } from '@c8y/ngx-components';
 import { BsDropdownModule } from 'ngx-bootstrap/dropdown';
 
 import { MigrationService } from '../api/migration.service';
@@ -14,10 +13,10 @@ import { RootPickerComponent } from './root-picker.component';
 import type { Readiness } from './steps';
 
 /**
- * Starting a migration: one dialogue, everything in it.
+ * Starting a migration: one drawer, everything in it.
  *
  * A migration is something somebody does occasionally, from the list of what has
- * been done before - so this is a modal over that list rather than a place to
+ * been done before - so this is a drawer over that list rather than a place to
  * navigate to. Inside it there are no steps: there is room for every choice at
  * once, and hiding the target while somebody picks a source only makes them
  * click.
@@ -63,34 +62,19 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
     BsDropdownModule
   ],
   templateUrl: './migrate.component.html',
-  // Unencapsulated on purpose. The element these rules size - the modal-dialog
-  // that ngx-bootstrap creates - is an ancestor of this component, so
-  // encapsulated styles cannot reach it, and a plugin's global stylesheet is not
-  // guaranteed to be loaded by the shell. Every rule is prefixed with the class
-  // this dialogue is opened with, so nothing else in the application is touched.
-  encapsulation: ViewEncapsulation.None,
+  // The drawer lays its content out as a card, and expects the content to be
+  // the card's own contents rather than a box inside it.
+  host: { class: 'd-contents' },
   styles: [
     `
-      .device-migration-dialogue.modal-dialog {
-        width: calc(100vw - 96px);
-        max-width: 1560px;
-        margin: 40px auto;
-      }
-      @media (max-width: 768px) {
-        .device-migration-dialogue.modal-dialog {
-          width: calc(100vw - 24px);
-          margin: 12px auto;
-        }
-      }
-      /* A fixed height, not a maximum: the dialogue is a workspace whose size
-         is decided when it opens and never again. Everything inside it - the
-         estimate arriving, another data type ticked, a root chosen - would
-         otherwise resize it, which moves the button somebody was about to press.
-         What does not fit scrolls. */
-      .device-migration-dialogue .modal-inner-scroll {
-        height: calc(100vh - 240px);
-        min-height: 420px;
-      }
+      /* No sizing here any more. This used to carry the modal-dialog's width,
+         its margins, a breakpoint, and a fixed height for the scrolling body -
+         all of it arithmetic against the viewport, and all of it unencapsulated,
+         because the element being sized was an ancestor this component could not
+         otherwise reach. The bottom drawer is that size by definition, and
+         card-header / inner-scroll / card-footer decide what scrolls, so every
+         one of those rules is gone and so is ViewEncapsulation.None. */
+
       /* A floor under what would move, so the list of what is still outstanding
          appearing and disappearing does not push the rest around. The rows
          themselves are always rendered - one per data kind, ticked or not -
@@ -129,9 +113,6 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
   ]
 })
 export class MigrateComponent implements OnInit {
-  /** Emitted once a migration has been accepted, so the list behind can reload. */
-  @Output() readonly started = new EventEmitter<string>();
-
   readonly childTypes = CHILD_TYPES;
   readonly dataTypes = DATA_TYPES;
 
@@ -142,19 +123,32 @@ export class MigrateComponent implements OnInit {
 
 
 
+  /**
+   * Settles when the drawer is done: the new job's id, or a rejection if the
+   * operator backed out. The convention the platform's own drawers use, and what
+   * the list awaits to know whether to reload.
+   */
+  readonly result: Promise<string>;
+  private started_!: (jobId: string) => void;
+  private cancelled_!: () => void;
+
   constructor(
     private readonly migration: MigrationService,
-    private readonly modal: BsModalRef
+    private readonly drawer: BottomDrawerRef<MigrateComponent>
   ) {
     this.flow = new MigrationFlow(migration.api);
+    this.result = new Promise<string>((resolve, reject) => {
+      this.started_ = resolve;
+      this.cancelled_ = reject;
+    });
   }
 
   /**
    * Whether Start should refuse to be pressed.
    *
-   * A method rather than an expression in the template, because the modal's own
-   * header reads it before the first snapshot exists and a half-written
-   * condition there is not type-checkable.
+   * A method rather than an expression in the template, because the footer reads
+   * it before the first snapshot exists and a half-written condition there is
+   * not type-checkable.
    */
   blocked(): boolean {
     const view = this.view();
@@ -300,14 +294,13 @@ export class MigrateComponent implements OnInit {
   /**
    * Starts the migration, and closes only if the service accepted it.
    *
-   * Bound to c8y-modal's `close` **input**, not its `onClose` output, and the
-   * difference matters: the output fires after the modal has already hidden
-   * itself, whereas supplying the input makes closing our decision. A refusal -
-   * a full queue, an unsubscribed tenant - therefore leaves the dialogue open
+   * Closing is this component's decision, not the drawer's: the drawer has no
+   * "close only if it worked" hook, and nothing closes it but these two methods.
+   * So a refusal - a full queue, an unsubscribed tenant - leaves the drawer open
    * with the service's own words on it, instead of vanishing and taking the
    * reason with it.
    *
-   * An arrow property because the modal calls it as a plain callback.
+   * Still an arrow property: the template binds it directly.
    *
    * Once the job exists there is nothing left here to show: the list behind is
    * where a running migration is followed.
@@ -321,9 +314,15 @@ export class MigrateComponent implements OnInit {
       return;
     }
 
-    this.started.emit(job.id);
-    this.modal.hide();
+    this.started_(job.id);
+    void this.drawer.close();
   };
+
+  /** Backing out. Nothing has been asked of either tenant, so nothing to undo. */
+  cancel(): void {
+    this.cancelled_();
+    void this.drawer.close();
+  }
 
   /** Takes a fresh snapshot for the template. */
   private refresh(): void {

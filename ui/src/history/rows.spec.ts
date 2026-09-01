@@ -362,8 +362,14 @@ describe("how often the list reads itself again", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("asks three times less often when idle than when busy", () => {
-    expect(IDLE_REFRESH_MS).toBe(3 * RUNNING_REFRESH_MS);
+  // The ratio used to be the assertion, which only described the numbers that
+  // happened to be there. What matters is that watching a job is quick enough to
+  // look alive, and that idling is cheap - so both numbers are pinned, and
+  // changing either is then a deliberate act rather than a silent drift.
+  it("watches a running job every second and idles at thirty", () => {
+    expect(RUNNING_REFRESH_MS).toBe(1_000);
+    expect(IDLE_REFRESH_MS).toBe(30_000);
+    expect(RUNNING_REFRESH_MS).toBeLessThan(IDLE_REFRESH_MS);
   });
 });
 

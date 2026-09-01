@@ -272,23 +272,54 @@ it has to be. The dialogue it opens carries the same name, so the action and the
 window agree.
 
 **A running migration is followed in the list, not in the dialogue.** The list
-reads itself again every **30 seconds** normally and every **10** while something
-is running — so closing the dialogue, or reloading the page, loses nothing. It
-never stops entirely, because a migration can be started from another session or
-from `c8y api` and a list that only followed its own work would go quietly out of
-date. Every read costs the service a round trip to verify the caller, which is why
-the quiet case is deliberately slow.
+reads itself again every **30 seconds** normally and every **second** while
+something is running — so closing the dialogue, or reloading the page, loses
+nothing. It never stops entirely, because a migration can be started from another
+session or from `c8y api` and a list that only followed its own work would go
+quietly out of date.
+
+The gap between the two numbers is the whole point. Every read costs the service
+three calls and a round trip to the platform to verify the caller, so idling is
+deliberately slow; but a migration is the one thing on this screen worth
+watching, and at ten seconds it did not look like anything was happening — the
+device counter and the progress bar moved in jumps, which reads as a stuck job
+rather than a working one. The fast cadence is bounded in two ways: it lasts only
+as long as a job does, and the next read is scheduled in `load`'s `finally`, so it
+is a gap *between* reads rather than a rate. A slow answer stretches the cycle
+instead of queueing another request behind it.
+
+It also depends on [`keepingIdentity`](../ui/src/history/rows.ts) to be bearable:
+reading every second while replacing every row object would collapse an expanded
+row a second after it was opened.
+
+**Starting one is a bottom drawer, not a modal.** `BottomDrawerService.openDrawer`
+with the platform's own `c8y-bottom-drawer` — the component Cumulocity provides
+for exactly this, a wide scrolling workspace over the page you came from. It
+arrives at the right size by definition, which is the point: the modal it
+replaced carried a hand-written width, a mobile breakpoint and a fixed body
+height, all arithmetic against the viewport, and all of it unencapsulated because
+the element being sized (`.modal-dialog`) was an ancestor the component could not
+otherwise reach. Every one of those rules is gone, and so is
+`ViewEncapsulation.None`.
+
+The drawer hosts its content in a full-height flex column, so the dialogue is the
+three parts the platform's own drawers use: a `card-header` that stays, an
+`inner-scroll flex-grow` body that takes what is left and scrolls inside it, and a
+`card-footer` holding Cancel and Start. The component carries `d-contents` so its
+children become that column's own items. It is opened with `disableClickOutside`,
+because there is half-filled work in it and a stray click on the page behind must
+not throw that away.
+
+**It settles a promise rather than emitting an event.** `result` resolves with the
+new job's id and rejects when the operator backs out — the convention the
+platform's drawers use, and what the list awaits to decide whether to reload. The
+`started` output it used to carry said the same thing twice and is gone.
 
 **The dialogue has no steps.** Source on the left, target and scope on the right,
 what would move underneath. There is room for all of it, and hiding the target
 picker while somebody chooses a source only makes them click. Nothing is gated:
 every choice updates the summary, and the summary lists what is still outstanding
 rather than disabling **Start migration** with no explanation.
-
-**The dialogue brings its own padding.** The platform zeroes `.modal-body`'s
-padding inside `c8y-modal` — content projected into it is expected to pad itself —
-so the body is wrapped in `p-24`. Without that the form sits against the edges,
-which is what it did.
 
 **The start date is checked where it is typed.** `-14d` and the absolute forms
 the engine accepts are mirrored in [window.ts](../ui/src/migrate/window.ts),
@@ -314,10 +345,10 @@ every column shift sideways as the numbers arrived. The widths are in a
 `colgroup` with `table-layout: fixed`, and the value column stays numeric — a kind
 that is not included says so in the notes column beside it.
 
-**The dialogue does not change size.** Its body has a fixed height, not a
-maximum: the size is decided when it opens and never again, and what does not fit
-scrolls. A dialogue that grows while somebody is reading it moves the button they
-were about to press.
+**The dialogue does not change size.** The drawer's own geometry sees to that
+now: it is the same panel whatever is in it, and the body scrolls. A dialogue that
+grows while somebody is reading it moves the button they were about to press,
+which is what the fixed height used to be defending against by hand.
 
 Inside it, the same rule applies to the parts that would otherwise jump: the
 estimate has a row for every data kind whether or not it is ticked — reading

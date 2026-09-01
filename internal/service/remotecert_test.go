@@ -107,3 +107,39 @@ func hasClientAuth(usages []x509.ExtKeyUsage) bool {
 	}
 	return false
 }
+
+// The window is a number somebody chose, so the number itself is the test.
+//
+// Every other validity check here compares against certValidity, which means
+// they pass whatever it happens to say: a change from six hours to six days
+// would not have failed anything. This one fails, and names both halves, so a
+// deployment reporting a different window is a question about which build is
+// running rather than about what the code says.
+func TestTheValidityWindowIsSixHours(t *testing.T) {
+	const want = 6 * time.Hour
+
+	if certValidity != want {
+		t.Errorf("certValidity is %s, want %s", certValidity, want)
+	}
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	material, err := generateCertMaterial("x", now)
+	if err != nil {
+		t.Fatalf("generating: %v", err)
+	}
+
+	for _, c := range []struct{ name, pem string }{
+		{"CA", material.CAPEM},
+		{"leaf", material.LeafPEM},
+	} {
+		cert := parseOnly(t, c.pem)
+		if got := cert.NotAfter.Sub(now); got != want {
+			t.Errorf("%s is good for %s after minting, want %s", c.name, got, want)
+		}
+		// Backdated an hour against clock skew between this container and the
+		// platform, which widens the window but not the time it is useful for.
+		if got := now.Sub(cert.NotBefore); got != time.Hour {
+			t.Errorf("%s is backdated %s, want %s", c.name, got, time.Hour)
+		}
+	}
+}

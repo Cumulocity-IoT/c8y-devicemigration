@@ -1,15 +1,19 @@
-<c8y-modal
-  [title]="'New migration' | translate"
-  [labels]="{ ok: 'Start migration' | translate, cancel: 'Cancel' | translate }"
-  [disabled]="blocked()"
-  [close]="submit"
->
-  <!--
-    p-24 because the platform zeroes the modal body's own padding inside
-    c8y-modal: content projected into it is expected to bring its own, and
-    without this it sits against the edges.
-  -->
-  <div class="p-24">
+<!--
+  A bottom drawer, not a modal. It is the platform's own component for a
+  workspace like this one, and it is already the size it should be: the sizing
+  this dialogue used to do by hand - a width against the viewport, a breakpoint,
+  and a fixed body height so the panel did not resize while somebody read it -
+  is what the drawer is for.
+
+  The three parts are the convention its own drawers use: a header that stays, a
+  body that scrolls, and a footer holding the decision.
+-->
+<div class="card-header separator-bottom flex-no-shrink p-l-24 p-r-24">
+  <div class="card-title h4">{{ 'New migration' | translate }}</div>
+</div>
+
+<!-- Grows into whatever the header and footer leave, and scrolls inside it. -->
+<div class="inner-scroll flex-grow p-24">
     @if (view(); as v) {
       @if (v.failure; as failure) {
         <div
@@ -442,5 +446,13 @@
     } @else {
       <c8y-loading />
     }
-  </div>
-</c8y-modal>
+</div>
+
+<div class="card-footer separator p-24 text-center">
+  <button class="btn btn-default" type="button" (click)="cancel()">
+    {{ 'Cancel' | translate }}
+  </button>
+  <button class="btn btn-primary" type="button" [disabled]="blocked()" (click)="submit()">
+    {{ 'Start migration' | translate }}
+  </button>
+</div>

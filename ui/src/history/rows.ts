@@ -367,8 +367,22 @@ export function stillRunning(list: Array<{ job: Job }>): boolean {
 /** How often the list asks again when nothing is running. */
 export const IDLE_REFRESH_MS = 30_000;
 
-/** How often it asks while something is. */
-export const RUNNING_REFRESH_MS = 10_000;
+/**
+ * How often it asks while something is.
+ *
+ * A second, because a migration is the one thing on this screen worth watching
+ * and at ten it did not look like anything was happening: the device counter and
+ * the progress bar moved in jumps, which reads as a stuck job rather than a
+ * working one.
+ *
+ * The cost is real and bounded. Each read is three calls to the service, each of
+ * which costs it a round trip to the platform to verify the caller - but the
+ * next read is scheduled only once the previous one has finished, so this is a
+ * gap between reads and not a rate. A slow answer stretches the cycle instead of
+ * queueing another request behind it, and the fast cadence lasts only as long as
+ * a job does.
+ */
+export const RUNNING_REFRESH_MS = 1_000;
 
 /**
  * How long to wait before reading the list again.
@@ -377,7 +391,7 @@ export const RUNNING_REFRESH_MS = 10_000;
  * else - or from `c8y api` - and a screen that only refreshed its own work would
  * show a stale list to everybody else. Every read costs the service a round trip
  * to the platform to verify the caller, so the quiet case is deliberately slow
- * and the interesting one is not.
+ * and the interesting one is deliberately not: thirty seconds against one.
  */
 export function refreshInterval(list: Array<{ job: Job }>): number {
   return stillRunning(list) ? RUNNING_REFRESH_MS : IDLE_REFRESH_MS;

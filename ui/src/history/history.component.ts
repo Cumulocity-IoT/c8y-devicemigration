@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import {
   type ActionControl,
+  BottomDrawerService,
   C8yTranslatePipe,
   type Column,
   ColumnDataType,
@@ -235,6 +236,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
   constructor(
     private readonly migration: MigrationService,
     private readonly modals: BsModalService,
+    private readonly drawers: BottomDrawerService,
     // The pipe rather than a service: this is what the platform gives a plugin
     // for translating in code, and the grid needs finished text.
     private readonly translator: C8yTranslatePipe,
@@ -250,16 +252,29 @@ export class HistoryComponent implements OnInit, OnDestroy {
   }
 
   /** Opens the dialogue, and reloads once it has started something. */
+  /**
+   * Opens the migration workspace in the platform's bottom drawer.
+   *
+   * A drawer rather than a modal because it is the platform's component for
+   * exactly this - a wide, scrolling workspace - and it comes at the right size,
+   * which a modal did not: that one carried a hand-written width, a breakpoint
+   * and a fixed body height, all arithmetic against the viewport.
+   *
+   * `disableClickOutside` because there is half-filled work in it, and a stray
+   * click on the page behind must not throw that away.
+   */
   newMigration(): void {
-    const dialogue = this.modals.show(MigrateComponent, {
-      // The dialogue sizes itself; see the styles on MigrateComponent.
-      class: 'device-migration-dialogue',
-      ignoreBackdropClick: true
+    const drawer = this.drawers.openDrawer(MigrateComponent, {
+      disableClickOutside: true
     });
 
-    dialogue.content?.started.subscribe(() => {
-      void this.load();
-    });
+    // The convention the platform's own drawers use: the component settles a
+    // promise. It rejects when the operator backs out, which is not an error and
+    // has nothing to reload for.
+    void drawer.instance.result.then(
+      () => void this.load(),
+      () => undefined
+    );
   }
 
   /** The engine's own output for one job. */
