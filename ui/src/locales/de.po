@@ -25,8 +25,8 @@ msgstr "Bevor Sie beginnen, müssen beide Mandanten vorbereitet sein:"
 msgid "the tenant the devices are in now, subscribed to the migration microservice"
 msgstr "der Mandant, in dem die Geräte jetzt sind, mit abonniertem Migrations-Microservice"
 
-msgid "Then choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below."
-msgstr "Wählen Sie dann „Neue Migration“. Bis dahin wird aus keinem der beiden Mandanten gelesen, und aus dem Mandanten, aus dem die Geräte kommen, wird nie etwas gelöscht — sie werden kopiert, und jede Kopie kann in der Liste unten rückgängig gemacht werden."
+msgid "Choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below."
+msgstr "Wählen Sie „Neue Migration“. Bis dahin wird aus keinem der beiden Mandanten gelesen, und aus dem Mandanten, aus dem die Geräte kommen, wird nie etwas gelöscht — sie werden kopiert, und jede Kopie kann in der Liste unten rückgängig gemacht werden."
 
 msgid "Migrations"
 msgstr "Migrationen"
@@ -385,8 +385,8 @@ msgstr "Zertifikat kopieren"
 msgid "Copied"
 msgstr "Kopiert"
 
-msgid "the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate the New migration dialogue helps you set up"
-msgstr "der Mandant, in den sie verschoben werden — entweder ebenfalls abonniert oder, bei einem Mandanten unter einem anderen übergeordneten Mandanten oder auf einem anderen System, per Zertifikat als vertrauenswürdig hinterlegt, wobei der Dialog „Neue Migration“ dabei hilft"
+msgid "the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate you can set up below"
+msgstr "der Mandant, in den sie verschoben werden — entweder ebenfalls abonniert oder, bei einem Mandanten unter einem anderen übergeordneten Mandanten oder auf einem anderen System, per Zertifikat als vertrauenswürdig hinterlegt, das Sie unten einrichten können"
 
 msgid "This tenant has the migration plugin but not the migration service, which means it is the target of a migration from another instance. Trust the incoming certificate below to let that migration reach this tenant."
 msgstr "Dieser Mandant hat das Migrations-Plugin, aber nicht den Migrationsdienst — er ist also das Ziel einer Migration von einer anderen Instanz. Hinterlegen Sie unten das eingehende Zertifikat als vertrauenswürdig, damit diese Migration diesen Mandanten erreichen kann."

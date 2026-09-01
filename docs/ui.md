@@ -107,12 +107,18 @@ short leaves the offer standing, because a revert deletes what carries the marke
 and running it again finds whatever the first one left. The status column says
 *already undone* rather than merely dropping the action.
 
-Above the list is an **introduction that stays there**: what this moves, what has
-to be true before it can (both tenants subscribed), and the two facts that
-reassure a first-time user — nothing is read until a migration is started, and
-nothing is ever deleted from the tenant the devices came from. It is not behind a
-help link because a migration is rare enough that almost everybody doing one is
-doing it for the first time.
+Above the list is an **introduction that stays there**: what this moves, and the
+two facts that reassure a first-time user — nothing is read until a migration is
+started, and nothing is ever deleted from the tenant the devices came from. It is
+not behind a help link because a migration is rare enough that almost everybody
+doing one is doing it for the first time.
+
+**The prerequisites are in the dialogue, not the introduction.** What has to be
+true before a migration can run — the source subscribed, the target subscribed or
+trusted with a certificate — is stated at the top of **New migration** instead,
+because that is where somebody acts on it: the source dropdown offers only
+subscribed tenants, and the certificate is set up a few fields below. On the list
+page it was advice with nothing to do about it.
 
 Whether a run can be undone is decided in one place and pinned by tests, because
 three separate things make it impossible: a revert creates nothing, so there is

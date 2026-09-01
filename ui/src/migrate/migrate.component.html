@@ -22,6 +22,27 @@
         </div>
       }
 
+      <!--
+        What has to be true before this can work. It lives here rather than on
+        the list page because this is where somebody acts on it: the source
+        dropdown offers only subscribed tenants, and the certificate the second
+        point mentions is set up a few fields below.
+      -->
+      <div class="text-muted small m-b-16">
+        <p class="m-b-4">{{ 'Before you begin, both tenants need to be ready:' | translate }}</p>
+        <ul class="m-b-0">
+          <li>
+            {{ 'the tenant the devices are in now, subscribed to the migration microservice' | translate }}
+          </li>
+          <li>
+            {{
+              'the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate you can set up below'
+                | translate
+            }}
+          </li>
+        </ul>
+      </div>
+
       <div class="device-migration-panes">
         <!-- Where it comes from, and what in it. -->
         <div class="pane-source">
