@@ -75,8 +75,12 @@ tested without a browser or a dependency injector. The Angular pieces are wiring
 **The list is the screen.** Migrations are occasional, and the useful question on
 opening this is what happened last time — not what to do next. So `/device-migration`
 is the history: migrations and reverts together, newest first, with the run id,
-who asked, and either **Cancel** or **Revert**. A **New migration** button opens
-the dialogue over it.
+who asked, and either **Cancel** or **Revert**. **New migration** opens the
+dialogue over it, from the shell's own **action bar** rather than a button placed
+over the list — that is where Cumulocity puts a screen's actions, so it is where
+somebody looks for them. It is registered inside the migrations branch of the
+template, so a target tenant, which has no microservice to start a migration
+with, does not offer the action at all.
 
 The table is **the platform's own data grid**, given rows rather than a
 `serverSideDataCallback` — which is what makes it sort, page and search through

@@ -15,6 +15,20 @@
   </div>
 } @else {
 <c8y-title>{{ 'Device migration' | translate }}</c8y-title>
+
+<!--
+  The one action this screen offers, in the shell's own action bar rather than a
+  button floating over the list: that is where Cumulocity puts a screen's
+  actions, so it is where somebody looks for them. It sits inside this branch on
+  purpose - on a target tenant there is no microservice to start a migration
+  with, so the action must not be there to press.
+-->
+<c8y-action-bar-item [placement]="'right'">
+  <button class="btn btn-link" type="button" (click)="newMigration()">
+    <i c8yIcon="plus-circle"></i> {{ 'New migration' | translate }}
+  </button>
+</c8y-action-bar-item>
+
 <div class="p-16">
   <!--
     What this is, for somebody who has arrived here without being told. It stays
@@ -44,13 +58,6 @@
       </p>
     </div>
     <i class="device-migration-emblem text-muted hidden-xs hidden-sm" c8yIcon="in-transit"></i>
-  </div>
-
-  <div class="d-flex a-i-center gap-8 m-b-16">
-    <span class="flex-grow"></span>
-    <button class="btn btn-primary" type="button" (click)="newMigration()">
-      {{ 'New migration' | translate }}
-    </button>
   </div>
 
   @if (problem(); as failure) {
