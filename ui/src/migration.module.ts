@@ -25,7 +25,10 @@ import { RegisterCertificateComponent } from './trust/register-certificate.compo
       new NavigatorNode({
         // The shell translates a navigator label; this is the marker for it.
         label: gettext('Device migration'),
-        icon: 'exchange',
+        // The same icon wherever this feature appears - here and the list's
+        // empty state. One picture for one thing: two icons for the same
+        // feature reads as two features.
+        icon: 'in-transit',
         path: '/device-migration',
         priority: 100,
         // Hidden from anybody who could not use it anyway: the microservice
