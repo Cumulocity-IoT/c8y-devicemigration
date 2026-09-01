@@ -432,3 +432,30 @@ msgstr "bis {{ to }}"
 
 msgid "{{ from }} to {{ to }}"
 msgstr "{{ from }} bis {{ to }}"
+
+msgid "Undo this migration?"
+msgstr "Diese Migration zurücknehmen?"
+
+msgid "Undo migration"
+msgstr "Migration zurücknehmen"
+
+msgid "Migrated"
+msgstr "Migriert am"
+
+msgid "Run marker"
+msgstr "Lauf-Markierung"
+
+msgid "This deletes from {{ target }} everything the migration created. The devices in {{ source }} are not touched."
+msgstr "Dies löscht in {{ target }} alles, was die Migration angelegt hat. Die Geräte in {{ source }} bleiben unberührt."
+
+msgid "Everything carrying that marker is deleted. Nothing else is, and objects already gone are skipped."
+msgstr "Alles mit dieser Markierung wird gelöscht. Sonst nichts, und bereits entfernte Objekte werden übersprungen."
+
+msgid "Deleting a group also deletes whatever Cumulocity propagates that deletion to, which can include objects this migration never created."
+msgstr "Beim Löschen einer Gruppe löscht Cumulocity auch, worauf sich die Löschung fortpflanzt — darunter können Objekte sein, die diese Migration nie angelegt hat."
+
+msgid "This run was cut short, so its own account of what it created cannot be relied on. The undo deletes whatever still carries the run marker."
+msgstr "Dieser Lauf wurde abgebrochen, daher ist seine eigene Aufstellung des Angelegten nicht verlässlich. Die Rücknahme löscht alles, was noch die Lauf-Markierung trägt."
+
+msgid "An earlier undo of this migration did not finish, so some of what it created may already be gone. Undoing it again deletes whatever is left."
+msgstr "Eine frühere Rücknahme dieser Migration wurde nicht abgeschlossen, daher ist möglicherweise ein Teil des Angelegten bereits entfernt. Eine erneute Rücknahme löscht, was übrig ist."

@@ -55,6 +55,7 @@ shows its words rather than paraphrasing them.
 | `src/history/status-cell.component.ts` | the status column: the platform's tag, one status, the rest in its tooltip |
 | `src/history/timestamp-cell.component.ts` | the timestamp column: locale formatting over a chronologically sortable value |
 | `src/history/output.component.ts` | the engine's own output for one job, in a dialogue |
+| `src/history/revert-confirm.component.ts` | asking before an undo, and saying what it would delete |
 | `src/tenants.ts` | naming a tenant: the company name or the host, always with the id |
 | `src/history/history.component.*` | the list, which is the screen |
 
@@ -209,6 +210,33 @@ successful revert for its run id is what says so; one that failed or was cut
 short leaves the offer standing, because a revert deletes what carries the marker
 and running it again finds whatever the first one left — which the status says as
 *Revert failed*, with the half-deleted caveat in its tooltip.
+
+**An undo is confirmed before it runs.** It is the one destructive thing this
+screen does, and it used to happen on a single click of a menu item sitting two
+pixels from *Migration log*. The dialogue names the root, the tenant it deletes
+from, when the migration ran, what it included, and the run marker itself —
+`c8y_DeviceMigration_<runId>` — because that is the part that makes the promise
+checkable: it is what somebody pastes into an inventory query to see the objects
+for themselves before agreeing.
+
+It states no count, deliberately. The service keeps no plan to ask for: there is
+no dry run, and the record carries no tally of what the migration created, so a
+number on that screen would be a guess presented as a fact. It states the rule
+instead — everything carrying that marker, nothing else, objects already gone
+skipped — and then the three ways the result can still surprise somebody, from
+[`revertWarnings`](../ui/src/history/rows.ts): a group deletion propagates to
+subgroups and can take objects this migration never created; a run that was cut
+short cannot be believed about what it did; and an earlier undo that failed may
+already have removed some of it. Like the migration dialogue, it is bound to
+`c8y-modal`'s `close` input rather than its `onClose` output, so a refusal leaves
+the dialogue open with the service's own words instead of vanishing with them.
+
+**A migration to a remote target is no longer offered for undoing at all.** The
+service refuses those — the certificate it reached that tenant with lived in
+memory and is gone, so it no longer holds an identity that owns the objects — and
+`revertable` now applies the same rule the service does. Offering a button whose
+only possible outcome is that refusal is the same mistake as a navigator entry
+that only ever leads to one.
 
 **An undo cannot itself be undone, and the expansion says so** rather than
 leaving it to the absence of an action. It has to be said in the row's content:

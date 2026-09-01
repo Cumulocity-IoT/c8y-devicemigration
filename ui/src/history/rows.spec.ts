@@ -10,6 +10,7 @@ import {
   statusTag,
   refreshInterval,
   serviceAbsent,
+  revertWarnings,
   revertable,
   rows,
   RUNNING_REFRESH_MS,
@@ -580,5 +581,54 @@ describe("what the list says about tenants and objects", () => {
       expect(scope.from).toBe("-14d");
       expect(scope.remote).toBe(true);
     });
+  });
+
+  describe("confirming an undo", () => {
+    const migrated = (over: Record<string, unknown> = {}) =>
+      rows(
+        [job({ id: "m1", runId: "r1", status: "SUCCEEDED", ...over })],
+        [],
+      )[0];
+
+    it("always warns that deleting a group takes more with it", () => {
+      // Cumulocity propagates a group deletion to its subgroups, which can
+      // remove objects this migration never created. True of every undo.
+      expect(revertWarnings(migrated())[0]).toContain("propagates");
+    });
+
+    it("says when the run's own account of itself cannot be relied on", () => {
+      const warnings = revertWarnings(migrated({ countsVerified: false }));
+
+      expect(warnings.some(w => w.includes("cut short"))).toBe(true);
+      expect(revertWarnings(migrated()).some(w => w.includes("cut short"))).toBe(false);
+    });
+
+    it("says when an earlier undo left the job half done", () => {
+      const row = rows(
+        [job({ id: "m1", runId: "r1", status: "SUCCEEDED" })],
+        [job({ id: "u1", kind: "REVERT", status: "FAILED", revert: { runId: "r1" } })],
+      )[0];
+
+      expect(revertWarnings(row).some(w => w.includes("may already be gone"))).toBe(true);
+    });
+  });
+
+  it("does not offer to undo a migration the service would refuse", () => {
+    // A remote target was reached with a certificate the service held in memory
+    // and no longer has, so it refuses the undo. A button whose only outcome is
+    // that refusal is worse than no button.
+    const row = rows(
+      [
+        job({
+          id: "m1",
+          runId: "r1",
+          status: "SUCCEEDED",
+          request: { sourceTenant: "s", rootId: "1", remoteTargetId: "rt-1" },
+        }),
+      ],
+      [],
+    )[0];
+
+    expect(row.revertable).toBe(false);
   });
 });

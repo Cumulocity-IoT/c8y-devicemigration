@@ -303,7 +303,48 @@ export function revertable(job: Job, undone: Set<string> = new Set()): boolean {
     // report success, which reads as though something had been done.
     return false;
   }
+  if (job.request?.remoteTargetId) {
+    // The service refuses these: the certificate it reached that tenant with
+    // lived in memory and is gone, and deleting what the migration created needs
+    // an identity that owns it. Offering a button whose only outcome is that
+    // refusal is worse than not offering it - the same rule as the role-gated
+    // navigator entry.
+    return false;
+  }
   return !!job.runId && !job.request?.noFlag;
+}
+
+/**
+ * What somebody should be told before undoing a migration.
+ *
+ * The engine keeps no plan a screen could show - there is no dry run to ask, and
+ * the record carries no count of what was created - so a confirmation cannot
+ * promise "12 objects". What it can do is be exact about the rule (everything
+ * carrying this run's marker) and honest about the three ways the result can
+ * surprise somebody.
+ */
+export function revertWarnings(row: Row): string[] {
+  const warnings: string[] = [
+    gettext(
+      "Deleting a group also deletes whatever Cumulocity propagates that deletion to, which can include objects this migration never created.",
+    ),
+  ];
+
+  if (row.job.countsVerified === false) {
+    warnings.push(
+      gettext(
+        "This run was cut short, so its own account of what it created cannot be relied on. The undo deletes whatever still carries the run marker.",
+      ),
+    );
+  }
+  if (row.undos.length > 0) {
+    warnings.push(
+      gettext(
+        "An earlier undo of this migration did not finish, so some of what it created may already be gone. Undoing it again deletes whatever is left.",
+      ),
+    );
+  }
+  return warnings;
 }
 
 /**
@@ -426,6 +467,9 @@ export interface GridRow {
 
   /** What the migration included, for the expansion to show. */
   scope: ScopeRow;
+
+  /** What the confirmation says before undoing this, from `revertWarnings`. */
+  revertWarnings: string[];
 
   /** The undos, finished for the expansion to show. Empty if never undone. */
   undos: UndoRow[];
@@ -553,7 +597,12 @@ export function serviceAbsent(error: unknown): boolean {
  * somebody may have to search for helps nobody. It goes through the translation
  * pipe as well, where it falls back to itself.
  */
-export function explain(error: unknown): { title: string; detail: string } {
+export interface Failure {
+  title: string;
+  detail: string;
+}
+
+export function explain(error: unknown): Failure {
   if (!(error instanceof ApiError)) {
     return { title: gettext("Something went wrong"), detail: String(error) };
   }

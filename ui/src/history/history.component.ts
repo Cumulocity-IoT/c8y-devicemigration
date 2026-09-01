@@ -17,12 +17,15 @@ import { MigrateComponent } from '../migrate/migrate.component';
 import { kindLabel } from '../migrate/labels';
 import { byId } from '../tenants';
 import { OutputComponent } from './output.component';
+import { RevertConfirmComponent } from './revert-confirm.component';
 import { RegisterCertificateComponent } from '../trust/register-certificate.component';
 import {
   explain,
   hasDetail,
+  type Failure,
   keepingIdentity,
   refreshInterval,
+  revertWarnings,
   rows,
   scopeOf,
   serviceAbsent,
@@ -134,7 +137,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
 
   /** What went wrong, in the service's own words. */
-  readonly problem = signal<{ title: string; detail: string } | undefined>(undefined);
+  readonly problem = signal<Failure | undefined>(undefined);
 
   /**
    * Which screen this is. The plugin lives in two kinds of tenant: the one the
@@ -214,7 +217,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
       text: gettext('Revert'),
       icon: 'undo',
       showIf: (row: GridRow) => row.revertable,
-      callback: (row: GridRow) => void this.revert(row.job)
+      callback: (row: GridRow) => this.confirmRevert(row)
     },
     {
       type: 'SHOW_OUTPUT',
@@ -308,13 +311,22 @@ export class HistoryComponent implements OnInit, OnDestroy {
     }
   }
 
-  async revert(job: Job): Promise<void> {
-    try {
-      await this.migration.api.startRevert({ jobId: job.id });
-      await this.load();
-    } catch (error) {
-      this.problem.set(explain(error));
-    }
+  /**
+   * Asks before undoing, and says what undoing would mean.
+   *
+   * The one destructive thing this screen does, and it used to happen on a
+   * single click of a menu item sitting beside "Migration log". The dialogue
+   * runs the undo itself, so a refusal stays on screen with the reason.
+   */
+  confirmRevert(row: GridRow): void {
+    const dialog = this.modals.show(RevertConfirmComponent, {
+      class: 'modal-md',
+      initialState: { row }
+    });
+
+    (dialog.content as RevertConfirmComponent | undefined)?.reverted.subscribe(() => {
+      void this.load();
+    });
   }
 
   async cancel(job: Job): Promise<void> {
@@ -375,6 +387,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
       cancellable: row.cancellable,
       hasOutput: hasDetail(row),
       scope: this.forScope(row.job),
+      revertWarnings: revertWarnings(row).map(warning => this.say(warning)),
       undos: row.undos.map(undo => this.forPanel(undo))
     };
   }
