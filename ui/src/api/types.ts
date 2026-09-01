@@ -804,6 +804,18 @@ export interface components {
             runId?: string;
             /** @description The migration to undo, which is where the run id comes from. */
             jobId?: string;
+            /**
+             * @description The certificate this undo presents, when the migration it undoes
+             *     reached its target with one. Filled in from that migration's record,
+             *     not sent by the caller: it has to be the *same* certificate, because
+             *     a device token may delete only what it owns and the objects are owned
+             *     by the identity that created them.
+             *
+             *     An opaque handle. The key it stands for never leaves the service's
+             *     memory, so an undo is possible only while that certificate lives -
+             *     `GET /remote-targets` says until when.
+             */
+            remoteTargetId?: string;
         };
         /**
          * @description As much of a managed object as choosing a root needs.

@@ -19,6 +19,7 @@ import { kindLabel } from '../migrate/labels';
 import { byId } from '../tenants';
 import { OutputComponent } from './output.component';
 import { RevertConfirmComponent } from './revert-confirm.component';
+import { RevertExpiredComponent } from './revert-expired.component';
 import { RegisterCertificateComponent } from '../trust/register-certificate.component';
 import {
   explain,
@@ -221,6 +222,18 @@ export class HistoryComponent implements OnInit, OnDestroy {
       callback: (row: GridRow) => this.confirmRevert(row)
     },
     {
+      // Not a disabled Revert - the grid has no such thing, ActionControl offers
+      // showIf and nothing else - so it is a second action wearing a muted icon
+      // and saying what it is. Clicking it explains, which is the one thing left
+      // that it can usefully do.
+      type: 'REVERT_EXPIRED',
+      text: gettext('Undo no longer possible'),
+      icon: 'undo',
+      iconClasses: 'text-muted',
+      showIf: (row: GridRow) => row.revertExpired,
+      callback: (row: GridRow) => this.explainExpiredRevert(row)
+    },
+    {
       type: 'SHOW_OUTPUT',
       // What it actually is: the engine's own log for this run. "Output" said
       // nothing about whose output or of what.
@@ -292,10 +305,13 @@ export class HistoryComponent implements OnInit, OnDestroy {
     try {
       // All three together: the tenants are what turn an id in a record into a
       // name somebody recognises, and the two listings are the history.
-      const [migrations, reverts, tenants] = await Promise.all([
+      const [migrations, reverts, tenants, remoteTargets] = await Promise.all([
         this.migration.api.migrations(),
         this.migration.api.reverts(),
-        this.migration.api.tenants()
+        this.migration.api.tenants(),
+        // Which certificates this instance still holds, which is what decides
+        // whether a migration to a remote tenant can still be undone.
+        this.migration.api.remoteTargets()
       ]);
 
       // keepingIdentity, not a plain set: the grid remembers which rows are
@@ -304,7 +320,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
       this.rows.update(previous =>
         keepingIdentity(
           previous,
-          rows(migrations, reverts, { tenants: byId(tenants.tenants) }).map(row =>
+          rows(migrations, reverts, { tenants: byId(tenants.tenants), remoteTargets }).map(row =>
             this.forGrid(row)
           )
         )
@@ -324,6 +340,21 @@ export class HistoryComponent implements OnInit, OnDestroy {
       this.loading.set(false);
       this.poll();
     }
+  }
+
+  /**
+   * Why this one cannot be undone any more.
+   *
+   * It was undoable: the migration is marked and finished and nobody has undone
+   * it. What ran out is the certificate, and since that is a deadline rather
+   * than a rule about the migration, the row says so instead of quietly
+   * dropping the action.
+   */
+  explainExpiredRevert(row: GridRow): void {
+    this.modals.show(RevertExpiredComponent, {
+      class: 'modal-md',
+      initialState: { row }
+    });
   }
 
   /**
@@ -399,6 +430,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
       by: row.job.requestedBy ?? '',
       runId: row.job.runId ?? '',
       revertable: row.revertable,
+      revertExpired: row.revertExpired,
       cancellable: row.cancellable,
       hasOutput: hasDetail(row),
       scope: this.forScope(row.job),

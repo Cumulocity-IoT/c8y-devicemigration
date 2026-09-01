@@ -89,6 +89,18 @@ type RevertRequest struct {
 	TargetTenant string `json:"targetTenant,omitempty"`
 	RunID        string `json:"runId,omitempty"`
 	JobID        string `json:"jobId,omitempty"`
+
+	// RemoteTargetID names the certificate this undo has to present, when the
+	// migration it undoes reached its target with one.
+	//
+	// Filled in from the migration's own record rather than sent by the caller:
+	// it must be the *same* certificate, because a device token may delete only
+	// what it owns and the objects are owned by the identity that created them.
+	// A fresh certificate is a different device user that owns nothing.
+	//
+	// An opaque handle, like the migration's. The key it stands for never leaves
+	// memory and is never written to a record.
+	RemoteTargetID string `json:"remoteTargetId,omitempty"`
 }
 
 // Job is one migration or one revert, and is also exactly what a job record

@@ -104,6 +104,18 @@ func (s *remoteTargetStore) get(id string) (*remoteTarget, bool) {
 	return rt, ok
 }
 
+// expired reports whether the certificate has run out.
+//
+// Until a revert could use one of these, the expiry was a note on a listing and
+// nothing enforced it: an expired target would have been handed to the platform
+// and refused with a 401 that says nothing about why. Now that a migration can
+// be undone for as long as its certificate lives, the deadline is the thing that
+// decides whether that is still possible, so it is checked where the client is
+// built and said in words.
+func (rt *remoteTarget) expired(now time.Time) bool {
+	return !now.Before(rt.ExpiresAt)
+}
+
 // list is every remote target, newest first, for a management view. The secret
 // material is not exposed by the caller that renders these.
 func (s *remoteTargetStore) list() []*remoteTarget {
@@ -148,6 +160,13 @@ func (s *Service) targetClient(remoteTargetID, tenant string) (*tenantClient, er
 			return nil, &BadRequestError{Reason: fmt.Sprintf(
 				"remote target %s is not known to this instance - it may have expired or "+
 					"the service may have restarted; establish it again", remoteTargetID)}
+		}
+		if rt.expired(time.Now()) {
+			return nil, &BadRequestError{Reason: fmt.Sprintf(
+				"the certificate for remote target %s expired at %s, so this service can no "+
+					"longer reach %s. Establish a new remote target to migrate again; an "+
+					"existing migration can no longer be undone from here",
+				remoteTargetID, recordTime(rt.ExpiresAt), rt.Tenant)}
 		}
 		return rt.client(s.insecureSkipVerify)
 	}

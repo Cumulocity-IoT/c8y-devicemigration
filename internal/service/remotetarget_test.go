@@ -95,10 +95,12 @@ func TestPreflightWantsExactlyOneKindOfTarget(t *testing.T) {
 
 // A remote-target migration cannot be undone from here - the certificate is
 // gone - so the refusal has to say what to do instead, not fail obscurely.
-func TestRevertingARemoteTargetMigrationExplainsItself(t *testing.T) {
+func TestRevertingARemoteTargetWhoseCertificateIsGoneExplainsItself(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
 
+	// A handle the store has never heard of - which is what a restart leaves
+	// behind, because the keys live in memory and die with the container.
 	job := service.Job{
 		ID: "20260101T000000Z_remote", Kind: service.KindMigration, Status: service.StatusSucceeded,
 		RunID:   "20260101T000000Z_run",
@@ -113,8 +115,41 @@ func TestRevertingARemoteTargetMigrationExplainsItself(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", recorder.Code, recorder.Body)
 	}
-	if !strings.Contains(recorder.Body.String(), "command line") {
-		t.Errorf("the refusal does not point at an alternative: %s", recorder.Body)
+	if !strings.Contains(recorder.Body.String(), "establish it again") {
+		t.Errorf("the refusal does not say what to do about it: %s", recorder.Body)
+	}
+}
+
+// The point of the feature: while the certificate lives, the undo is a normal
+// undo. It has to get past validation on the strength of that certificate, the
+// way a migration to the same target does.
+func TestRevertingARemoteTargetGetsPastValidationWhileTheCertificateLives(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	// A dead host, so anything that does reach out fails fast; what matters is
+	// that the refusal is not "this cannot be undone from here".
+	established := decode(t, call(t, svc, request(t, http.MethodPost, "/remote-targets",
+		service.RemoteTargetRequest{Host: "127.0.0.1:1", Tenant: "t-remote"})))
+	id, _ := established["id"].(string)
+
+	job := service.Job{
+		ID: "20260101T000000Z_live", Kind: service.KindMigration, Status: service.StatusSucceeded,
+		RunID:   "20260101T000000Z_run",
+		Request: &service.MigrationRequest{SourceTenant: "t-source", TargetTenant: "t-remote", RootID: "1", RemoteTargetID: id},
+	}
+	if _, err := svc.CreateRecord(t.Context(), &job); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := call(t, svc, request(t, http.MethodPost, "/reverts",
+		service.RevertRequest{JobID: job.ID}))
+
+	body := recorder.Body.String()
+	for _, refusal := range []string{"cannot undo", "command line", "no longer holds", "is not known"} {
+		if strings.Contains(body, refusal) {
+			t.Fatalf("a live remote target was refused as un-undoable: %s", body)
+		}
 	}
 }
 

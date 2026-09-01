@@ -25,8 +25,10 @@ func (s *Service) EnqueueRevert(ctx context.Context, request RevertRequest, call
 	}
 
 	// Proves the credentials before anything is recorded, the same way a
-	// migration does.
-	if _, err := s.tenant(resolved.TargetTenant); err != nil {
+	// migration does - and through the same seam, so a remote target is proved
+	// by its certificate and an expired one is refused here rather than halfway
+	// through deleting things.
+	if _, err := s.targetClient(resolved.RemoteTargetID, resolved.TargetTenant); err != nil {
 		return nil, err
 	}
 
@@ -99,16 +101,17 @@ func (s *Service) resolveRevert(ctx context.Context, request RevertRequest) (Rev
 					"run's mapping file", request.JobID)}
 		}
 
-		// A remote-target migration authenticated with a certificate whose key
-		// lived only in memory and is now gone. Deleting the objects it created
-		// needs an identity that owns them - the same certificate, or the target
-		// tenant's own admin - which this service no longer has. So say so, rather
-		// than failing later with an unsubscribed-tenant error.
-		if job.Request != nil && job.Request.RemoteTargetID != "" {
-			return request, &BadRequestError{Reason: fmt.Sprintf(
-				"%s migrated to a remote target reached by a certificate this service no "+
-					"longer holds, so it cannot undo it. Revert it from the command line "+
-					"against that tenant, or from the target tenant itself", request.JobID)}
+		// A remote-target migration is undone with the certificate that made it,
+		// for as long as that certificate lives. The same one, necessarily: a
+		// device token deletes only what it owns, and what this run created is
+		// owned by the identity that created it, so a fresh certificate would be
+		// a different device user owning nothing.
+		//
+		// Whether the certificate is still alive is decided further down, where
+		// the client is built - one place, one answer, and the same one the
+		// listing shows.
+		if job.Request != nil {
+			request.RemoteTargetID = job.Request.RemoteTargetID
 		}
 		if request.RunID != "" && request.RunID != job.RunID {
 			return request, &BadRequestError{Reason: fmt.Sprintf(
@@ -142,7 +145,7 @@ func (s *Service) revert(ctx context.Context, queued *queuedJob) error {
 		return errors.New("a revert job with no revert request")
 	}
 
-	target, err := s.tenant(job.Revert.TargetTenant)
+	target, err := s.targetClient(job.Revert.RemoteTargetID, job.Revert.TargetTenant)
 	if err != nil {
 		return err
 	}

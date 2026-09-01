@@ -283,9 +283,19 @@ make it safe:
   device access token to whoever presents, over mTLS, a leaf whose issuer it
   trusts — which is why the operator registers the CA. The token is the
   platform's own short-lived one, renewed by the client.
-- **Reverting a remote-target migration is refused here** with a message saying
-  why: undoing it needs the certificate that created the objects, which the
-  service no longer holds, so it points at the command line or the target admin.
+- **Reverting a remote-target migration works while its certificate lives.**
+  Undoing needs the *same* certificate that created the objects — a device token
+  deletes only what it owns — so the revert carries the migration's
+  `remoteTargetId` and presents that certificate again. Which makes the
+  certificate's own deadline the limit: six hours, and not across a restart,
+  because the key was never written down. After that the service refuses and says
+  when it expired, pointing at the command line against that tenant or at the
+  target tenant's own admin. `GET /remote-targets` is what tells a client how long
+  is left, and the UI uses it to stop offering the action at the same moment the
+  service stops accepting it.
+- **The expiry is enforced where the client is built**, so a migration and an undo
+  refuse identically and neither discovers it as a 401 from the platform halfway
+  through.
 
 One thing this has **not** had is an end-to-end run against a live remote tenant;
 the certificate, token and import primitives it rests on were each verified live

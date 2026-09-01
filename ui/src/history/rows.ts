@@ -1,4 +1,4 @@
-import { ApiError, type Job } from "../api/client";
+import { ApiError, type Job, type RemoteTargetView } from "../api/client";
 import { gettext, message, type Message } from "../i18n";
 import { labelFor, type TenantsById } from "../tenants";
 import {
@@ -43,6 +43,8 @@ export interface Row {
   undos: Undo[];
 
   revertable: boolean;
+  /** Was undoable, until the remote target's certificate expired. */
+  revertExpired: boolean;
   cancellable: boolean;
 }
 
@@ -66,6 +68,39 @@ export interface RowContext {
   /** What each tenant is called, for the columns that only recorded an id. */
   tenants?: TenantsById;
   now?: Date;
+  /**
+   * The remote targets this instance still holds a certificate for.
+   *
+   * A migration to one of these can be undone for as long as its certificate
+   * lives, because undoing it means presenting the same certificate again. Once
+   * that has expired - or the container has restarted, which loses the key - the
+   * undo is no longer something this service can do.
+   */
+  remoteTargets?: RemoteTargetView[];
+}
+
+/**
+ * The remote targets whose certificate is still good at `now`.
+ *
+ * Expiry is decided here as well as in the service, and deliberately: the button
+ * has to stop being offered at the same moment the service stops accepting it,
+ * and a screen that waits to be told by a refusal offers something that cannot
+ * work.
+ */
+export function liveRemoteTargets(
+  views: RemoteTargetView[],
+  now: Date,
+): Set<string> {
+  const live = new Set<string>();
+  for (const view of views) {
+    if (!view.id || !view.expiresAt) {
+      continue;
+    }
+    if (new Date(view.expiresAt).getTime() > now.getTime()) {
+      live.add(view.id);
+    }
+  }
+  return live;
 }
 
 export function rows(
@@ -77,6 +112,7 @@ export function rows(
   const tenants = context.tenants ?? new Map();
   const undone = undoneRunIds(reverts);
   const byRun = revertsByRunId(reverts);
+  const live = liveRemoteTargets(context.remoteTargets ?? [], now);
 
   // A migration and the undo that cancelled it are one story, so they are one
   // row: the undo is read in the row's expansion rather than somewhere else in
@@ -122,7 +158,8 @@ export function rows(
         what: describe(job),
         source: labelFor(sourceOf(job), tenants),
         target: labelFor(targetOf(job), tenants),
-        revertable: revertable(job, undone),
+        revertable: revertable(job, undone, live),
+        revertExpired: revertExpired(job, live),
         undos,
         cancellable: isRunning(job),
       };
@@ -294,7 +331,11 @@ function describeSpan(milliseconds: number): Message {
  * finished creating what an undo would delete; and a run that has already been
  * undone has nothing left to delete.
  */
-export function revertable(job: Job, undone: Set<string> = new Set()): boolean {
+export function revertable(
+  job: Job,
+  undone: Set<string> = new Set(),
+  live: Set<string> = new Set(),
+): boolean {
   if (job.kind === "REVERT" || isRunning(job)) {
     return false;
   }
@@ -303,15 +344,32 @@ export function revertable(job: Job, undone: Set<string> = new Set()): boolean {
     // report success, which reads as though something had been done.
     return false;
   }
-  if (job.request?.remoteTargetId) {
-    // The service refuses these: the certificate it reached that tenant with
-    // lived in memory and is gone, and deleting what the migration created needs
-    // an identity that owns it. Offering a button whose only outcome is that
-    // refusal is worse than not offering it - the same rule as the role-gated
-    // navigator entry.
+  if (job.request?.remoteTargetId && !live.has(job.request.remoteTargetId)) {
+    // The certificate that reached that tenant is gone - expired, or lost with
+    // the container that held it - and undoing needs the same one, because a
+    // device token deletes only what it owns. The row says so rather than
+    // offering a button whose only outcome is a refusal.
     return false;
   }
   return !!job.runId && !job.request?.noFlag;
+}
+
+/**
+ * A migration that could have been undone, but for a certificate that has gone.
+ *
+ * Kept apart from `revertable` because the two are different sentences. Not
+ * revertable covers a revert, an unmarked run, one already undone - none of
+ * which was ever going to be undoable. This one *was*, until a deadline passed,
+ * and that is worth saying on the row instead of silently dropping the action.
+ */
+export function revertExpired(job: Job, live: Set<string>): boolean {
+  const target = job.request?.remoteTargetId;
+  if (!target || live.has(target) || job.kind === "REVERT") {
+    return false;
+  }
+  // Only for a run that would otherwise have been undoable, so an unmarked or
+  // still-running one does not start claiming the certificate is the problem.
+  return !!job.runId && !job.request?.noFlag && !isRunning(job);
 }
 
 /**
@@ -476,6 +534,8 @@ export interface GridRow {
 
   /** Read by the actions' showIf, which the grid calls with the row. */
   revertable: boolean;
+  /** Was undoable, until the remote target's certificate expired. */
+  revertExpired: boolean;
   cancellable: boolean;
   hasOutput: boolean;
 

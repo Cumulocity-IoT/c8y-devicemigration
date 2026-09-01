@@ -101,3 +101,46 @@ func TestTheMigrationRequestHasNoCredentialField(t *testing.T) {
 		}
 	}
 }
+
+// Expiry used to be a note on a listing that nothing acted on: an expired target
+// would have been handed to the platform and refused with a 401 saying nothing
+// about why. Now that an undo depends on the certificate still being alive, the
+// deadline decides whether that is possible, so it is enforced where the client
+// is built - and said in words a person can act on.
+func TestAnExpiredRemoteTargetIsRefusedWithItsDeadline(t *testing.T) {
+	store := newRemoteTargetStore()
+	rt, err := store.create("example.test", "t-remote", time.Now().Add(-certValidity-time.Hour))
+	if err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	if !rt.expired(time.Now()) {
+		t.Fatal("a target minted longer ago than the validity window is not expired")
+	}
+
+	svc := &Service{remoteTargets: store, insecureSkipVerify: true}
+	_, err = svc.targetClient(rt.ID, "t-remote")
+	if err == nil {
+		t.Fatal("an expired certificate was accepted")
+	}
+	for _, want := range []string{"expired", "t-remote"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestALiveRemoteTargetStillBuildsAClient(t *testing.T) {
+	store := newRemoteTargetStore()
+	rt, err := store.create("example.test", "t-remote", time.Now())
+	if err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	if rt.expired(time.Now()) {
+		t.Fatal("a freshly minted target is already expired")
+	}
+
+	svc := &Service{remoteTargets: store, insecureSkipVerify: true}
+	if _, err := svc.targetClient(rt.ID, "t-remote"); err != nil {
+		t.Errorf("a live remote target was refused: %v", err)
+	}
+}

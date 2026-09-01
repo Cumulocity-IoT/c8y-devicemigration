@@ -231,12 +231,30 @@ already have removed some of it. Like the migration dialogue, it is bound to
 `c8y-modal`'s `close` input rather than its `onClose` output, so a refusal leaves
 the dialogue open with the service's own words instead of vanishing with them.
 
-**A migration to a remote target is no longer offered for undoing at all.** The
-service refuses those — the certificate it reached that tenant with lived in
-memory and is gone, so it no longer holds an identity that owns the objects — and
-`revertable` now applies the same rule the service does. Offering a button whose
-only possible outcome is that refusal is the same mistake as a navigator entry
-that only ever leads to one.
+**A migration to a remote target can be undone for as long as its certificate
+lives.** Undoing means presenting the *same* certificate the migration used — a
+device token deletes only what it owns, and the objects are owned by the identity
+that created them, so a fresh certificate would be a different device user owning
+nothing. The service therefore carries the migration's `remoteTargetId` onto the
+revert and resolves the client through the same seam a migration does.
+
+That makes the certificate's deadline the thing that decides whether the action is
+offered, so the list reads it: `GET /remote-targets` says what this instance still
+holds and until when, and
+[`liveRemoteTargets`](../ui/src/history/rows.ts) turns that into the set of ids
+still good *now*. The button has to stop being offered at the moment the service
+stops accepting it — a screen that waits to be told by a refusal is offering
+something that cannot work.
+
+**When it has expired, the action changes rather than disappears.** A muted *Undo
+no longer possible* takes its place, and clicking it explains why and what still
+would work — the command line against that tenant, or deleting the marked objects
+in the target itself. This is a separate `revertExpired` rule rather than a branch
+of `revertable`, because they are different sentences: not-revertable covers runs
+that were never undoable (a revert, an unmarked run, one already undone), while
+this one *was*, until a deadline passed. It is a second `ActionControl` wearing
+`iconClasses: 'text-muted'`, because the grid has no disabled action — `showIf` is
+all `ActionControl` offers.
 
 **An undo cannot itself be undone, and the expansion says so** rather than
 leaving it to the absence of an action. It has to be said in the row's content:

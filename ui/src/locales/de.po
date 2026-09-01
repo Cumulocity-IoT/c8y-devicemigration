@@ -459,3 +459,21 @@ msgstr "Dieser Lauf wurde abgebrochen, daher ist seine eigene Aufstellung des An
 
 msgid "An earlier undo of this migration did not finish, so some of what it created may already be gone. Undoing it again deletes whatever is left."
 msgstr "Eine frühere Rücknahme dieser Migration wurde nicht abgeschlossen, daher ist möglicherweise ein Teil des Angelegten bereits entfernt. Eine erneute Rücknahme löscht, was übrig ist."
+
+msgid "Undo no longer possible"
+msgstr "Rücknahme nicht mehr möglich"
+
+msgid "What still works"
+msgstr "Was weiterhin möglich ist"
+
+msgid "This migration went to {{ target }}, a tenant this service is not subscribed to. It reached it with a certificate it generated for that one migration, and undoing it means presenting the same certificate again — a migration deletes only what its own identity created."
+msgstr "Diese Migration ging an {{ target }}, einen Mandanten, den dieser Dienst nicht abonniert hat. Er hat ihn mit einem Zertifikat erreicht, das eigens für diese eine Migration erzeugt wurde; eine Rücknahme müsste dasselbe Zertifikat erneut vorlegen — eine Migration löscht nur, was ihre eigene Identität angelegt hat."
+
+msgid "That certificate is gone. It is valid for six hours and is never written down, so it also does not survive a restart of the service. There is no way to mint another that the target tenant would recognise as the same identity."
+msgstr "Dieses Zertifikat ist nicht mehr vorhanden. Es gilt sechs Stunden und wird nie gespeichert, überlebt also auch keinen Neustart des Dienstes. Ein neues Zertifikat würde der Zielmandant nicht als dieselbe Identität erkennen."
+
+msgid "Undo it from the command line, with a session for the target tenant: c8y-devicemigration revert --runId {{ runId }} --session target.json"
+msgstr "Nehmen Sie sie über die Kommandozeile zurück, mit einer Sitzung für den Zielmandanten: c8y-devicemigration revert --runId {{ runId }} --session target.json"
+
+msgid "Or, in the target tenant itself, delete the objects carrying the run marker below."
+msgstr "Oder löschen Sie im Zielmandanten selbst die Objekte mit der unten genannten Lauf-Markierung."

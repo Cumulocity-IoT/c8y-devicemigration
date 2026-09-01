@@ -5,6 +5,7 @@ import {
   hasDetail,
   IDLE_REFRESH_MS,
   keepingIdentity,
+  liveRemoteTargets,
   outcome,
   scopeOf,
   statusTag,
@@ -636,5 +637,92 @@ describe("what the list says about tenants and objects", () => {
     )[0];
 
     expect(row.revertable).toBe(false);
+  });
+
+  describe("undoing a migration to a remote tenant", () => {
+    const remote = (id: string) =>
+      job({
+        id: "m1",
+        runId: "r1",
+        status: "SUCCEEDED",
+        request: { sourceTenant: "s", rootId: "1", remoteTargetId: id },
+      });
+    const now = new Date("2026-09-01T12:00:00Z");
+    const target = (id: string, expiresAt: string) => ({ id, expiresAt });
+
+    it("is offered while the certificate is still good", () => {
+      // The whole point: the undo presents the same certificate the migration
+      // did, so it works for exactly as long as that certificate does.
+      const row = rows([remote("rt-1")], [], {
+        now,
+        remoteTargets: [target("rt-1", "2026-09-01T17:00:00Z")],
+      })[0];
+
+      expect(row.revertable).toBe(true);
+      expect(row.revertExpired).toBe(false);
+    });
+
+    it("is withdrawn once the certificate has expired, and says which it is", () => {
+      const row = rows([remote("rt-1")], [], {
+        now,
+        remoteTargets: [target("rt-1", "2026-09-01T11:59:00Z")],
+      })[0];
+
+      expect(row.revertable).toBe(false);
+      // Not merely un-undoable: it *was* undoable, and a deadline passed.
+      expect(row.revertExpired).toBe(true);
+    });
+
+    it("treats a certificate the service no longer holds as expired", () => {
+      // What a restart leaves behind: the handle is on the record, the key is
+      // not in memory any more, so the listing does not mention it at all.
+      const row = rows([remote("rt-gone")], [], { now, remoteTargets: [] })[0];
+
+      expect(row.revertable).toBe(false);
+      expect(row.revertExpired).toBe(true);
+    });
+
+    it("does not blame a certificate for a run that was never undoable", () => {
+      const unmarked = job({
+        id: "m2",
+        runId: "r2",
+        status: "SUCCEEDED",
+        request: { sourceTenant: "s", rootId: "1", remoteTargetId: "rt-gone", noFlag: true },
+      });
+      const row = rows([unmarked], [], { now, remoteTargets: [] })[0];
+
+      expect(row.revertable).toBe(false);
+      expect(row.revertExpired).toBe(false);
+    });
+
+    it("leaves a subscribed target alone whatever the certificates say", () => {
+      const row = rows(
+        [job({ id: "m3", runId: "r3", status: "SUCCEEDED" })],
+        [],
+        { now, remoteTargets: [] },
+      )[0];
+
+      expect(row.revertable).toBe(true);
+      expect(row.revertExpired).toBe(false);
+    });
+  });
+
+  it("counts a certificate as live only until the moment it expires", () => {
+    const now = new Date("2026-09-01T12:00:00Z");
+    const live = liveRemoteTargets(
+      [
+        { id: "future", expiresAt: "2026-09-01T12:00:01Z" },
+        { id: "past", expiresAt: "2026-09-01T11:59:59Z" },
+        { id: "exactly-now", expiresAt: "2026-09-01T12:00:00Z" },
+        { id: "no-expiry" },
+      ],
+      now,
+    );
+
+    expect(live.has("future")).toBe(true);
+    expect(live.has("past")).toBe(false);
+    // The service compares the same way: at the deadline it is over.
+    expect(live.has("exactly-now")).toBe(false);
+    expect(live.has("no-expiry")).toBe(false);
   });
 });
