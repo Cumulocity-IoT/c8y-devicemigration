@@ -357,7 +357,7 @@ about that configuration are easy to get wrong and were:
 
 ### Versions, and one pin worth knowing about
 
-The Web SDK is `1024.15.16`, which needs Angular 21 and Node 20.19 or newer. Two
+The Web SDK is `1024.16.12`, which needs Angular 21 and Node 20.19 or newer. Two
 things about the toolchain are not what older examples suggest:
 
 - **`c8ycli` no longer exists.** Building is `ng build` with `@c8y/devkit`'s

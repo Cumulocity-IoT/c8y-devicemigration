@@ -1,6 +1,6 @@
 # c8y-devicemigration
 
-**EXPERIMENTAL** tooling for migrating a Cumulocity device hierarchy from one
+Tool for migrating a Cumulocity device hierarchy from one
 tenant to another.
 
 It exports a hierarchy — managed objects, their parent and child relationships,
@@ -8,51 +8,75 @@ their external identities and optionally their measurements, events and alarms �
 and recreates it in a second tenant, keeping a mapping so the whole thing can be
 reverted.
 
-## Three ways to run it
+## Running it
 
-The same commands exist twice as a command line tool, and a third time as
-something you deploy. The two command line versions are kept behaviour-identical
-on purpose, and a differential test diffs their output on every build, so which
-one you use is a question of how you work rather than what you get.
+There are two ways to run it, and which you choose is a matter of who does the
+migrating and how they work.
 
-| | [go-c8y-cli extension](docs/extension.md) | [standalone binary](docs/cli.md) |
-| --- | --- | --- |
-| Install | `c8y extension install …` | `make install` |
-| Needs | the `c8y` binary | nothing at runtime |
-| Talks to Cumulocity | through `c8y` | through the REST API directly |
-| Commands | `export` `import` `revert` `migrate` | the same, plus `preflight` |
-| Sessions | `--session`, or the active one | the same |
-| Shell completion | c8y's | its own, including flag values |
-| Status | the supported one | complete, but has never run against a live tenant |
+### As a command line tool
 
-Start with **[the extension](docs/extension.md)** unless you have a reason not
-to. Reach for **[the binary](docs/cli.md)** when you would rather not depend on
-the `c8y` binary, or when you want a single artefact to ship.
+A single binary that talks to the Cumulocity REST API directly. It reads the
+session files `go-c8y-cli` already writes — including encrypted ones — so there
+is nothing else to configure, and unlike `c8y` it needs no session to be active
+first.
 
-Why both exist, and how they are kept in step, is in
+Install it from a [release](docs/cli.md#building-and-installing) — no Go
+toolchain required — or build from source:
+
+```sh
+make install        # builds and installs to ~/.local/bin/c8y-devicemigration
+```
+
+Then migrate a hierarchy from one tenant to another in a single command, each
+side pointed at its own session:
+
+```sh
+c8y-devicemigration migrate --rootId 12345 \
+    --sourceSession source.eu-latest.cumulocity.com-me.json \
+    --targetSession target.eu-latest.cumulocity.com-me.json \
+    --dataTypes measurements,events,alarms --incremental --force
+```
+
+It names both tenants and asks before creating anything; drop `--force` to keep
+the confirmation. `export`, `import` and `revert` are the same round trip as
+separate steps, and `preflight` checks a migration without running it. Every
+command and option is in **[docs/cli.md](docs/cli.md)**. The port is complete but
+has not yet been run against a live tenant.
+
+The same commands are also packaged as a **go-c8y-cli extension** that runs as
+`c8y devicemigration …`, behaviour-identical to the binary, for anyone already
+working in `c8y` — see **[docs/extension.md](docs/extension.md)**.
+
+### In the platform: the microservice and its UI
+
+The **[microservice](docs/microservice.md)** runs the same engine inside
+Cumulocity. It is deployed on a parent tenant (management or enterprise) and
+subscribed to the tenants it migrates between, so the platform provides a service
+user for each and no session file or personal credential is ever involved. Most
+people drive it through its **[user interface](docs/ui.md)** — an Angular plugin
+that turns a migration into a list of what has been migrated, a dialogue that
+starts another, and a progress bar — rather than calling the API by hand. Reach
+for this when migrating should be something the platform performs rather than
+something an operator runs from a laptop.
+
+Deploy both onto the parent tenant:
+
+```sh
+eval "$(c8y sessions set --sessionFilter parent-tenant)"
+make service-deploy     # build and upload the microservice
+make ui-package         # -> build/devicemigration-ui-<version>.zip
+```
+
+Install that UI zip under **Administration → Ecosystem → Extensions** and add it
+to an application. Then, in order: subscribe the parent tenant to the
+microservice, subscribe the source and target tenants, and grant
+`ROLE_DEVICE_MIGRATION_ADMIN` to whoever should migrate. Open the plugin under
+Administration and start one with **New migration**. Both the microservice and
+the UI are complete but have not yet been run against a live tenant.
+
+Why the command line and the microservice share one engine, and how the two
+command line builds are kept in step, is in
 **[docs/internals.md](docs/internals.md)**.
-
-### Or deploy it into the platform
-
-**[The microservice](docs/microservice.md)** runs the same engine inside
-Cumulocity. It is deployed on a parent tenant and subscribed to the tenants it
-migrates between, so the platform provides a service user for each and no session
-file or personal credential is involved. Reach for it when migrations should be
-an operation the platform performs rather than something an operator runs from a
-laptop.
-
-It is complete: bootstrap, authorization, migrations and reverts as jobs,
-metrics, runtime log levels and settings from tenant options. It has not yet run
-against a live tenant.
-
-### Or use it from a browser
-
-**[The user interface](docs/ui.md)** is an Angular plugin that drives the
-microservice, for people who should not have to learn any of the above. Install
-it into Administration and a migration becomes a list of what has been migrated,
-a dialogue that starts another, and a progress bar in that list.
-
-Built, but not yet opened in a browser against a real tenant.
 
 ## What gets migrated
 
@@ -100,10 +124,10 @@ reports it, counts it, and carries on rather than abandoning the migration
 part-way. The closing summary states how many identities were created and how
 many were refused, so a partial result is never silent.
 
-## Device data
+## Device data (MEA)
 
 `--dataTypes` takes a comma separated list of `measurements`, `events` and
-`alarms`. It defaults to empty, so no data is collected unless asked for —
+`alarms`. It defaults to empty, so no device data is collected unless asked for —
 measurement volumes make that the only sensible default. `--dateFrom` and
 `--dateTo` bound the window and accept the same absolute and relative forms as
 `c8y` itself, e.g. `-30d`. See [Limits](#limits) for the defaults and the caps
