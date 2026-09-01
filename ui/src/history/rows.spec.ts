@@ -4,7 +4,7 @@ import {
   explain,
   hasDetail,
   IDLE_REFRESH_MS,
-  labelClass,
+  statusBadge,
   refreshInterval,
   serviceAbsent,
   revertable,
@@ -102,7 +102,7 @@ describe("the history list", () => {
     }
   });
 
-  it("says how long a job has been going, and how long a finished one took", () => {
+  it("measures a running job against now, and a finished one against its end", () => {
     const now = new Date("2026-08-27T10:06:30Z");
 
     const running = rows(
@@ -111,7 +111,7 @@ describe("the history list", () => {
       { now },
     );
     expect(running[0].took).toEqual({
-      text: "running for {{ minutes }} min",
+      text: "{{ minutes }} min",
       params: { minutes: 7 },
     });
 
@@ -128,7 +128,7 @@ describe("the history list", () => {
       { now },
     );
     expect(done[0].took).toEqual({
-      text: "took {{ seconds }} s",
+      text: "{{ seconds }} s",
       params: { seconds: 12 },
     });
   });
@@ -148,7 +148,7 @@ describe("the history list", () => {
     );
 
     expect(row.took).toEqual({
-      text: "took {{ hours }} h {{ minutes }} min",
+      text: "{{ hours }} h {{ minutes }} min",
       params: { hours: 1, minutes: 30 },
     });
   });
@@ -197,26 +197,43 @@ describe("the history list", () => {
     expect(hasDetail(bare)).toBe(false);
   });
 
-  it("gives each outcome its own label, so five statuses do not read as one", () => {
-    const classes = rows(
+  it("gives each outcome its own icon, so a column of glyphs can be scanned", () => {
+    const badges = rows(
       [
         job({ id: "a", status: "RUNNING" }),
         job({ id: "b", status: "SUCCEEDED" }),
         job({ id: "c", status: "FAILED" }),
         job({ id: "d", status: "INTERRUPTED" }),
-        job({ id: "e", status: "QUEUED" }),
+        job({ id: "e", status: "CANCELLED" }),
+        job({ id: "f", status: "QUEUED" }),
       ],
       [],
-    ).map(labelClass);
+    ).map(statusBadge);
 
-    expect(classes).toEqual([
-      "label-info",
-      "label-success",
-      "label-danger",
-      "label-warning",
-      "label-default",
+    expect(badges).toEqual([
+      { icon: "refresh", className: "text-info" },
+      { icon: "check-circle", className: "text-success" },
+      { icon: "times-circle", className: "text-danger" },
+      { icon: "exclamation-triangle", className: "text-warning" },
+      { icon: "ban", className: "text-warning" },
+      { icon: "clock", className: "text-muted" },
     ]);
-    expect(new Set(classes).size).toBe(5);
+
+    // Cancelled and interrupted share a colour, and must not share a glyph:
+    // that is the whole reason the icon is keyed on the status, not the tone.
+    expect(new Set(badges.map(b => b.icon)).size).toBe(6);
+  });
+
+  it("falls back to a neutral icon for a status it has never heard of", () => {
+    // Cast because the generated types know today's statuses; a service that
+    // adds one is exactly the case this branch exists for, and it must not
+    // render as a blank cell.
+    const unknown = job({ id: "a", status: "WAT" as Job["status"] });
+
+    expect(statusBadge(rows([unknown], [])[0])).toEqual({
+      icon: "exclamation-circle",
+      className: "text-muted",
+    });
   });
 
   it("says which failures the reader can do something about", () => {

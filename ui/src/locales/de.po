@@ -44,14 +44,14 @@ msgstr "Was migriert wird, erscheint hier — mit der Ausführungs-ID, mit der e
 msgid "Status"
 msgstr "Status"
 
-msgid "What"
-msgstr "Was"
+msgid "Migration root"
+msgstr "Migrationsursprung"
 
-msgid "Asked for"
-msgstr "Angefordert"
+msgid "Timestamp"
+msgstr "Zeitstempel"
 
-msgid "By"
-msgstr "Von wem"
+msgid "User"
+msgstr "Benutzer"
 
 msgid "Run id"
 msgstr "Ausführungs-ID"
@@ -63,8 +63,8 @@ msgid "Revert"
 msgstr "Rückgängig machen"
 
 
-msgid "Output"
-msgstr "Ausgabe"
+msgid "Migration log"
+msgstr "Migrationsprotokoll"
 
 
 msgid "The last {{ lines }} lines the engine printed. The whole output is in the microservice log."
@@ -74,29 +74,17 @@ msgstr "Die letzten {{ lines }} Zeilen der Ausgabe. Die vollständige Ausgabe st
 msgid "roughly at device {{ current }} of {{ total }}"
 msgstr "etwa bei Gerät {{ current }} von {{ total }}"
 
-msgid "running for {{ seconds }} s"
-msgstr "läuft seit {{ seconds }} s"
+msgid "{{ seconds }} s"
+msgstr "{{ seconds }} s"
 
-msgid "running for {{ minutes }} min"
-msgstr "läuft seit {{ minutes }} Min."
+msgid "{{ minutes }} min"
+msgstr "{{ minutes }} Min."
 
-msgid "running for {{ hours }} h"
-msgstr "läuft seit {{ hours }} Std."
+msgid "{{ hours }} h"
+msgstr "{{ hours }} Std."
 
-msgid "running for {{ hours }} h {{ minutes }} min"
-msgstr "läuft seit {{ hours }} Std. {{ minutes }} Min."
-
-msgid "took {{ seconds }} s"
-msgstr "dauerte {{ seconds }} s"
-
-msgid "took {{ minutes }} min"
-msgstr "dauerte {{ minutes }} Min."
-
-msgid "took {{ hours }} h"
-msgstr "dauerte {{ hours }} Std."
-
-msgid "took {{ hours }} h {{ minutes }} min"
-msgstr "dauerte {{ hours }} Std. {{ minutes }} Min."
+msgid "{{ hours }} h {{ minutes }} min"
+msgstr "{{ hours }} Std. {{ minutes }} Min."
 
 msgid "Waiting"
 msgstr "Wartet"
@@ -287,13 +275,13 @@ msgstr "dieser Mandant, in dem Migrationen aufgezeichnet werden"
 msgid "already the source"
 msgstr "bereits die Quelle"
 
-msgid "Migrated from"
-msgstr "Migriert aus"
+msgid "Source tenant"
+msgstr "Quellmandant"
 
-msgid "Migrated to"
-msgstr "Migriert nach"
+msgid "Target tenant"
+msgstr "Zielmandant"
 
-msgid "Took"
+msgid "Duration"
 msgstr "Dauer"
 
 msgid "Undo of {{ runId }}"

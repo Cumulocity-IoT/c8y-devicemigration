@@ -17,7 +17,10 @@ import type { Job } from '../api/client';
   standalone: true,
   imports: [CommonModule, CoreModule],
   template: `
-    <c8y-modal [title]="'Output' | translate" [labels]="{ ok: '', cancel: 'Close' | translate }">
+    <c8y-modal
+      [title]="'Migration log' | translate"
+      [labels]="{ ok: '', cancel: 'Close' | translate }"
+    >
       <div class="p-24">
         @if (job.error) {
           <!-- The service's own words, which is what somebody would search for. -->

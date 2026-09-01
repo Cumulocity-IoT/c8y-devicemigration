@@ -17,7 +17,18 @@ import { MigrateComponent } from '../migrate/migrate.component';
 import { byId } from '../tenants';
 import { OutputComponent } from './output.component';
 import { RegisterCertificateComponent } from '../trust/register-certificate.component';
-import { explain, hasDetail, refreshInterval, rows, serviceAbsent, type GridRow, type Row } from './rows';
+import {
+  explain,
+  hasDetail,
+  refreshInterval,
+  rows,
+  serviceAbsent,
+  statusBadge,
+  type GridRow,
+  type Row
+} from './rows';
+import { StatusCellComponent } from './status-cell.component';
+import { TimestampCellComponent } from './timestamp-cell.component';
 
 /**
  * What has been migrated, and the button that starts another.
@@ -74,19 +85,53 @@ export class HistoryComponent implements OnInit, OnDestroy {
   /**
    * The columns, and how they behave.
    *
-   * Sortable, with "Asked for" descending to begin with: the useful order for a
+   * Sortable, with "Timestamp" descending to begin with: the useful order for a
    * list of things that happened is the order they happened in, newest first.
    * Source and target are columns of their own rather than a phrase in "What",
    * because a column can be sorted and read down, and a phrase cannot.
+   *
+   * Status sits fourth, after what moved and where it moved between. Reading a
+   * row is "this hierarchy, from here to there - and it worked": the outcome
+   * qualifies the sentence, so it comes after it rather than before it.
    */
   readonly columns: Column[] = [
-    text('status', gettext('Status')),
-    text('what', gettext('What')),
-    text('source', gettext('Migrated from')),
-    text('target', gettext('Migrated to')),
-    { ...text('askedFor', gettext('Asked for')), sortOrder: 'desc' },
-    text('took', gettext('Took')),
-    text('by', gettext('By')),
+    text('what', gettext('Migration root')),
+    text('source', gettext('Source tenant')),
+    text('target', gettext('Target tenant')),
+    {
+      ...text('status', gettext('Status')),
+      // An icon in the tone of the outcome; the words become its tooltip. The
+      // path stays on the text, so sorting and searching still work on words.
+      cellRendererComponent: StatusCellComponent,
+      // One glyph wide. Icon is the grid's own narrowest column ratio, and the
+      // explicit track size holds it there instead of letting a column of
+      // 20-pixel pictures share the width of one full of sentences.
+      // Icon sizes itself to `max-content`, which for a cell holding one glyph
+      // is the header word and nothing more.
+      dataType: ColumnDataType.Icon
+    },
+    {
+      ...text('askedFor', gettext('Timestamp')),
+      // Newest first, and sorted on the raw timestamp rather than the formatted
+      // one: the grid sorts on `path`, and a localised date string does not sort
+      // chronologically. See timestamp-cell.component.ts.
+      path: 'queuedAt',
+      sortOrder: 'desc',
+      cellRendererComponent: TimestampCellComponent,
+      // A date and a time, and never more than that. The default track for
+      // short text is minmax(80px, 1.67fr), which gave a fixed-length value as
+      // much room as a tenant name that can run on.
+      gridTrackSize: 'minmax(120px, 0.8fr)'
+    },
+    {
+      ...text('took', gettext('Duration')),
+      // Numeric for the narrow ratio and the alignment: a column of figures
+      // reads down the page when they line up. The widest value it can hold is
+      // now "1 h 30 min".
+      dataType: ColumnDataType.Numeric,
+      gridTrackSize: 'minmax(80px, 0.5fr)'
+    },
+    text('by', gettext('User')),
     text('runId', gettext('Run id'))
   ];
 
@@ -114,7 +159,9 @@ export class HistoryComponent implements OnInit, OnDestroy {
     },
     {
       type: 'SHOW_OUTPUT',
-      text: gettext('Output'),
+      // What it actually is: the engine's own log for this run. "Output" said
+      // nothing about whose output or of what.
+      text: gettext('Migration log'),
       icon: 'file-text-o',
       showIf: (row: GridRow) => row.hasOutput,
       callback: (row: GridRow) => this.showOutput(row.job)
@@ -224,6 +271,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
    */
   private forGrid(row: Row): GridRow {
     const progress = row.progress;
+    const badge = statusBadge(row);
     return {
       job: row.job,
       id: row.job.id ?? '',
@@ -244,11 +292,15 @@ export class HistoryComponent implements OnInit, OnDestroy {
       ]
         .filter(Boolean)
         .join(' — '),
+      statusIcon: badge.icon,
+      statusClass: badge.className,
       what: this.say(row.what),
       source: row.source,
       target: row.target,
-      // The platform's own date formatting, in the reader's language.
+      // The platform's own date formatting, in the reader's language - what the
+      // cell shows - beside the raw value the column actually orders by.
       askedFor: this.dates.transform(row.job.queuedAt, 'short') ?? '',
+      queuedAt: row.job.queuedAt ?? '',
       took: row.took ? this.say(row.took) : '',
       by: row.job.requestedBy ?? '',
       runId: row.job.runId ?? '',

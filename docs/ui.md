@@ -52,6 +52,8 @@ shows its words rather than paraphrasing them.
 | `src/migrate/selection.ts` | what that selector's `onSelected` actually means |
 | `src/migrate/window.ts` | which start dates the engine will accept, mirrored |
 | `src/history/rows.ts` | what the list shows, and what can be done to each row |
+| `src/history/status-cell.component.ts` | the status column: one glyph, one colour, the words in its tooltip |
+| `src/history/timestamp-cell.component.ts` | the timestamp column: locale formatting over a chronologically sortable value |
 | `src/history/output.component.ts` | the engine's own output for one job, in a dialogue |
 | `src/tenants.ts` | naming a tenant: the company name or the host, always with the id |
 | `src/history/history.component.*` | the list, which is the screen |
@@ -85,10 +87,10 @@ with, does not offer the action at all.
 The table is **the platform's own data grid**, given rows rather than a
 `serverSideDataCallback` — which is what makes it sort, page and search through
 them itself, and brings its own refresh button and column chooser. Sorting
-defaults to **Asked for, newest first**, which is the useful order for a list of
-things that happened. Cancel, Revert and Output are the grid's **row actions**,
-so each appears only where it applies and there are no button columns to keep
-aligned.
+defaults to **Timestamp, newest first**, which is the useful order for a list of
+things that happened. Cancel, Revert and Migration log are the grid's **row
+actions**, so each appears only where it applies and there are no button columns
+to keep aligned.
 
 **Pagination is the grid's, not the service's**, and that distinction matters:
 `GET /migrations` and `GET /reverts` have no paging parameters and return every
@@ -102,14 +104,59 @@ description of that.
 **Source and target are columns of their own.** They used to be a phrase in
 *What*; a column can be sorted and read down a page, and a phrase cannot. Each
 shows the tenant's name and id — or its host and id where tenant management is
-not readable — and *What* shows the migrated object by name as well as by id,
-from `rootName` on the record.
+not readable — and *Migration root* shows the migrated object by name as well as
+by id, from `rootName` on the record. It is named for what it holds: the root of
+the hierarchy that moved, not a summary of the job.
+
+**The columns read as a sentence, and Status is fourth.** *Migration root*,
+*Source tenant*, *Target tenant*, then *Status*, *Timestamp*, *Duration*, *User*
+and *Run id*. A row says "this hierarchy, from here to there — and it worked":
+the outcome qualifies the sentence, so it follows it instead of leading it.
+
+**Three columns are narrowed to what they can actually hold.** The grid's default
+track for short text is `minmax(80px, 1.67fr)`, which hands a fixed-length value
+the same room as a tenant name that can run on. *Status* holds one glyph, so it
+is `Icon`, whose own track is `max-content`; *Timestamp* is a date and a time and
+no more, so `minmax(120px, 0.8fr)`; *Duration* is `Numeric` — the narrow ratio,
+and figures that line up when read down the page — at `minmax(80px, 0.5fr)`.
+
+That last one needed the values shortened before the column could shrink. A
+duration used to read *took 1 h 30 min* when finished and *running for 1 h 30
+min* while going, and the second was the widest thing the column could hold. Both
+prefixes said something the screen already said — the header says Duration, and
+the status column says whether it is still running — so the value is now the bare
+span either way, and only the number moves.
+
+**The list is ordered by Timestamp, newest first — on the raw value, not the
+formatted one.** This is worth writing down because getting it wrong looks like
+it works. The grid sorts and searches on whatever a column's `path` points at,
+and nothing else: `doClientSideSorting` reads `get(item, path)` and ignores
+`sortingConfig`, which only ever reaches a server-side query. Pointed at the
+locale-formatted date, it sorted a *string* — so `01/09/26` came before
+`28/08/26` and "newest first" quietly meant "alphabetically first". The column's
+path is therefore the ISO timestamp the service recorded, which sorts
+chronologically because it is UTC and fixed-width, and
+[timestamp-cell.component.ts](../ui/src/history/timestamp-cell.component.ts)
+renders the locale-formatted text in its place. The one cost is that the search
+box matches a timestamp in its ISO form rather than the reader's.
+
+**Status is an icon and a colour, not a word.** A column of five coloured words
+is read word by word; a column of glyphs is taken in at a glance, which is what
+a list of past runs is for. The glyph is keyed on the job's status and the colour
+on the tone, because those are different questions — cancelled and interrupted
+are both warnings and must not be the same picture. Nothing is thrown away: the
+full wording, the device progress and any caveat remain the cell's value, so
+they are its tooltip, what the grid sorts and searches on, and what a screen
+reader reads. The decision is [`statusBadge`](../ui/src/history/rows.ts) with
+tests; [status-cell.component.ts](../ui/src/history/status-cell.component.ts) is
+wiring around it.
 
 **A migration that has already been undone is not offered for undoing again.** A
 successful revert for its run id is what says so; one that failed or was cut
 short leaves the offer standing, because a revert deletes what carries the marker
-and running it again finds whatever the first one left. The status column says
-*already undone* rather than merely dropping the action.
+and running it again finds whatever the first one left. The status carries
+*already undone* — in its tooltip, with the outcome — rather than the action
+merely disappearing with no explanation.
 
 Above the list is an **introduction that stays there**: what this moves, and the
 two facts that reassure a first-time user — nothing is read until a migration is
@@ -130,10 +177,12 @@ nothing to undo about one; a run started with `noFlag` marked nothing, so only i
 mapping file could find those objects and that file did not outlive the container;
 and a run still going has not finished creating what an undo would delete.
 
-**The engine's own output is offered per row**, on the rows that have any. It is
-the only account of what a run actually did and the only way to diagnose a
+**The engine's own log is offered per row**, on the rows that have any, as
+*Migration log* — which is what it is; *Output* named neither whose nor of what.
+It is the only account of what a run actually did and the only way to diagnose a
 failure, and since the dialogue is gone by the time a job runs, the list is where
-it has to be.
+it has to be. The dialogue it opens carries the same name, so the action and the
+window agree.
 
 **A running migration is followed in the list, not in the dialogue.** The list
 reads itself again every **30 seconds** normally and every **10** while something

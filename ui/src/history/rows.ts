@@ -23,7 +23,7 @@ export interface Row {
    */
   progress?: DeviceProgress;
 
-  /** How long it has been going, or how long it took. */
+  /** How long it has been going, or how long it ran. */
   took?: Message;
 
   /** What the job was about: the object migrated, or the run being undone. */
@@ -141,41 +141,39 @@ export function duration(job: Job, now: Date): Message | undefined {
     return undefined;
   }
 
-  return describeSpan(until - started, isRunning(job));
+  return describeSpan(until - started);
 }
 
 /**
  * A span of milliseconds, in the largest unit that says something useful.
  *
- * Whole sentences rather than a number and a unit stuck together: German puts
- * "seit" before the figure and abbreviates the units differently, and a sentence
- * a translator can move things around in is the only way that works.
+ * The bare span, for a running job as much as a finished one: the column is
+ * called Duration and the status column already says whether the figure is
+ * still climbing, so "took" and "running for" were both saying something twice
+ * - and the longer of them, "running for 1 h 30 min", was the only value wide
+ * enough to stop the column being narrow.
+ *
+ * Still whole sentences rather than a number and a unit stuck together, because
+ * German abbreviates the units differently and a translator has to be able to
+ * move them.
  */
-function describeSpan(milliseconds: number, running: boolean): Message {
+function describeSpan(milliseconds: number): Message {
   const seconds = Math.round(milliseconds / 1000);
   if (seconds < 60) {
-    return running
-      ? message("running for {{ seconds }} s", { seconds })
-      : message("took {{ seconds }} s", { seconds });
+    return message("{{ seconds }} s", { seconds });
   }
 
   const total = Math.round(seconds / 60);
   if (total < 60) {
-    return running
-      ? message("running for {{ minutes }} min", { minutes: total })
-      : message("took {{ minutes }} min", { minutes: total });
+    return message("{{ minutes }} min", { minutes: total });
   }
 
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   if (minutes === 0) {
-    return running
-      ? message("running for {{ hours }} h", { hours })
-      : message("took {{ hours }} h", { hours });
+    return message("{{ hours }} h", { hours });
   }
-  return running
-    ? message("running for {{ hours }} h {{ minutes }} min", { hours, minutes })
-    : message("took {{ hours }} h {{ minutes }} min", { hours, minutes });
+  return message("{{ hours }} h {{ minutes }} min", { hours, minutes });
 }
 
 /**
@@ -237,25 +235,61 @@ export function refreshInterval(list: Array<{ job: Job }>): number {
   return stillRunning(list) ? RUNNING_REFRESH_MS : IDLE_REFRESH_MS;
 }
 
+/** A status as one glyph and one colour. */
+export interface StatusBadge {
+  /** A Cumulocity icon name, for `c8yIcon`. */
+  icon: string;
+  /** The platform's own text-colour class, carrying the tone. */
+  className: string;
+}
+
 /**
- * The platform's own label class for a status.
+ * A status as an icon and a colour, rather than a word.
  *
- * `present` decides the tone; this is the only place that knows what Cumulocity
- * calls it. A status rendered without its tone reads as five identical grey
- * labels, which is worse than no label at all.
+ * The icon is keyed on the job's own status and the colour on the tone `present`
+ * decided, because the two are not the same question: cancelled and interrupted
+ * are both warnings and want the same colour, and they are not the same thing,
+ * so they must not be the same picture.
+ *
+ * Nothing here is the whole story - the full wording, the progress and any
+ * caveat stay on the row and become the icon's tooltip. An icon alone would
+ * throw away the caveat, which is the one part somebody has to read.
  */
-export function labelClass(row: Row): string {
-  switch (row.shown.tone) {
-    case "info":
-      return "label-info";
-    case "success":
-      return "label-success";
-    case "warning":
-      return "label-warning";
-    case "danger":
-      return "label-danger";
+export function statusBadge(row: Row): StatusBadge {
+  return { icon: iconFor(row.job.status), className: colourFor(row.shown.tone) };
+}
+
+function iconFor(status: string | undefined): string {
+  switch (status) {
+    case "QUEUED":
+      return "clock";
+    case "RUNNING":
+      return "refresh";
+    case "SUCCEEDED":
+      return "check-circle";
+    case "FAILED":
+      return "times-circle";
+    case "CANCELLED":
+      return "ban";
+    case "INTERRUPTED":
+      return "exclamation-triangle";
     default:
-      return "label-default";
+      return "exclamation-circle";
+  }
+}
+
+function colourFor(tone: StatusPresentation["tone"]): string {
+  switch (tone) {
+    case "info":
+      return "text-info";
+    case "success":
+      return "text-success";
+    case "warning":
+      return "text-warning";
+    case "danger":
+      return "text-danger";
+    default:
+      return "text-muted";
   }
 }
 
@@ -272,11 +306,29 @@ export interface GridRow {
   job: Job;
 
   id: string;
+
+  /**
+   * The status as finished text: what the icon's tooltip says, and what the
+   * grid sorts, searches and filters on. The icon is a picture of it, not a
+   * replacement for it.
+   */
   status: string;
+  /** The same status as one glyph and one colour, from `statusBadge`. */
+  statusIcon: string;
+  statusClass: string;
   what: string;
   source: string;
   target: string;
+  /** The timestamp as the reader's locale writes it: what the cell shows. */
   askedFor: string;
+  /**
+   * The same moment as the service recorded it, ISO and UTC.
+   *
+   * The Timestamp column orders and searches on this, not on `askedFor`: the
+   * grid sorts whatever `path` points at, and a localised date string sorts
+   * alphabetically - which puts 01/09 before 28/08.
+   */
+  queuedAt: string;
   took: string;
   by: string;
   runId: string;
