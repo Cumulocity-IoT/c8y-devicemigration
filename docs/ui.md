@@ -52,7 +52,7 @@ shows its words rather than paraphrasing them.
 | `src/migrate/selection.ts` | what that selector's `onSelected` actually means |
 | `src/migrate/window.ts` | which start dates the engine will accept, mirrored |
 | `src/history/rows.ts` | what the list shows, and what can be done to each row |
-| `src/history/status-cell.component.ts` | the status column: one glyph, one colour, the words in its tooltip |
+| `src/history/status-cell.component.ts` | the status column: the platform's tag, one status, the rest in its tooltip |
 | `src/history/timestamp-cell.component.ts` | the timestamp column: locale formatting over a chronologically sortable value |
 | `src/history/output.component.ts` | the engine's own output for one job, in a dialogue |
 | `src/tenants.ts` | naming a tenant: the company name or the host, always with the id |
@@ -140,23 +140,82 @@ chronologically because it is UTC and fixed-width, and
 renders the locale-formatted text in its place. The one cost is that the search
 box matches a timestamp in its ISO form rather than the reader's.
 
-**Status is an icon and a colour, not a word.** A column of five coloured words
-is read word by word; a column of glyphs is taken in at a glance, which is what
-a list of past runs is for. The glyph is keyed on the job's status and the colour
-on the tone, because those are different questions — cancelled and interrupted
-are both warnings and must not be the same picture. Nothing is thrown away: the
-full wording, the device progress and any caveat remain the cell's value, so
-they are its tooltip, what the grid sorts and searches on, and what a screen
-reader reads. The decision is [`statusBadge`](../ui/src/history/rows.ts) with
-tests; [status-cell.component.ts](../ui/src/history/status-cell.component.ts) is
-wiring around it.
+**Status is one of the platform's tags, and it says one thing.** `.tag` is
+Cumulocity's own tag component — the stylesheet marks the older `.label`
+deprecated in its favour — so *Completed* is the light green on dark green the
+platform means by success, and this list looks like the screens around it.
+
+The important half is *one* status. A migration that had been undone used to read
+"Succeeded — already undone": two facts joined by a dash that the reader had to
+combine, and a wrong one, because the objects of a migration that was reverted are
+not in the target tenant any more. The row now says **Reverted**. The full set is
+the job's own status until an undo exists, and then the undo's: **Reverting**
+while one is going, **Reverted** when one succeeded, and **Revert failed** when
+one did not — that last said out loud rather than left in the expansion, because
+a half-deleted migration reading *Succeeded* would be the most misleading thing
+on the screen. What merely *qualifies* the status — device progress, the caveat
+about what cannot be believed — is the tag's tooltip. The decision is
+[`outcome`](../ui/src/history/rows.ts) with tests;
+[status-cell.component.ts](../ui/src/history/status-cell.component.ts) is wiring.
+
+**A migration and the undo that cancelled it are one row.** The undo used to be a
+row of its own, elsewhere in the list, naming its migration by run id and nothing
+else — so learning what had been undone meant matching ids by eye, and the two
+rows need not even be adjacent. Now every migration is expandable
+(`expandableRows="SYNC"`, with the panel projected through the grid's own
+`[c8yExpandableRow]`), and the expansion carries everything the undo's row
+carried: its outcome as a tag, when it ran, who ran it, how long it took, its own
+run id and its own **Migration log**. Including when it failed — which is the
+case that matters most, and the reason the undo is not simply folded away into
+the migration's status. Several undos of one migration are listed newest first,
+which happens when a first attempt failed and a second finished the job.
+
+**Every row expands, so the expansion is about the migration, not only its undo.**
+The chevron cannot be hidden per row: the grid builds its own `expander` column
+whenever `expandableRows` is on, `uniqBy(columns, 'name')` keeps the built-in one
+over any replacement, and there is no row-class or `trackBy` hook to reach it with
+CSS. Rather than leave a chevron that sometimes opens onto nothing, the panel
+carries what no column does — the full run id, which relationships were followed,
+which device data was included and over what window, and whether the target was
+reached with a certificate. The undo is the headline of that panel when there is
+one, and a migration nobody undid still has something to say. The defaults are
+why [`scopeOf`](../ui/src/history/rows.ts) is a tested function rather than a
+template reading the request: an omitted `childTypes` means `asset,device`, while
+an omitted `dataTypes` really does mean none.
+
+**An expanded row survives the refresh.** The grid remembers which rows are open
+in a `Map` keyed by the **row object itself**, so handing it a fresh array every
+few seconds silently collapsed whatever the reader had open.
+[`keepingIdentity`](../ui/src/history/rows.ts) hands back the previous object for
+any row whose content is unchanged, so those keys still match; only a row that
+genuinely changed becomes a new object, and only that row closes — which is
+defensible, because something about it moved on. Comparing by content and not by
+id is the part that matters: reusing the old object for a row whose status had
+advanced would show the old status for ever.
+
+**An undo whose migration is not in the listing keeps a row of its own** — a
+revert run from the command line against a run id whose migration has aged out of
+the records is a real thing, and a job with no parent to sit under must not become
+a job that is nowhere.
+
+**The expansion is laid out as definition lists on a two-column grid.** Labels on
+one axis, values on the other. It was a flex row of a tag, a date and a username
+to begin with, which lined up on none of them: `.tag` carries
+`align-self: flex-start` and a smaller font than the text beside it, so it rode
+up above its own line.
 
 **A migration that has already been undone is not offered for undoing again.** A
 successful revert for its run id is what says so; one that failed or was cut
 short leaves the offer standing, because a revert deletes what carries the marker
-and running it again finds whatever the first one left. The status carries
-*already undone* — in its tooltip, with the outcome — rather than the action
-merely disappearing with no explanation.
+and running it again finds whatever the first one left — which the status says as
+*Revert failed*, with the half-deleted caveat in its tooltip.
+
+**An undo cannot itself be undone, and the expansion says so** rather than
+leaving it to the absence of an action. It has to be said in the row's content:
+`ActionControl` exposes `showIf` and no disabled state, so a greyed-out *Revert*
+carrying the reason in a tooltip cannot be built without abandoning the grid's
+row actions for a bespoke button column — which is what this design deliberately
+moved away from.
 
 Above the list is an **introduction that stays there**: what this moves, and the
 two facts that reassure a first-time user — nothing is read until a migration is

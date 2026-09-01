@@ -287,9 +287,6 @@ msgstr "Dauer"
 msgid "Undo of {{ runId }}"
 msgstr "Rücknahme von {{ runId }}"
 
-msgid "already undone"
-msgstr "bereits rückgängig gemacht"
-
 # A format rather than a sentence: the parts are an object's name and its id, and
 # a language is free to order them differently.
 msgid "{{ name }} ({{ id }})"
@@ -378,3 +375,60 @@ msgstr "der Mandant, in den sie verschoben werden — entweder ebenfalls abonnie
 
 msgid "This tenant has the migration plugin but not the migration service, which means it is the target of a migration from another instance. Trust the incoming certificate below to let that migration reach this tenant."
 msgstr "Dieser Mandant hat das Migrations-Plugin, aber nicht den Migrationsdienst — er ist also das Ziel einer Migration von einer anderen Instanz. Hinterlegen Sie unten das eingehende Zertifikat als vertrauenswürdig, damit diese Migration diesen Mandanten erreichen kann."
+
+msgid "Reverted"
+msgstr "Zurückgenommen"
+
+msgid "Reverting"
+msgstr "Wird zurückgenommen"
+
+msgid "Revert failed"
+msgstr "Rücknahme fehlgeschlagen"
+
+msgid "This migration was undone"
+msgstr "Diese Migration wurde zurückgenommen"
+
+msgid "This migration has not been undone."
+msgstr "Diese Migration wurde nicht zurückgenommen."
+
+msgid "Undo run id"
+msgstr "Lauf-ID der Rücknahme"
+
+msgid "An undo cannot itself be undone — it only deletes what a migration created."
+msgstr "Eine Rücknahme kann selbst nicht zurückgenommen werden — sie löscht nur, was eine Migration angelegt hat."
+
+msgid "An undo of this migration did not finish, so some of what it created may already be gone. Undoing it again deletes whatever is left."
+msgstr "Eine Rücknahme dieser Migration wurde nicht abgeschlossen, daher ist möglicherweise ein Teil des Angelegten bereits entfernt. Eine erneute Rücknahme löscht, was übrig ist."
+
+msgid "Relationships"
+msgstr "Beziehungen"
+
+msgid "Device data"
+msgstr "Gerätedaten"
+
+msgid "None"
+msgstr "Keine"
+
+msgid "The root object only"
+msgstr "Nur das Wurzelobjekt"
+
+msgid "Outcome"
+msgstr "Ergebnis"
+
+msgid "Undone"
+msgstr "Zurückgenommen am"
+
+msgid "Target"
+msgstr "Ziel"
+
+msgid "Reached with a migration certificate, not a subscription"
+msgstr "Über ein Migrationszertifikat erreicht, nicht über ein Abonnement"
+
+msgid "from {{ from }}"
+msgstr "ab {{ from }}"
+
+msgid "until {{ to }}"
+msgstr "bis {{ to }}"
+
+msgid "{{ from }} to {{ to }}"
+msgstr "{{ from }} bis {{ to }}"

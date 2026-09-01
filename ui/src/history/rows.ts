@@ -33,11 +33,26 @@ export interface Row {
   source: string;
   target: string;
 
-  /** Whether an undo has already finished for this migration. */
-  undone: boolean;
+  /**
+   * The undos of this migration, newest first.
+   *
+   * A migration can have more than one: a revert that failed part way through
+   * leaves the offer standing, so the next attempt is another job. They are rows
+   * of their own no longer - they are read in the row's expansion.
+   */
+  undos: Undo[];
 
   revertable: boolean;
   cancellable: boolean;
+}
+
+/** One undo of one migration, as its expansion needs it. */
+export interface Undo {
+  job: Job;
+  shown: StatusPresentation;
+  took?: Message;
+  /** Whether the engine left an account of what this undo deleted. */
+  hasOutput: boolean;
 }
 
 /**
@@ -61,24 +76,116 @@ export function rows(
   const now = context.now ?? new Date();
   const tenants = context.tenants ?? new Map();
   const undone = undoneRunIds(reverts);
+  const byRun = revertsByRunId(reverts);
+
+  // A migration and the undo that cancelled it are one story, so they are one
+  // row: the undo is read in the row's expansion rather than somewhere else in
+  // the list behind a matching run id.
+  //
+  // An undo whose migration is not in this listing still gets a row of its own.
+  // That happens - a revert run from the command line against a run id whose
+  // migration has aged out of the records - and a job that has no parent to sit
+  // under must not become a job that is nowhere at all.
+  const claimed = new Set<Job>();
+  for (const [runId, undos] of byRun) {
+    if (migrations.some((job) => job.runId === runId)) {
+      undos.forEach((undo) => claimed.add(undo));
+    }
+  }
+
+  const listed: Job[] = [
+    ...migrations,
+    ...reverts.filter((revert) => !claimed.has(revert)),
+  ];
 
   // Newest first, which is also what the grid sorts by until somebody clicks a
   // header. Sorted here as well so the order is defined for anything that reads
   // these rows without a grid around them.
-  return [...migrations, ...reverts]
+  return listed
     .sort((a, b) => (b.queuedAt ?? "").localeCompare(a.queuedAt ?? ""))
-    .map((job) => ({
-      job,
-      shown: present(job),
-      progress: isRunning(job) ? deviceProgress(job.progress) : undefined,
-      took: duration(job, now),
-      what: describe(job),
-      source: labelFor(sourceOf(job), tenants),
-      target: labelFor(targetOf(job), tenants),
-      revertable: revertable(job, undone),
-      undone: !!job.runId && job.kind !== "REVERT" && undone.has(job.runId),
-      cancellable: isRunning(job),
-    }));
+    .map((job) => {
+      const undos = (job.runId && job.kind !== "REVERT"
+        ? byRun.get(job.runId) ?? []
+        : []
+      ).map((undo) => ({
+        job: undo,
+        shown: present(undo),
+        took: duration(undo, now),
+        hasOutput: hasDetail({ job: undo }),
+      }));
+
+      return {
+        job,
+        shown: outcome(job, undos),
+        progress: isRunning(job) ? deviceProgress(job.progress) : undefined,
+        took: duration(job, now),
+        what: describe(job),
+        source: labelFor(sourceOf(job), tenants),
+        target: labelFor(targetOf(job), tenants),
+        revertable: revertable(job, undone),
+        undos,
+        cancellable: isRunning(job),
+      };
+    });
+}
+
+/**
+ * The undos of each migration, newest first, keyed by the run they undid.
+ *
+ * A revert names its migration by run id and nothing else, which is why the
+ * list could not show the relationship before: the id was all there was to go
+ * on, and matching ids by eye is not a feature.
+ */
+function revertsByRunId(reverts: Job[]): Map<string, Job[]> {
+  const byRun = new Map<string, Job[]>();
+  for (const revert of reverts) {
+    const runId = revert.revert?.runId;
+    if (!runId) {
+      continue;
+    }
+    byRun.set(runId, [...(byRun.get(runId) ?? []), revert]);
+  }
+  for (const undos of byRun.values()) {
+    undos.sort((a, b) => (b.queuedAt ?? "").localeCompare(a.queuedAt ?? ""));
+  }
+  return byRun;
+}
+
+/**
+ * The one status a row shows.
+ *
+ * One status, not a status and a qualifier: a migration that was undone is
+ * *Reverted*, not "Succeeded - already undone". Two words joined by a dash were
+ * two facts the reader had to combine, and the outcome of a migration that no
+ * longer exists in the target tenant is not "succeeded".
+ *
+ * A succeeded undo wins over everything, because it is the end of the story. An
+ * undo still running is next. An undo that failed is said out loud rather than
+ * left to the expansion: the migration's objects may be half deleted, and a row
+ * reading *Succeeded* would be the most misleading thing on the screen.
+ */
+export function outcome(job: Job, undos: Undo[]): StatusPresentation {
+  if (job.kind === "REVERT") {
+    // An orphan undo, listed on its own. It is what it is.
+    return present(job);
+  }
+
+  if (undos.some(({ job: undo }) => undo.status === "SUCCEEDED")) {
+    return { label: gettext("Reverted"), tone: "danger" };
+  }
+  if (undos.some(({ job: undo }) => isRunning(undo))) {
+    return { label: gettext("Reverting"), tone: "info" };
+  }
+  if (undos.length > 0) {
+    return {
+      label: gettext("Revert failed"),
+      tone: "warning",
+      caveat: gettext(
+        "An undo of this migration did not finish, so some of what it created may already be gone. Undoing it again deletes whatever is left.",
+      ),
+    };
+  }
+  return present(job);
 }
 
 /**
@@ -235,61 +342,35 @@ export function refreshInterval(list: Array<{ job: Job }>): number {
   return stillRunning(list) ? RUNNING_REFRESH_MS : IDLE_REFRESH_MS;
 }
 
-/** A status as one glyph and one colour. */
-export interface StatusBadge {
-  /** A Cumulocity icon name, for `c8yIcon`. */
-  icon: string;
-  /** The platform's own text-colour class, carrying the tone. */
-  className: string;
-}
-
 /**
- * A status as an icon and a colour, rather than a word.
+ * A status as the platform's own tag class.
  *
- * The icon is keyed on the job's own status and the colour on the tone `present`
- * decided, because the two are not the same question: cancelled and interrupted
- * are both warnings and want the same colour, and they are not the same thing,
- * so they must not be the same picture.
+ * `.tag` rather than `.label`: they are the same colours - both resolve to
+ * `$status-<tone>-light` on `$status-<tone>-dark` - and the stylesheet marks
+ * `.label` deprecated, "to be replaced by Tag". Success is therefore the light
+ * green with dark green text, which is the one the platform means by success.
  *
- * Nothing here is the whole story - the full wording, the progress and any
- * caveat stay on the row and become the icon's tooltip. An icon alone would
- * throw away the caveat, which is the one part somebody has to read.
+ * `present` and `outcome` decide the tone; this is the only place that knows
+ * what Cumulocity calls it. A status rendered without its tone reads as five
+ * identical grey words, which is worse than no tag at all.
  */
-export function statusBadge(row: Row): StatusBadge {
-  return { icon: iconFor(row.job.status), className: colourFor(row.shown.tone) };
+export function statusTag(row: Row): string {
+  return tagForTone(row.shown.tone);
 }
 
-function iconFor(status: string | undefined): string {
-  switch (status) {
-    case "QUEUED":
-      return "clock";
-    case "RUNNING":
-      return "refresh";
-    case "SUCCEEDED":
-      return "check-circle";
-    case "FAILED":
-      return "times-circle";
-    case "CANCELLED":
-      return "ban";
-    case "INTERRUPTED":
-      return "exclamation-triangle";
-    default:
-      return "exclamation-circle";
-  }
-}
-
-function colourFor(tone: StatusPresentation["tone"]): string {
+/** The tag classes for one tone, wherever a status is shown. */
+export function tagForTone(tone: StatusPresentation["tone"]): string {
   switch (tone) {
     case "info":
-      return "text-info";
+      return "tag tag--info";
     case "success":
-      return "text-success";
+      return "tag tag--success";
     case "warning":
-      return "text-warning";
+      return "tag tag--warning";
     case "danger":
-      return "text-danger";
+      return "tag tag--danger";
     default:
-      return "text-muted";
+      return "tag tag--default";
   }
 }
 
@@ -313,9 +394,14 @@ export interface GridRow {
    * replacement for it.
    */
   status: string;
-  /** The same status as one glyph and one colour, from `statusBadge`. */
-  statusIcon: string;
+  /** The same status as the platform's tag classes, from `statusTag`. */
   statusClass: string;
+  /**
+   * What qualifies the status without being part of it: how far a running job
+   * has got, and what cannot be believed about a finished one. The tag's
+   * tooltip, so the column itself stays one word.
+   */
+  detail: string;
   what: string;
   source: string;
   target: string;
@@ -337,6 +423,109 @@ export interface GridRow {
   revertable: boolean;
   cancellable: boolean;
   hasOutput: boolean;
+
+  /** What the migration included, for the expansion to show. */
+  scope: ScopeRow;
+
+  /** The undos, finished for the expansion to show. Empty if never undone. */
+  undos: UndoRow[];
+}
+
+/** What a migration moved, in words, for its expansion. */
+export interface ScopeRow {
+  runId: string;
+  relationships: string;
+  dataTypes: string;
+  /** Empty when no window was given. */
+  window: string;
+  remote: boolean;
+}
+
+/** One undo in a row's expansion, already in words. */
+export interface UndoRow {
+  job: Job;
+  status: string;
+  statusClass: string;
+  caveat: string;
+  when: string;
+  took: string;
+  by: string;
+  runId: string;
+  hasOutput: boolean;
+}
+
+/**
+ * The fresh rows, reusing the objects of the ones that have not changed.
+ *
+ * The grid tracks which rows are expanded in a `Map` keyed by the **row object
+ * itself**. Handing it a brand new array every few seconds therefore threw away
+ * every expansion, which is why an expanded row collapsed on its own the moment
+ * the list refreshed - a job the reader was in the middle of reading.
+ *
+ * So an unchanged row is handed back the object it was last time. Only a row
+ * whose content really differs becomes a new object, and only that row loses its
+ * expansion - which is defensible, because something about it actually changed.
+ *
+ * Identity is compared by content rather than by id alone: reusing the old
+ * object for a row whose status has moved on would show yesterday's status
+ * forever.
+ */
+export function keepingIdentity(
+  previous: GridRow[],
+  fresh: GridRow[],
+): GridRow[] {
+  const before = new Map(previous.map((row) => [row.id, row]));
+  return fresh.map((row) => {
+    const old = before.get(row.id);
+    return old && JSON.stringify(old) === JSON.stringify(row) ? old : row;
+  });
+}
+
+/**
+ * What a migration was asked to move.
+ *
+ * The columns say which object moved and between which tenants; they do not say
+ * what "it" included, and that is the question somebody has a week later. It
+ * lives in the row's expansion, which also means no row is an expansion that
+ * says nothing - every migration has a scope, whether or not it was ever undone.
+ *
+ * The defaults are the point of doing this in a function: an omitted
+ * `childTypes` is not "none", it is `asset,device`, and an omitted `dataTypes`
+ * really is none. Reading the raw request would get that backwards.
+ */
+export interface Scope {
+  /** The relationship types followed, or empty when only the root moved. */
+  relationships: string[];
+  rootOnly: boolean;
+  /** The kinds of device data included, empty when none was. */
+  dataTypes: string[];
+  from?: string;
+  to?: string;
+  /** Whether the target was reached with a certificate rather than a subscription. */
+  remote: boolean;
+}
+
+export function scopeOf(job: Job): Scope {
+  const request = job.request;
+  const rootOnly = !!request?.noChildren;
+  const childTypes = request?.childTypes;
+
+  return {
+    // The API's own default, which is what silence on the request means.
+    relationships: rootOnly ? [] : split(childTypes ?? "asset,device"),
+    rootOnly,
+    dataTypes: split(request?.dataTypes ?? ""),
+    from: request?.dateFrom,
+    to: request?.dateTo,
+    remote: !!request?.remoteTargetId,
+  };
+}
+
+function split(list: string): string[] {
+  return list
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 /**

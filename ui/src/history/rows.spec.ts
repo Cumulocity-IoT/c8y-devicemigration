@@ -4,7 +4,10 @@ import {
   explain,
   hasDetail,
   IDLE_REFRESH_MS,
-  statusBadge,
+  keepingIdentity,
+  outcome,
+  scopeOf,
+  statusTag,
   refreshInterval,
   serviceAbsent,
   revertable,
@@ -197,42 +200,125 @@ describe("the history list", () => {
     expect(hasDetail(bare)).toBe(false);
   });
 
-  it("gives each outcome its own icon, so a column of glyphs can be scanned", () => {
-    const badges = rows(
+  it("gives each outcome the platform's tag for its tone", () => {
+    const tags = rows(
       [
         job({ id: "a", status: "RUNNING" }),
         job({ id: "b", status: "SUCCEEDED" }),
         job({ id: "c", status: "FAILED" }),
         job({ id: "d", status: "INTERRUPTED" }),
-        job({ id: "e", status: "CANCELLED" }),
-        job({ id: "f", status: "QUEUED" }),
+        job({ id: "e", status: "QUEUED" }),
       ],
       [],
-    ).map(statusBadge);
+    ).map(statusTag);
 
-    expect(badges).toEqual([
-      { icon: "refresh", className: "text-info" },
-      { icon: "check-circle", className: "text-success" },
-      { icon: "times-circle", className: "text-danger" },
-      { icon: "exclamation-triangle", className: "text-warning" },
-      { icon: "ban", className: "text-warning" },
-      { icon: "clock", className: "text-muted" },
+    expect(tags).toEqual([
+      "tag tag--info",
+      "tag tag--success",
+      "tag tag--danger",
+      "tag tag--warning",
+      "tag tag--default",
     ]);
-
-    // Cancelled and interrupted share a colour, and must not share a glyph:
-    // that is the whole reason the icon is keyed on the status, not the tone.
-    expect(new Set(badges.map(b => b.icon)).size).toBe(6);
   });
 
-  it("falls back to a neutral icon for a status it has never heard of", () => {
+  it("falls back to a neutral tag for a status it has never heard of", () => {
     // Cast because the generated types know today's statuses; a service that
     // adds one is exactly the case this branch exists for, and it must not
     // render as a blank cell.
     const unknown = job({ id: "a", status: "WAT" as Job["status"] });
 
-    expect(statusBadge(rows([unknown], [])[0])).toEqual({
-      icon: "exclamation-circle",
-      className: "text-muted",
+    expect(statusTag(rows([unknown], [])[0])).toBe("tag tag--default");
+  });
+
+  describe("the one status a row shows", () => {
+    const migration = { id: "m1", runId: "r1", status: "SUCCEEDED" } as const;
+    const undoOf = (status: Job["status"]) =>
+      job({ id: `u-${status}`, kind: "REVERT", status, revert: { runId: "r1" } });
+
+    it("says Reverted instead of a success qualified by an undo", () => {
+      const row = rows([job(migration)], [undoOf("SUCCEEDED")])[0];
+
+      // Not "Succeeded — already undone": the migration's objects are gone, so
+      // calling the row succeeded is the wrong single word for it.
+      expect(row.shown.label).toBe("Reverted");
+      expect(statusTag(row)).toBe("tag tag--danger");
+    });
+
+    it("says Reverting while an undo is going", () => {
+      const row = rows([job(migration)], [undoOf("RUNNING")])[0];
+
+      expect(row.shown.label).toBe("Reverting");
+      expect(statusTag(row)).toBe("tag tag--info");
+    });
+
+    it("says an undo failed rather than leaving the row reading Succeeded", () => {
+      const row = rows([job(migration)], [undoOf("FAILED")])[0];
+
+      expect(row.shown.label).toBe("Revert failed");
+      expect(statusTag(row)).toBe("tag tag--warning");
+      // The half-deleted state is the thing somebody has to be told about.
+      expect(row.shown.caveat).toContain("may already be gone");
+    });
+
+    it("prefers a later successful undo over an earlier failed one", () => {
+      const row = rows(
+        [job(migration)],
+        [undoOf("FAILED"), undoOf("SUCCEEDED")],
+      )[0];
+
+      expect(row.shown.label).toBe("Reverted");
+    });
+
+    it("leaves a migration nobody undid with its own status", () => {
+      expect(rows([job(migration)], [])[0].shown.label).toBe("Succeeded");
+      expect(outcome(job(migration), []).label).toBe("Succeeded");
+    });
+  });
+
+  describe("undos and their migration", () => {
+    it("attaches an undo to the migration it undid instead of listing it", () => {
+      const list = rows(
+        [job({ id: "m1", runId: "r1", status: "SUCCEEDED" })],
+        [
+          job({
+            id: "u1",
+            kind: "REVERT",
+            status: "SUCCEEDED",
+            revert: { runId: "r1", targetTenant: "t-target" },
+          }),
+        ],
+      );
+
+      // One row, not two: the undo is read in the migration's expansion.
+      expect(list).toHaveLength(1);
+      expect(list[0].job.id).toBe("m1");
+      expect(list[0].undos.map(u => u.job.id)).toEqual(["u1"]);
+    });
+
+    it("keeps an undo whose migration is not listed as a row of its own", () => {
+      // A revert run from the command line against a run id whose migration has
+      // aged out of the records. A job with no parent must not be nowhere.
+      const list = rows(
+        [],
+        [job({ id: "u1", kind: "REVERT", status: "SUCCEEDED", revert: { runId: "gone" } })],
+      );
+
+      expect(list).toHaveLength(1);
+      expect(list[0].job.id).toBe("u1");
+      expect(list[0].undos).toEqual([]);
+      expect(list[0].revertable).toBe(false);
+    });
+
+    it("orders several undos of one migration newest first", () => {
+      const list = rows(
+        [job({ id: "m1", runId: "r1", status: "SUCCEEDED" })],
+        [
+          job({ id: "older", kind: "REVERT", status: "FAILED", revert: { runId: "r1" }, queuedAt: "2026-08-01T10:00:00Z" }),
+          job({ id: "newer", kind: "REVERT", status: "FAILED", revert: { runId: "r1" }, queuedAt: "2026-08-02T10:00:00Z" }),
+        ],
+      );
+
+      expect(list[0].undos.map(u => u.job.id)).toEqual(["newer", "older"]);
     });
   });
 
@@ -296,7 +382,7 @@ describe("a migration that has already been undone", () => {
 
     expect(row.job.id).toBe("m1");
     expect(row.revertable).toBe(false);
-    expect(row.undone).toBe(true);
+    expect(row.shown.label).toBe("Reverted");
   });
 
   // A revert that failed or was cut short may have deleted some of what it found
@@ -316,7 +402,7 @@ describe("a migration that has already been undone", () => {
       ).find((candidate) => candidate.job.id === "m1")!;
 
       expect(row.revertable).toBe(true);
-      expect(row.undone).toBe(false);
+      expect(row.shown.label).not.toBe("Reverted");
     }
   });
 
@@ -418,5 +504,81 @@ describe("what the list says about tenants and objects", () => {
     });
     expect(row.source).toBe("");
     expect(row.target).toBe("t-b.example.com (t-b)");
+  });
+
+  describe("keeping row identity across a refresh", () => {
+    // The grid remembers expanded rows in a Map keyed by the row object, so an
+    // unchanged row has to come back as the *same* object or the refresh
+    // collapses whatever the reader had open.
+    const row = (id: string, status: string) =>
+      ({ id, status, undos: [] }) as never;
+
+    it("hands back the previous object when nothing changed", () => {
+      const before = [row("a", "Succeeded"), row("b", "Running")];
+      const after = keepingIdentity(before, [
+        row("a", "Succeeded"),
+        row("b", "Running"),
+      ]);
+
+      expect(after[0]).toBe(before[0]);
+      expect(after[1]).toBe(before[1]);
+    });
+
+    it("uses the fresh object for a row whose content moved on", () => {
+      const before = [row("a", "Running")];
+      const fresh = [row("a", "Succeeded")];
+      const after = keepingIdentity(before, fresh);
+
+      // Reusing the old object here would show "Running" for ever.
+      expect(after[0]).toBe(fresh[0]);
+      expect(after[0]).not.toBe(before[0]);
+    });
+
+    it("passes through rows it has never seen", () => {
+      const fresh = [row("new", "Queued")];
+
+      expect(keepingIdentity([], fresh)[0]).toBe(fresh[0]);
+    });
+  });
+
+  describe("what a migration included", () => {
+    it("reads an omitted childTypes as the API's default, not as none", () => {
+      const scope = scopeOf(job({ id: "m", request: { sourceTenant: "s", rootId: "1" } }));
+
+      expect(scope.relationships).toEqual(["asset", "device"]);
+      expect(scope.rootOnly).toBe(false);
+      // Silence about data really does mean none, unlike silence about children.
+      expect(scope.dataTypes).toEqual([]);
+    });
+
+    it("says the root moved alone when noChildren was set", () => {
+      const scope = scopeOf(
+        job({ id: "m", request: { sourceTenant: "s", rootId: "1", noChildren: true } }),
+      );
+
+      expect(scope.rootOnly).toBe(true);
+      expect(scope.relationships).toEqual([]);
+    });
+
+    it("splits what was asked for, and notices a remote target", () => {
+      const scope = scopeOf(
+        job({
+          id: "m",
+          request: {
+            sourceTenant: "s",
+            rootId: "1",
+            childTypes: "asset,addition",
+            dataTypes: "measurements,alarms",
+            dateFrom: "-14d",
+            remoteTargetId: "rt-1",
+          },
+        }),
+      );
+
+      expect(scope.relationships).toEqual(["asset", "addition"]);
+      expect(scope.dataTypes).toEqual(["measurements", "alarms"]);
+      expect(scope.from).toBe("-14d");
+      expect(scope.remote).toBe(true);
+    });
   });
 });

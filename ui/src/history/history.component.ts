@@ -14,18 +14,25 @@ import { type Job } from '../api/client';
 import { MigrationService } from '../api/migration.service';
 import { gettext, message, type Message } from '../i18n';
 import { MigrateComponent } from '../migrate/migrate.component';
+import { kindLabel } from '../migrate/labels';
 import { byId } from '../tenants';
 import { OutputComponent } from './output.component';
 import { RegisterCertificateComponent } from '../trust/register-certificate.component';
 import {
   explain,
   hasDetail,
+  keepingIdentity,
   refreshInterval,
   rows,
+  scopeOf,
   serviceAbsent,
-  statusBadge,
+  statusTag,
+  tagForTone,
   type GridRow,
-  type Row
+  type Row,
+  type ScopeRow,
+  type Undo,
+  type UndoRow
 } from './rows';
 import { StatusCellComponent } from './status-cell.component';
 import { TimestampCellComponent } from './timestamp-cell.component';
@@ -62,6 +69,62 @@ import { TimestampCellComponent } from './timestamp-cell.component';
         opacity: 0.35;
         margin-left: auto;
         padding-right: 24px;
+      }
+
+      /* The row's expansion. Everything in it sits on one of two axes: labels
+         in the first column, values in the second. The previous layout put a
+         tag, a date and a username side by side in a flex row and they lined up
+         on none of them. */
+      .device-migration-detail {
+        padding: 16px 16px 16px 0;
+        max-width: 60em;
+        font-size: 13px;
+      }
+      .device-migration-detail dl {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 6px 20px;
+        margin: 0 0 4px;
+        align-items: baseline;
+      }
+      .device-migration-detail dt {
+        font-weight: 400;
+        color: var(--c8y-text-muted, #78849b);
+        white-space: nowrap;
+      }
+      .device-migration-detail dd {
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      /* .tag sets align-self: flex-start, which in a baseline-aligned row lifts
+         it above the text beside it. Its own font is smaller, so it is centred
+         against the line rather than sharing a baseline with it. */
+      .device-migration-detail dd .tag {
+        align-self: center;
+        vertical-align: middle;
+      }
+      /* The log button sits inline after the tag, so it must not carry a
+         button's own padding or it pushes the line taller than its neighbours. */
+      .device-migration-detail dd .btn-link {
+        padding: 0;
+        margin-left: 8px;
+        vertical-align: middle;
+        border: 0;
+      }
+      .device-migration-detail .detail-heading {
+        margin: 16px 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--c8y-text-muted, #78849b);
+      }
+      .device-migration-detail .detail-note {
+        margin: 12px 0 0;
+        color: var(--c8y-text-muted, #78849b);
+      }
+      .device-migration-detail + .device-migration-detail {
+        border-top: 1px solid var(--c8y-component-border-color, #d6dedd);
       }
     `
   ]
@@ -100,15 +163,11 @@ export class HistoryComponent implements OnInit, OnDestroy {
     text('target', gettext('Target tenant')),
     {
       ...text('status', gettext('Status')),
-      // An icon in the tone of the outcome; the words become its tooltip. The
-      // path stays on the text, so sorting and searching still work on words.
+      // The platform's own tag, in the tone of the outcome. The path stays on
+      // the status text, so sorting and searching still work on words.
       cellRendererComponent: StatusCellComponent,
-      // One glyph wide. Icon is the grid's own narrowest column ratio, and the
-      // explicit track size holds it there instead of letting a column of
-      // 20-pixel pictures share the width of one full of sentences.
-      // Icon sizes itself to `max-content`, which for a cell holding one glyph
-      // is the header word and nothing more.
-      dataType: ColumnDataType.Icon
+      // Wide enough for the longest of them - "Revert failed" - and no wider.
+      gridTrackSize: 'minmax(120px, 0.8fr)'
     },
     {
       ...text('askedFor', gettext('Timestamp')),
@@ -221,8 +280,16 @@ export class HistoryComponent implements OnInit, OnDestroy {
         this.migration.api.tenants()
       ]);
 
-      this.rows.set(
-        rows(migrations, reverts, { tenants: byId(tenants.tenants) }).map(row => this.forGrid(row))
+      // keepingIdentity, not a plain set: the grid remembers which rows are
+      // expanded by object identity, so replacing every object would collapse a
+      // row the reader is in the middle of reading.
+      this.rows.update(previous =>
+        keepingIdentity(
+          previous,
+          rows(migrations, reverts, { tenants: byId(tenants.tenants) }).map(row =>
+            this.forGrid(row)
+          )
+        )
       );
       this.mode.set('migrations');
     } catch (error) {
@@ -271,15 +338,18 @@ export class HistoryComponent implements OnInit, OnDestroy {
    */
   private forGrid(row: Row): GridRow {
     const progress = row.progress;
-    const badge = statusBadge(row);
     return {
       job: row.job,
       id: row.job.id ?? '',
       // Status, and what qualifies it: how far a running job has got, and what
       // cannot be believed about a finished one. In the column rather than
       // beside it, so it sorts and searches with the status it belongs to.
-      status: [
-        this.say(row.shown.label),
+      // One status, and only the status: the tag says Reverted rather than
+      // Succeeded qualified by something. What cannot be believed about it, and
+      // how far a running job has got, are the tooltip's job.
+      status: this.say(row.shown.label),
+      statusClass: statusTag(row),
+      detail: [
         progress &&
           this.say(
             message('roughly at device {{ current }} of {{ total }}', {
@@ -287,13 +357,10 @@ export class HistoryComponent implements OnInit, OnDestroy {
               total: progress.total
             })
           ),
-        row.undone && this.say(message('already undone')),
         row.shown.caveat && this.say(row.shown.caveat)
       ]
         .filter(Boolean)
         .join(' — '),
-      statusIcon: badge.icon,
-      statusClass: badge.className,
       what: this.say(row.what),
       source: row.source,
       target: row.target,
@@ -306,7 +373,61 @@ export class HistoryComponent implements OnInit, OnDestroy {
       runId: row.job.runId ?? '',
       revertable: row.revertable,
       cancellable: row.cancellable,
-      hasOutput: hasDetail(row)
+      hasOutput: hasDetail(row),
+      scope: this.forScope(row.job),
+      undos: row.undos.map(undo => this.forPanel(undo))
+    };
+  }
+
+  /**
+   * What a migration included, in words.
+   *
+   * The API's values go through kindLabel rather than being capitalised: a
+   * string built at runtime cannot be extracted for translation, and `device` is
+   * `Gerät`, which no amount of capitalising would have reached.
+   */
+  private forScope(job: Job): ScopeRow {
+    const scope = scopeOf(job);
+    const kinds = (list: string[]) => list.map(kind => this.say(kindLabel(kind))).join(', ');
+
+    return {
+      runId: job.runId ?? '',
+      relationships: scope.rootOnly
+        ? this.say(message('The root object only'))
+        : kinds(scope.relationships),
+      dataTypes: scope.dataTypes.length
+        ? kinds(scope.dataTypes)
+        : this.say(message('None')),
+      window: this.window(scope.from, scope.to),
+      remote: scope.remote
+    };
+  }
+
+  /** The data window, said only when there is data for it to apply to. */
+  private window(from?: string, to?: string): string {
+    if (!from && !to) {
+      return '';
+    }
+    if (from && to) {
+      return this.say(message('{{ from }} to {{ to }}', { from, to }));
+    }
+    return from
+      ? this.say(message('from {{ from }}', { from }))
+      : this.say(message('until {{ to }}', { to: to ?? '' }));
+  }
+
+  /** One undo, as its row's expansion shows it. */
+  private forPanel(undo: Undo): UndoRow {
+    return {
+      job: undo.job,
+      status: this.say(undo.shown.label),
+      statusClass: tagForTone(undo.shown.tone),
+      caveat: undo.shown.caveat ? this.say(undo.shown.caveat) : '',
+      when: this.dates.transform(undo.job.queuedAt, 'short') ?? '',
+      took: undo.took ? this.say(undo.took) : '',
+      by: undo.job.requestedBy ?? '',
+      runId: undo.job.runId ?? '',
+      hasOutput: undo.hasOutput
     };
   }
 

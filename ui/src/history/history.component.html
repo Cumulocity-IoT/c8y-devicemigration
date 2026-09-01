@@ -80,6 +80,7 @@
     [actionControls]="actions"
     [selectable]="false"
     [showSearch]="true"
+    expandableRows="SYNC"
     (onReload)="load()"
   >
     <c8y-ui-empty-state
@@ -87,6 +88,96 @@
       [title]="'Nothing has been migrated yet' | translate"
       [subtitle]="'Whatever is migrated appears here, with the run id that can undo it.' | translate"
     ></c8y-ui-empty-state>
+
+    <!--
+      A migration and the undo that cancelled it are one story, so they are one
+      row. The undo used to be a row of its own somewhere else in the list,
+      naming its migration by run id and nothing else - which meant matching
+      ids by eye to learn what had been undone.
+
+      Everything an undo's own row carried is here instead: its outcome, when it
+      ran, who ran it, how long it took, its run id and its log. Including when
+      it failed, which is the case that matters most and the reason the undo is
+      not merely folded into the migration's status.
+    -->
+    <ng-template c8yExpandableRow let-row>
+      <!--
+        Two definition lists on one grid, so every label sits on one axis and
+        every value on another. The previous layout put a tag, a date and a
+        username in a flex row: `.tag` carries `align-self: flex-start` and a
+        smaller font, so it rode up above text it was supposed to sit beside.
+      -->
+      <div class="device-migration-detail">
+        <dl>
+          <dt>{{ 'Run id' | translate }}</dt>
+          <dd><code>{{ row.scope.runId || '—' }}</code></dd>
+
+          <dt>{{ 'Relationships' | translate }}</dt>
+          <dd>{{ row.scope.relationships }}</dd>
+
+          <dt>{{ 'Device data' | translate }}</dt>
+          <dd>
+            {{ row.scope.dataTypes }}
+            @if (row.scope.window) {
+              <span class="text-muted">· {{ row.scope.window }}</span>
+            }
+          </dd>
+
+          @if (row.scope.remote) {
+            <dt>{{ 'Target' | translate }}</dt>
+            <dd>{{ 'Reached with a migration certificate, not a subscription' | translate }}</dd>
+          }
+        </dl>
+
+        @if (row.undos.length) {
+          <p class="detail-heading">{{ 'This migration was undone' | translate }}</p>
+
+          @for (undo of row.undos; track undo.runId) {
+            <dl>
+              <dt>{{ 'Outcome' | translate }}</dt>
+              <dd>
+                <span [class]="undo.statusClass">{{ undo.status }}</span>
+                @if (undo.hasOutput) {
+                  <button class="btn btn-link btn-sm" type="button" (click)="showOutput(undo.job)">
+                    {{ 'Migration log' | translate }}
+                  </button>
+                }
+              </dd>
+
+              <dt>{{ 'Undone' | translate }}</dt>
+              <dd>
+                {{ undo.when }}
+                @if (undo.took) {
+                  <span class="text-muted">· {{ undo.took }}</span>
+                }
+              </dd>
+
+              @if (undo.by) {
+                <dt>{{ 'User' | translate }}</dt>
+                <dd>{{ undo.by }}</dd>
+              }
+
+              <dt>{{ 'Undo run id' | translate }}</dt>
+              <dd><code>{{ undo.runId }}</code></dd>
+
+              @if (undo.caveat) {
+                <dt></dt>
+                <dd class="text-warning">{{ undo.caveat }}</dd>
+              }
+            </dl>
+          }
+
+          <p class="detail-note">
+            {{
+              'An undo cannot itself be undone — it only deletes what a migration created.'
+                | translate
+            }}
+          </p>
+        } @else {
+          <p class="detail-note">{{ 'This migration has not been undone.' | translate }}</p>
+        }
+      </div>
+    </ng-template>
   </c8y-data-grid>
 </div>
 }
