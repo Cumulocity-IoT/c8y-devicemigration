@@ -1,6 +1,6 @@
 {
   "name": "c8y-devicemigration-ui",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Migrate a device hierarchy from one Cumulocity tenant to another",
   "license": "Apache-2.0",
   "private": true,
@@ -56,7 +56,8 @@
           "name": "Device migration",
           "module": "DeviceMigrationModule",
           "path": "./src/migration.module.ts",
-          "description": "Move a device hierarchy between tenants, and undo it"
+          "description": "Move a device hierarchy between tenants, and undo it",
+          "readmePath": "README.md"
         }
       ]
     }

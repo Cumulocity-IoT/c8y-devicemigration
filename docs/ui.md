@@ -28,6 +28,14 @@ Management or a custom application instead.
 Then grant `ROLE_DEVICE_MIGRATION_ADMIN` to whoever should use it. The navigator
 entry is hidden without it, because every call the UI makes would be refused.
 
+**What that screen shows about the plugin is [ui/README.md](../ui/README.md).** The
+devkit copies it into the zip as `README.md`, and again as
+`DeviceMigrationModule/README.md` because the export names it in `readmePath`, so
+both the extension and the plugin inside it have something to say for themselves.
+It is written for whoever is deciding whether to install this — what the screens
+do, what has to be true first, what is not migrated — and not for whoever is
+working on it, which is what this document is for.
+
 ## Who can use it, and where
 
 Only in the tenant the microservice is deployed on. A session belongs to one
