@@ -539,6 +539,13 @@ so leaving it out points a development session at a shared public system rather
 than saying it needs a tenant. It is deliberately not set in `angular.json` for
 the same reason — a checked-in default would be somebody else's tenant.
 
+**Inside [the devcontainer](devcontainer.md), add `--host 0.0.0.0`.** The server
+binds localhost by default, which inside a container is a port the published
+mapping cannot reach — so from there it is
+`npm start -- --url https://<tenant>.cumulocity.com --host 0.0.0.0`, and the
+browser on the host still opens `localhost:4200`, which the sandbox pins to the
+host's loopback.
+
 The shell is configured in `angular.json` as `shell: administration`. Two things
 about that configuration are easy to get wrong and were:
 

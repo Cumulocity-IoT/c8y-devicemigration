@@ -85,7 +85,7 @@ lint:
 			echo "note: shellcheck $$have, CI pins $(SHELLCHECK_VERSION); results may differ"; \
 		fi; \
 		shellcheck $(COMMANDS) $(TESTS_DIR)/fake/c8y $(TESTS_DIR)/helpers/load.bash \
-			tools/gen-command-docs.sh \
+			tools/gen-command-docs.sh .devcontainer/init-firewall.sh \
 			&& echo "shellcheck $$have: clean"; \
 	else \
 		echo "shellcheck not installed, skipping (CI enforces this)"; \

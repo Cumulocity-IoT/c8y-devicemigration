@@ -76,7 +76,9 @@ the UI are complete but have not yet been run against a live tenant.
 
 Why the command line and the microservice share one engine, and how the two
 command line builds are kept in step, is in
-**[docs/internals.md](docs/internals.md)**.
+**[docs/internals.md](docs/internals.md)**. For working *on* this repository
+with an autonomous coding agent, there is a network-restricted sandbox in
+**[docs/devcontainer.md](docs/devcontainer.md)**.
 
 ## What gets migrated
 

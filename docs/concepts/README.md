@@ -13,5 +13,4 @@ concept is built, its concept file is replaced by real documentation up in
 | | |
 | --- | --- |
 | [credentials.md](credentials.md) | Giving migrated devices their new credentials (requirement #3). Three options; not started. |
-| [devcontainer.md](devcontainer.md) | Running an autonomous coding agent in this repo safely: a network-restricted devcontainer with a dnsmasq-fed egress allowlist, no host home directory, UI dev server still reachable from the host browser. Option 4 chosen; not started. |
 | [remote-targets.md](remote-targets.md) | Migrating to a tenant this instance is not subscribed to — different parent, or a different system. Option 4 (certificate exchange) chosen, verified, and now being built. |

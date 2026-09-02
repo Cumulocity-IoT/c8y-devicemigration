@@ -1,0 +1,66 @@
+// The sandbox for running an autonomous agent in this repository - the why of
+// every choice is docs/devcontainer.md. The standing rule that makes this a
+// boundary: review the .devcontainer/ diff before any rebuild, because a
+// rebuild is when the agent's edits to these files take effect.
+{
+	"name": "c8y-devicemigration sandbox",
+	"build": { "dockerfile": "Dockerfile" },
+
+	// NET_ADMIN/NET_RAW are for the firewall script only - it runs as root via
+	// its one sudoers line; the capabilities are useless to the non-root agent.
+	// IPv6 is switched off wholesale so there is one rule set to keep honest,
+	// not two.
+	"runArgs": [
+		"--cap-add=NET_ADMIN",
+		"--cap-add=NET_RAW",
+		"--sysctl=net.ipv6.conf.all.disable_ipv6=1",
+		"--sysctl=net.ipv6.conf.default.disable_ipv6=1"
+	],
+
+	// The UI dev server, published at the docker level and pinned to the host's
+	// loopback: the dev proxy rewrites tenant auth cookies to `localhost`, so
+	// the browser must see localhost:4200 - and loopback keeps the port off the
+	// LAN. appPort rather than forwardPorts so the devcontainer CLI works
+	// without VS Code's forwarder.
+	"appPort": ["127.0.0.1:4200:4200"],
+
+	// The workspace bind mount plus exactly three named volumes - and nothing
+	// else. No ~, no ~/.ssh, no docker socket (on Colima the socket IS the home
+	// directory, because the VM mounts it), and no devcontainer features, since
+	// several mount that socket.
+	//
+	// ui/node_modules is a volume for two reasons: 784 MB of packages performs
+	// far better on the VM's own filesystem than over the virtiofs bind, and
+	// bind-shadowing keeps the container's tree apart from any host-side one,
+	// so host runs and container runs cannot corrupt each other.
+	"mounts": [
+		"source=c8y-devmig-claude,target=/home/node/.claude,type=volume",
+		"source=c8y-devmig-go,target=/home/node/go,type=volume",
+		"source=c8y-devmig-ui-node-modules,target=${containerWorkspaceFolder}/ui/node_modules,type=volume"
+	],
+
+	"containerEnv": {
+		// go.mod would otherwise auto-download newer toolchains through the
+		// firewall; what the image ships is what runs.
+		"GOTOOLCHAIN": "local",
+		// Without this the OAuth account in .claude.json lands outside the
+		// volume and dies on rebuild - the volume alone is not enough.
+		"CLAUDE_CONFIG_DIR": "/home/node/.claude",
+		// Telemetry hosts are not in the allowlist; this tells the agent not to
+		// try, so blocked telemetry never reads as a broken network.
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+		// Updates arrive via npm when the image is rebuilt.
+		"DISABLE_AUTOUPDATER": "1"
+	},
+
+	"remoteUser": "node",
+
+	// Firewall FIRST, then dependency priming THROUGH it - so the first start
+	// doubles as a live test of the allowlist: bats clones exercise github.com,
+	// npm exercises registry.npmjs.org, go exercises proxy.golang.org.
+	"postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && make bootstrap ui-install && go mod download",
+
+	// iptables state dies with the container's network namespace, so every
+	// start re-applies it. The script is idempotent.
+	"postStartCommand": "sudo /usr/local/bin/init-firewall.sh"
+}
