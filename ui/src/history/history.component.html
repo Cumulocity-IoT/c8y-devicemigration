@@ -71,13 +71,17 @@
     The platform's own grid, given rows rather than a callback: that is what makes
     it sort, page and search through them itself. Refresh, paging and the column
     chooser are all its own.
+
+    The actions are not its own, and that is deliberate: it renders two of them
+    as icons and three as an icon plus a menu, so a row's affordance changed with
+    what had happened to that migration. The last column is one menu on every
+    row instead - see row-actions.component.ts.
   -->
   <c8y-data-grid
     [title]="'Migrations' | translate"
     [columns]="columns"
     [rows]="rows()"
     [pagination]="{ pageSize: 20, currentPage: 1 }"
-    [actionControls]="actions"
     [selectable]="false"
     [showSearch]="true"
     expandableRows="SYNC"

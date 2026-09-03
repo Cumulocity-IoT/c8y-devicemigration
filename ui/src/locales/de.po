@@ -585,3 +585,38 @@ msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine v
 
 msgid "of {{ objects }} objects; the rest are groups or have no usable external identity"
 msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine verwendbare externe ID"
+# The actions column, and forgetting a run: the record, not what the migration
+# created.
+
+msgid "Actions"
+msgstr "Aktionen"
+
+msgid "Remove migration record"
+msgstr "Migrationseintrag entfernen"
+
+msgid "Remove undo record"
+msgstr "Rücknahmeeintrag entfernen"
+
+msgid "Remove this migration from the list?"
+msgstr "Diese Migration aus der Liste entfernen?"
+
+msgid "Remove this undo from the list?"
+msgstr "Diese Rücknahme aus der Liste entfernen?"
+
+msgid "Undo of run"
+msgstr "Rücknahme von Lauf"
+
+msgid "This removes the record of what happened. It deletes nothing in either tenant: whatever was migrated stays exactly where it is."
+msgstr "Dies entfernt den Eintrag über das Geschehene. In keinem der beiden Mandanten wird etwas gelöscht: Das Migrierte bleibt genau dort, wo es ist."
+
+msgid "The undo of this migration is deleted with it."
+msgstr "Die Rücknahme dieser Migration wird mit entfernt."
+
+msgid "The {{ count }} undos of this migration are deleted with it."
+msgstr "Die {{ count }} Rücknahmen dieser Migration werden mit entfernt."
+
+msgid "This migration has not been undone, and undoing it needs its record. Once the record is gone, what it created stays in the target tenant and this screen can no longer remove it - only the command line can, and only for somebody who has kept the run id."
+msgstr "Diese Migration wurde nicht zurückgenommen, und eine Rücknahme braucht ihren Eintrag. Ist der Eintrag entfernt, bleibt das Angelegte im Zielmandanten, und diese Ansicht kann es nicht mehr entfernen — nur noch die Kommandozeile, und nur für jemanden, der die Lauf-Kennung aufbewahrt hat."
+
+msgid "What this migration created is still in the target tenant. Its certificate has expired, so this service can no longer undo it either way, but deleting the record also removes the run id that would find those objects."
+msgstr "Das von dieser Migration Angelegte liegt weiterhin im Zielmandanten. Ihr Zertifikat ist abgelaufen, dieser Dienst kann sie ohnehin nicht mehr zurücknehmen; mit dem Eintrag verschwindet aber auch die Lauf-Kennung, über die sich diese Objekte finden ließen."

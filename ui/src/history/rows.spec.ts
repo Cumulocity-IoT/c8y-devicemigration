@@ -1,5 +1,7 @@
 import { ApiError, type Job } from "../api/client";
 import {
+  actionsFor,
+  deleteWarnings,
   duration,
   explain,
   hasDetail,
@@ -16,6 +18,7 @@ import {
   rows,
   RUNNING_REFRESH_MS,
   stillRunning,
+  undosDeleted,
 } from "./rows";
 import { byId } from "../tenants";
 
@@ -848,5 +851,139 @@ describe("what the list says about tenants and objects", () => {
     // The service compares the same way: at the deadline it is over.
     expect(live.has("exactly-now")).toBe(false);
     expect(live.has("no-expiry")).toBe(false);
+  });
+});
+
+
+describe("forgetting a run", () => {
+  const migrated = (over: Record<string, unknown> = {}, undos: Job[] = []) =>
+    rows([job({ id: "m1", runId: "r1", status: "SUCCEEDED", ...over })], undos)[0];
+
+  it("offers to remove a finished migration from the list", () => {
+    expect(migrated().deletable).toBe(true);
+  });
+
+  it("does not offer it while the migration is still running", () => {
+    // Its record is what this would delete, and the job is still writing it.
+    expect(migrated({ status: "RUNNING" }).deletable).toBe(false);
+  });
+
+  it("does not offer it while an undo of it is running", () => {
+    const row = migrated({}, [
+      job({ id: "u1", kind: "REVERT", status: "RUNNING", revert: { runId: "r1" } }),
+    ]);
+
+    expect(row.deletable).toBe(false);
+  });
+
+  it("warns that a migration nobody undid stays in the target tenant", () => {
+    // The row is revertable, so the record is the only thing that could still
+    // remove those objects from here.
+    const warnings = deleteWarnings(migrated());
+
+    expect(warnings.some((w) => w.includes("has not been undone"))).toBe(true);
+  });
+
+  it("says nothing of the sort about one that was already undone", () => {
+    const row = migrated({}, [
+      job({ id: "u1", kind: "REVERT", status: "SUCCEEDED", revert: { runId: "r1" } }),
+    ]);
+
+    expect(row.revertable).toBe(false);
+    expect(deleteWarnings(row)).toEqual([]);
+  });
+
+  it("warns when the objects are stranded by an expired certificate", () => {
+    const row = rows(
+      [
+        job({
+          id: "m1",
+          runId: "r1",
+          status: "SUCCEEDED",
+          request: { sourceTenant: "s", rootId: "1", remoteTargetId: "rt-1" },
+        }),
+      ],
+      [],
+      { now: new Date("2026-09-01T12:00:00Z"), remoteTargets: [] },
+    )[0];
+
+    expect(deleteWarnings(row).some((w) => w.includes("still in the target tenant"))).toBe(
+      true,
+    );
+  });
+
+  it("names the undos that would go with the migration", () => {
+    // Somebody removing one row should not find out afterwards that two went.
+    const one = migrated({}, [
+      job({ id: "u1", kind: "REVERT", status: "FAILED", revert: { runId: "r1" } }),
+    ]);
+    const two = migrated({}, [
+      job({ id: "u1", kind: "REVERT", status: "FAILED", revert: { runId: "r1" } }),
+      job({ id: "u2", kind: "REVERT", status: "SUCCEEDED", revert: { runId: "r1" } }),
+    ]);
+
+    expect(undosDeleted(migrated())).toBeUndefined();
+    expect(undosDeleted(one)?.text).toContain("The undo of this migration");
+    expect(undosDeleted(two)?.params).toEqual({ count: 2 });
+  });
+});
+
+
+describe("what a row offers", () => {
+  // Every row wears the same menu, so what varies is only what is in it. These
+  // are the contents; row-actions.component.ts is the menu.
+  const of = (migrations: Job[], reverts: Job[] = []) =>
+    actionsFor(rows(migrations, reverts)[0]);
+
+  it("offers undoing, reading and forgetting a finished migration", () => {
+    expect(of([job({ id: "m1", progress: ["Device 1 of 1"] })])).toEqual([
+      "revert",
+      "log",
+      "delete",
+    ]);
+  });
+
+  it("offers stopping a running one, and not forgetting it", () => {
+    // Its record is what a delete would remove, and the job is still writing it.
+    expect(of([job({ id: "m1", status: "RUNNING", progress: ["Device 1 of 4"] })])).toEqual([
+      "cancel",
+      "log",
+    ]);
+  });
+
+  it("does not offer to undo one that has been undone", () => {
+    const actions = of(
+      [job({ id: "m1", runId: "r1" })],
+      [job({ id: "u1", kind: "REVERT", status: "SUCCEEDED", revert: { runId: "r1" } })],
+    );
+
+    expect(actions).toEqual(["delete"]);
+  });
+
+  it("explains an undo that a lapsed certificate has made impossible", () => {
+    const actions = of([
+      job({
+        id: "m1",
+        runId: "r1",
+        request: { sourceTenant: "s", rootId: "1", remoteTargetId: "rt-1" },
+      }),
+    ]);
+
+    // Not "revert": the service would refuse it. The entry says why instead.
+    expect(actions).toContain("revertExpired");
+    expect(actions).not.toContain("revert");
+  });
+
+  it("puts forgetting the record last, furthest from undoing it", () => {
+    // They destroy opposite things, and the click that hits the wrong one is the
+    // one that costs the most.
+    const actions = of([job({ id: "m1", progress: ["Device 1 of 1"] })]);
+
+    expect(actions[actions.length - 1]).toBe("delete");
+    expect(actions.indexOf("revert")).toBeLessThan(actions.indexOf("delete"));
+  });
+
+  it("leaves out the log for a run that printed nothing", () => {
+    expect(of([job({ id: "m1" })])).not.toContain("log");
   });
 });

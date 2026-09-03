@@ -369,6 +369,56 @@ needs them to build its plan. This keeps the output the same regardless of a
 user's `output` and `view` settings, which otherwise decide whether a full
 managed object is rendered for every device the commands touch.
 
+## Tenant options
+
+These
+are **tenant options** in the category `devicemigration`that can be used to change the default behavior of the microservice. They are held on the tenant the
+microservice is deployed on, and the manifest declares them — which is what makes
+them appear under **Administration → Settings** on that tenant, editable without a
+redeployment. They are read when the container starts and re-read hourly, so a
+change takes effect within the hour or immediately on a restart.
+
+They apply to the microservice and its user interface only. The command line tool
+is configured by its flags and by `go-c8y-cli` sessions, and reads none of these.
+
+| Option | Default | |
+| --- | --- | --- |
+| `records.retention.days` | `0` | How long a **finished** job's record is kept, in days. **Zero keeps them forever**, which is the default and the safe answer: the record is the only account of what was done to a customer's tenant. |
+| `data.dateFrom` | `-14d` | The device-data window a migration gets when it does not name one. Accepts the same forms as everything else here — a relative `-30d`, or an absolute `2026-01-01T00:00:00Z`. |
+
+```sh
+eval "$(c8y sessions set --sessionFilter parent-tenant)"
+
+c8y tenants options update --category devicemigration \
+    --key records.retention.days --value 90
+
+c8y tenants options update --category devicemigration \
+    --key data.dateFrom --value -30d
+
+c8y tenants options list --category devicemigration      # what is in force
+```
+
+A value that cannot be read — `records.retention.days` set to `seven`, or to a
+negative number — is **ignored with a warning** and the default applies. Deleting
+records because a typo could not be parsed as a number is not a thing this does.
+
+**What retention does and does not delete.** Pruning removes the microservice's
+own **job records**, which are managed objects in the deployment tenant. It never
+touches what a migration created in a target tenant, and it never removes a job
+that has not finished. It goes by age alone, so a migration and an undo of it run
+months later expire separately — the migration can go first and leave the undo
+listed on its own. Removing one run and everything about it is the *Remove
+migration record* action in the [user interface](docs/ui.md), which takes the
+undos with it.
+
+**Why the seeded window differs from the command line.** Without a `--dateFrom`
+the engine takes the last fourteen days of measurements and *all* events and
+alarms, and no single value reproduces that asymmetry. A declared setting has to
+have a real default or an operator finds it blank with no idea what it does, so
+the manifest seeds `-14d` and a migration that names no window carries fourteen
+days of all three kinds — narrower than the command line would take, never wider.
+The reasoning in full is in [docs/microservice.md](docs/microservice.md#settings).
+
 ## Licensing
 
 This project is licensed under the Apache 2.0 license - see <https://www.apache.org/licenses/LICENSE-2.0>

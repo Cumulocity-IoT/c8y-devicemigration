@@ -432,7 +432,26 @@ export interface paths {
         get: operations["getMigration"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Forget a migration, and the undos of it
+         * @description Deletes this service's **record** of a migration, and the records of
+         *     every revert of that run. It deletes nothing in either tenant: whatever
+         *     the migration created stays where it is, still carrying its run marker,
+         *     which afterwards is the only way left to find those objects - so undoing
+         *     the migration from this service is no longer possible once its record is
+         *     gone.
+         *
+         *     The undos go with it because a revert record names its migration by run
+         *     id and nothing else: left behind, it is a row that can say only *undo of
+         *     20260101T…*. The response lists every job that was removed.
+         *
+         *     A job that has not finished is a **409**: its record is still being
+         *     written. Cancel it, let it settle, and ask again.
+         *
+         *     The same thing happens on a schedule when `records.retention.days` is
+         *     set - see the settings - which prunes finished records by age.
+         */
+        delete: operations["deleteMigration"];
         options?: never;
         head?: never;
         patch?: never;
@@ -687,7 +706,17 @@ export interface paths {
         get: operations["getRevert"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Forget a revert
+         * @description Deletes this service's record of one undo and nothing else. Deleting the
+         *     migration it belongs to removes it too, which is the usual way this
+         *     happens; this is for an undo whose migration is no longer on record - a
+         *     revert run from the command line against an aged-out run id.
+         *
+         *     Like deleting a migration, this removes bookkeeping only, and a job that
+         *     has not finished is a **409**.
+         */
+        delete: operations["deleteRevert"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1311,6 +1340,13 @@ export interface components {
         };
         RevertsResponse: {
             reverts?: components["schemas"]["Job"][];
+        };
+        DeletionResponse: {
+            /**
+             * @description The ids of the jobs whose records were removed. More than one when a
+             *     migration was deleted together with the undos of it.
+             */
+            deleted?: string[];
         };
         /**
          * @description One migration. This is also exactly what the job record in the owner
@@ -2081,6 +2117,36 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    deleteMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The job id, as returned when the migration was accepted.
+                 * @example 20260825T162735Z_c8e249
+                 */
+                id: components["parameters"]["JobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records that were deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     cancelMigration: {
         parameters: {
             query?: never;
@@ -2361,6 +2427,36 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    deleteRevert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The job id, as returned when the migration was accepted.
+                 * @example 20260825T162735Z_c8e249
+                 */
+                id: components["parameters"]["JobID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records that were deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     cancelRevert: {

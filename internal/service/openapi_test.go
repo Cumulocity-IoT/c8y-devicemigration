@@ -257,6 +257,7 @@ func TestTheSchemasMatchTheStructs(t *testing.T) {
 		{"MigrationsResponse", service.MigrationsResponse{}},
 		{"RevertRequest", service.RevertRequest{}},
 		{"RevertsResponse", service.RevertsResponse{}},
+		{"DeletionResponse", service.DeletionResponse{}},
 		{"LoggersResponse", service.LoggersResponse{}},
 		{"InventoryObject", service.InventoryObject{}},
 		{"InventoryResponse", service.InventoryResponse{}},
@@ -566,6 +567,48 @@ func TestEverySettingTheCodeReadsIsDeclaredInTheManifest(t *testing.T) {
 				t.Errorf("the seeded %s of %q is not a number: %v",
 					setting.Key, setting.DefaultValue, err)
 			}
+		}
+	}
+}
+
+// The README's tenant options section claims to be "the whole of it", which is
+// a claim worth checking: a setting added to the manifest and not written down
+// is one an operator finds in Administration with no idea what it does, and the
+// default it carries is the part nobody guesses.
+func TestEverySettingIsDocumentedInTheReadme(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(testfixture.RepoRoot(), "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(raw)
+
+	manifestRaw, err := os.ReadFile(filepath.Join(testfixture.RepoRoot(), "docker", "cumulocity.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Settings []struct {
+			Key          string `json:"key"`
+			DefaultValue string `json:"defaultValue"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(readme, service.SettingsCategory) {
+		t.Errorf("the README does not name the %q option category", service.SettingsCategory)
+	}
+	for _, setting := range manifest.Settings {
+		if !strings.Contains(readme, setting.Key) {
+			t.Errorf("setting %q is declared in the manifest but not in the README", setting.Key)
+		}
+		// The documented default and the seeded one have to be the same value,
+		// or the document is worse than silence: somebody reads it and does not
+		// set the option they would have set.
+		if !strings.Contains(readme, "`"+setting.DefaultValue+"`") {
+			t.Errorf("the README does not give %q as a default anywhere, and %s is seeded with it",
+				setting.DefaultValue, setting.Key)
 		}
 	}
 }
