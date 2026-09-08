@@ -40,6 +40,15 @@ interface View {
   /** The remote target just established, so its CA can be shown to register. */
   remoteTarget?: MigrationFlow['remoteTarget'];
 
+  /**
+   * Whether device credentials can be provisioned for the target now chosen.
+   *
+   * On the view rather than read through the flow, because the template only
+   * ever sees this snapshot - and it has to be re-read on every refresh anyway,
+   * since choosing a remote target changes the answer.
+   */
+  canProvisionCredentials: boolean;
+
   busy: boolean;
 }
 
@@ -287,6 +296,14 @@ export class MigrateComponent implements OnInit {
     this.refresh();
   }
 
+  /**
+   * Ticking the credentials box. No estimate round trip: the count it needs is
+   * already in the estimate the dialogue has, whether or not the box is ticked.
+   */
+  chooseCredentials(on: boolean): void {
+    this.flow.chooseCredentials(on);
+    this.refresh();
+  }
 
 
   // --- starting --------------------------------------------------------------
@@ -336,6 +353,7 @@ export class MigrateComponent implements OnInit {
       failure: this.flow.failure,
       windowError: this.flow.windowError,
       remoteTarget: this.flow.remoteTarget,
+      canProvisionCredentials: this.flow.canProvisionCredentials,
       busy: this.flow.busy
     });
   }

@@ -49,6 +49,15 @@ export interface Choices {
   dataTypes: string;
   dateFrom: string;
   dateTo: string;
+
+  /**
+   * Provision a device user for every migrated device.
+   *
+   * Off by default: it creates a user per device in the target's user store and
+   * produces a file of passwords somebody then has to distribute, which is not
+   * something to do by accident.
+   */
+  provisionCredentials: boolean;
 }
 
 export const DEFAULT_CHOICES: Choices = {
@@ -57,6 +66,7 @@ export const DEFAULT_CHOICES: Choices = {
   dataTypes: "",
   dateFrom: "",
   dateTo: "",
+  provisionCredentials: false,
 };
 
 export class MigrationFlow {
@@ -191,6 +201,11 @@ export class MigrationFlow {
       this.remoteTarget = established;
       this.choices.remoteTargetId = established.id;
       this.choices.targetTenant = established.tenant;
+      // A remote target is reached with a device access token, which has no
+      // permission to register devices. The service refuses the combination, so
+      // clearing it here means the screen never offers something that would be
+      // rejected on submit.
+      this.choices.provisionCredentials = false;
     });
   }
 
@@ -200,6 +215,30 @@ export class MigrationFlow {
       return;
     }
     await this.preflight();
+  }
+
+  /**
+   * Turns credential provisioning on or off.
+   *
+   * Deliberately not changeScope: that discards the estimate, because anything
+   * changing what would *move* makes the estimate describe a different
+   * migration. This changes what else gets created alongside, and the estimate
+   * counts the registrable devices whether the box is ticked or not - so
+   * invalidating it here would cost a round trip to learn a number already in
+   * hand.
+   */
+  chooseCredentials(on: boolean): void {
+    this.choices = { ...this.choices, provisionCredentials: on };
+  }
+
+  /**
+   * Whether credentials can be provisioned for the target now chosen.
+   *
+   * False for a remote target: it is reached with a device access token, whose
+   * roles are the device ones, and registering devices is not among them.
+   */
+  get canProvisionCredentials(): boolean {
+    return !this.choices.remoteTargetId;
   }
 
   /** The relationship kinds a migration can follow, in the API's own order. */
@@ -387,6 +426,9 @@ export class MigrationFlow {
     }
     if (this.choices.dateTo) {
       request.dateTo = this.choices.dateTo;
+    }
+    if (this.choices.provisionCredentials) {
+      request.provisionCredentials = true;
     }
     return request;
   }

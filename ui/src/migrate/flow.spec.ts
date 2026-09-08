@@ -32,6 +32,7 @@ function stub(overrides: Partial<MigrationApi> = {}): MigrationApi {
     migration: nothing as never,
     startMigration: async () => ({ id: 'job-1', kind: 'MIGRATION', status: 'QUEUED' }) as Job,
     cancelMigration: async () => undefined,
+    migrationCredentials: nothing as never,
     reverts: async () => [],
     revert: nothing as never,
     startRevert: nothing as never,

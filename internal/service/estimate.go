@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/registration"
 )
 
 // How big is this migration, before anybody commits to it.
@@ -37,6 +38,15 @@ type EstimateResponse struct {
 
 	Objects    int `json:"objects"`
 	Identities int `json:"identities"`
+
+	// Credentials is how many of those objects would be given a device user if
+	// the migration asked for credentials.
+	//
+	// Fewer than Objects, always: groups have no device user, and a device whose
+	// identities leave no unambiguous choice is skipped rather than guessed at.
+	// Decided by registration.Registrable, the same rule the run applies, so the
+	// number in the dialogue cannot disagree with what happens.
+	Credentials int `json:"credentials"`
 
 	// Records is the total per kind, for the kinds that were asked for.
 	Records map[string]int `json:"records,omitempty"`
@@ -187,6 +197,7 @@ func estimateFrom(tenant string, options export.PlanOptions, plan *export.Plan) 
 		RootID:       options.RootID,
 		Objects:      len(plan.ObjectIDs),
 		Identities:   plan.Identities,
+		Credentials:  registrableDevices(plan),
 		Breaches:     []EstimateBreach{},
 		WithinLimits: len(plan.Breaches) == 0,
 		Limits: EstimateLimits{
@@ -240,6 +251,21 @@ func estimateFrom(tenant string, options export.PlanOptions, plan *export.Plan) 
 
 // formatWindow renders a bound, or nothing when there is none - an absent bound
 // and the zero time are different statements.
+// registrableDevices is how many of a plan's objects would get a device user.
+//
+// The default identity type, because that is what a migration through this
+// service uses - only the command line exposes a choice, and an estimate that
+// assumed a different one would be predicting a run nobody asked for.
+func registrableDevices(plan *export.Plan) int {
+	count := 0
+	for _, device := range plan.Devices {
+		if registration.Registrable(device.IsDevice, device.IdentityTypes, registration.DefaultIdentityType) {
+			count++
+		}
+	}
+	return count
+}
+
 func formatWindow(t time.Time) string {
 	if t.IsZero() {
 		return ""

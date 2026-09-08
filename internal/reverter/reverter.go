@@ -174,7 +174,21 @@ func (r *Reverter) deletePlanned(ctx context.Context, plan *Plan) {
 		}
 		// No Cascade: the bash implementation does not pass it either, so
 		// Cumulocity's own propagation rules apply and nothing extra is taken.
-		_ = r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{})
+		//
+		// WithDeviceUser, though, because a migration that provisioned
+		// credentials created a device user alongside every device it
+		// registered. Deleting the object and leaving the user would strand a
+		// credential that still authenticates against the target - so the
+		// revert would look complete while the fleet could still connect.
+		//
+		// Set unconditionally rather than only for runs that registered
+		// anything. The platform applies it when the object is a device, so it
+		// is a no-op on a group, on an asset, and on a device that never had a
+		// user - and tracking which objects had one would mean keeping a record
+		// that could disagree with the tenant.
+		_ = r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{
+			WithDeviceUser: true,
+		})
 	}
 }
 

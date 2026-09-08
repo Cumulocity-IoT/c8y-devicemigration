@@ -93,6 +93,35 @@ tenant — contains both. Re-encoding a body would silently rewrite a customer's
 data. The fake happens to pretty-print with the same two-space indent Go would
 use, so the differential test is blind to it; the byte-for-byte test is not.
 
+### Where the two have diverged on purpose
+
+The parity above holds for what both implementations do. Two things only the Go
+side does, and no differential test covers them because there is nothing on the
+bash side to compare against:
+
+- **`preflight`**, which proves both sets of credentials before anything is
+  created.
+- **Device credentials** — `register`, `migrate --credentials`, and `import
+  --adoptRegistered` ([internal/registration](../internal/registration),
+  [internal/importer/adopt.go](../internal/importer/adopt.go)). Adding them to
+  the bash commands would mean a second implementation of a two-phase order whose
+  whole point is getting the order right, so they stay in one place. The bash
+  commands are the legacy implementation, and this is the first feature that says
+  so out loud.
+
+  `revert` is the exception, and deliberately so: **both** implementations take
+  the device user with the object. The Go side sets `withDeviceUser` on the
+  delete, the bash side passes `--withDeviceUser` to `c8y inventory delete`. So
+  either can undo the other's migration without leaving a credential that still
+  authenticates — which matters because the objects and the users are created by
+  the same call and an undo that took only half would report success while the
+  fleet could still connect.
+
+  Neither implementation *provisions* credentials on the bash side; the flag is
+  there for undoing a Go migration that did. It goes on every delete rather than
+  on runs that registered something, because the platform applies it only where
+  the object is a device and nothing in a revert knows which objects had a user.
+
 The 254 bats tests still guard the bash implementation only. Most of them assert
 against the fake's record of `c8y` invocations — `--nullInput`, `--batchSize 50`,
 which session each call used — and a library-based tool makes no such calls, so

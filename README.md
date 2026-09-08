@@ -38,10 +38,12 @@ c8y-devicemigration migrate --rootId 12345 \
 ```
 
 It names both tenants and asks before creating anything; drop `--force` to keep
-the confirmation. `export`, `import` and `revert` are the same round trip as
-separate steps, and `preflight` checks a migration without running it. Every
-command and option is in **[docs/cli.md](docs/cli.md)**. The port is complete but
-has not yet been run against a live tenant.
+the confirmation. `export`, `register`, `import` and `revert` are the same round
+trip as separate steps, and `preflight` checks a migration without running it.
+Add `--credentials` to provision a device user per device so the fleet can
+reconnect — see [Device credentials](#device-credentials). Every command and
+option is in **[docs/cli.md](docs/cli.md)**. The port is complete but has not yet
+been run against a live tenant.
 
 The same commands are also packaged as a **go-c8y-cli extension** that runs as
 `c8y devicemigration …`, behaviour-identical to the binary, for anyone already
@@ -272,6 +274,43 @@ from here:
 Worth checking too: alarm mapping rules on the target can rewrite an incoming
 alarm's severity and text by type prefix, and one of the options is *Drop*.
 
+## Device credentials
+
+A migration is a copy, and a device's existing credentials belong to the source
+tenant — so without credentials of its own a migrated device is a twin nothing is
+connected to. `migrate --credentials` provisions one device user per device and
+writes the passwords to a file:
+
+```sh
+c8y-devicemigration migrate --rootId 12345 \
+    --sourceSession source.json --targetSession target.json \
+    --credentials --credentialsFile ./credentials.csv
+```
+
+The devices are registered in the target **before** the hierarchy is imported,
+because bulk registration creates each managed object owned by the device user it
+creates alongside it, and the import then fills that object in. Registering after
+an import only rotates a password and leaves the object alone, so the device would
+never own its own twin. `export`, `register` and `import` compose as three steps
+for anyone staging a migration by hand.
+
+The credentials file is the **only** copy — the passwords are not recorded in the
+target tenant or anywhere else, and re-issuing them rotates them rather than
+retrieving them. Getting it onto the devices is the operator's own channel.
+`revert` deletes the device users along with the objects.
+
+Devices with no external identity, groups, and devices with several identities
+and no `c8y_Serial` are reported and skipped rather than guessed at. The details,
+including what happens on a resume, are in
+**[docs/cli.md](docs/cli.md#device-credentials)**; the microservice offers the
+same thing with a one-time download, in
+**[docs/microservice.md](docs/microservice.md#device-credentials)**.
+
+Certificate fleets are a different matter: the credential is the chain and the
+devices keep it, which is a trust-anchor move rather than a credential hand-out.
+Not built — see
+[docs/concepts/credentials.md](docs/concepts/credentials.md).
+
 ## Limitations
 
 Managed objects, their parent/child relationships, their external identities
@@ -283,8 +322,12 @@ particular the following are **not** covered:
 - anything offloaded to the data lake
 - audit logs
 - binaries attached to managed objects (event attachments *are* migrated)
-- device credentials, so migrated devices do not reconnect on their own
 - applications, tenant options and user or role assignments
+
+Device credentials **are** covered, for basic-authentication fleets: see
+[Device credentials](#device-credentials). A certificate fleet keeps its own
+chain and needs a different mechanism, which is not built —
+[docs/concepts/credentials.md](docs/concepts/credentials.md).
 
 There is no per-record ID mapping for data. On tenants with enhanced time series
 enabled there is no stable per-measurement identity to map, so traceability, if

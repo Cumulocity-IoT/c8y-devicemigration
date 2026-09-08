@@ -46,6 +46,7 @@ export type ApiFailureKind =
   | 'notFound'
   | 'busy'
   | 'refused'
+  | 'gone'
   | 'failed';
 
 export class ApiError extends Error {
@@ -82,6 +83,16 @@ export interface MigrationApi {
   migration(id: string): Promise<Job>;
   startMigration(request: MigrationRequest): Promise<Job>;
   cancelMigration(id: string): Promise<void>;
+
+  /**
+   * Collects the device credentials a migration issued - once.
+   *
+   * Returns the CSV body, which the caller saves. Throws an ApiError of kind
+   * `gone` if there is nothing to collect: already taken, lost to a restart of
+   * the service, or never issued. There is no way to ask twice, so a caller that
+   * drops the result has lost it.
+   */
+  migrationCredentials(id: string): Promise<string>;
 
   reverts(): Promise<Job[]>;
   revert(id: string): Promise<Job>;
@@ -133,6 +144,8 @@ export function createApi(fetchLike: FetchLike): MigrationApi {
     cancelMigration: async id => {
       await write<unknown>(`/migrations/${encodeURIComponent(id)}/cancel`);
     },
+    migrationCredentials: id =>
+      readText(fetchLike, `/migrations/${encodeURIComponent(id)}/credentials`),
 
     reverts: async () => (await read<{ reverts?: Job[] }>('/reverts')).reverts ?? [],
     revert: id => read<Job>(`/reverts/${encodeURIComponent(id)}`),
@@ -181,6 +194,29 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
+/**
+ * A GET whose body is a file rather than JSON.
+ *
+ * Separate from request() because that one asks for and parses JSON, and the
+ * credentials endpoint answers text/csv. The refusal path is shared, so a 410
+ * still arrives as an ApiError with the service's own explanation.
+ */
+async function readText(fetchLike: FetchLike, path: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetchLike(BASE + path, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' }
+    });
+  } catch (cause) {
+    throw new ApiError('failed', 0, `Could not reach the migration service: ${cause}`);
+  }
+  if (!response.ok) {
+    throw await failureFrom(response);
+  }
+  return response.text();
+}
+
 async function failureFrom(response: Response): Promise<ApiError> {
   let message = '';
   let code: string | undefined;
@@ -204,6 +240,11 @@ function kindOf(status: number, code?: string): ApiFailureKind {
       return 'forbidden';
     case 404:
       return 'notFound';
+    case 410:
+      // Its own kind, not notFound: the credentials existed and were handed over
+      // once. A screen has to say "already collected" rather than "no such
+      // migration", because those need different things from the reader.
+      return 'gone';
     case 429:
       return 'busy';
     case 400:

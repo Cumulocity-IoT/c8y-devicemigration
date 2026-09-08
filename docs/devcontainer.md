@@ -127,7 +127,13 @@ surface stays one line.
    URL — open it in the **host** browser, paste the code back. The token
    lands in the `c8y-devmig-claude` volume and survives rebuilds
    (`CLAUDE_CONFIG_DIR` points there; without it the OAuth account in
-   `.claude.json` would not).
+   `.claude.json` would not). **Claude Code for VS Code** is listed in
+   `customizations.vscode.extensions`, so the host's VS Code installs it into
+   the container when a window attaches — the editor half of the same agent,
+   driving the `claude` the image already carries. It comes only with a VS
+   Code window; `devcontainer up` and `docker exec` sessions get the CLI and
+   nothing else, which is where the long autonomous runs belong anyway (see
+   the SSH-agent gotcha below).
 3. The checks all run inside: `make check JOBS=$(nproc)` — on Linux `make`
    *is* GNU make. Every tool the Makefile can use is baked into the image at
    CI's own pins (shellcheck 0.11.0, docopt-sh 2.0.3, actionlint 1.7.12,
@@ -150,6 +156,40 @@ Go module cache, and `ui/node_modules` — the last both for speed (784 MB
 performs far better on the VM's filesystem than over the virtiofs bind) and
 for isolation (bind-shadowing keeps the container's tree apart from any
 host-side one, so host runs and container runs cannot corrupt each other).
+
+## Why image builds stay outside
+
+`make service-build` / `service-image` are on the host-only list above, and an
+attempt to move them in is worth recording so nobody spends the afternoon
+twice. Rootless podman and buildah were installed in the image, which needs no
+daemon and no socket — and the container cannot run them:
+
+- `unshare(CLONE_NEWUSER)` is refused by docker's default seccomp profile.
+  That part is fixable, with `--security-opt seccomp=unconfined` in `runArgs`.
+- With that lifted, `newuidmap` fails: `write to uid_map failed: Operation not
+  permitted`. Installing a multi-range mapping needs `CAP_SYS_ADMIN` over the
+  new namespace, which the bounding set here does not carry — this container
+  has `NET_ADMIN` and `NET_RAW` and nothing else.
+- Buildah falls back to a single-uid mapping (podman just fails), and under
+  that fallback the image cannot be built either: `COPY --chown=65532:65532`
+  is `lchown: invalid argument`, and committing a layer dies on `remount /:
+  permission denied`. Mounts inside a single-mapped namespace are refused
+  outright — `unshare --user --map-root-user --mount` cannot even change the
+  propagation of `/`.
+
+So the price of building images in here is `--cap-add=SYS_ADMIN`, in a sandbox
+whose only other capability grant exists to run the firewall and is useless to
+the non-root agent. That is a bad trade for a convenience, and the convenience
+is small: CI builds the same zip on every push, and the host builds it in one
+command. Two things worth knowing if it is ever revisited: the base image pull
+needs `docker.io` **and** `production.cloudfront.docker.com` on the allowlist —
+Hub redirects blob downloads there — and podman needs
+`unqualified-search-registries` configured, or a bare `golang:1.25-alpine` does
+not resolve at all.
+
+The daemonless alternative remains open and costs no privilege: build the
+scratch image with go-containerregistry from the Go toolchain that is already
+here, and keep `docker/Dockerfile` as what CI builds, pinned to it by a test.
 
 ## Gotchas that would quietly breach the isolation
 

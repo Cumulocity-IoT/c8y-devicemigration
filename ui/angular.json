@@ -33,7 +33,8 @@
           "builder": "@c8y/devkit:dev-server",
           "options": {
             "buildTarget": "devicemigration-ui:build",
-            "shell": "administration"
+            "shell": "administration",
+            "host": "0.0.0.0"
           },
           "configurations": {
             "production": {

@@ -477,3 +477,24 @@ msgstr "Nehmen Sie sie über die Kommandozeile zurück, mit einer Sitzung für d
 
 msgid "Or, in the target tenant itself, delete the objects carrying the run marker below."
 msgstr "Oder löschen Sie im Zielmandanten selbst die Objekte mit der unten genannten Lauf-Markierung."
+
+msgid "Device credentials"
+msgstr "Geräte-Zugangsdaten"
+
+msgid "Provision a device user for each device"
+msgstr "Für jedes Gerät einen Gerätebenutzer anlegen"
+
+msgid "Migrated devices cannot reconnect without credentials of their own. The passwords can be downloaded once, from this migration in the device migration list, and getting them onto the devices is your own channel."
+msgstr "Migrierte Geräte können sich ohne eigene Zugangsdaten nicht neu verbinden. Die Passwörter lassen sich einmalig herunterladen, über diese Migration in der Liste der Gerätemigrationen; sie auf die Geräte zu bringen, bleibt Ihr eigener Weg."
+
+msgid "Download device credentials"
+msgstr "Geräte-Zugangsdaten herunterladen"
+
+msgid "The device users this migration created are deleted along with their devices, so the credentials issued for them stop working. Devices still using them cannot reconnect to the target tenant."
+msgstr "Die von dieser Migration angelegten Gerätebenutzer werden mit ihren Geräten gelöscht, sodass die dafür ausgegebenen Zugangsdaten nicht mehr funktionieren. Geräte, die sie noch verwenden, können sich nicht mehr mit dem Zielmandanten verbinden."
+
+msgid "of {{ objects }} objects; the rest are groups or have no usable external identity"
+msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine verwendbare externe ID"
+
+msgid "one device user per device"
+msgstr "ein Gerätebenutzer pro Gerät"

@@ -216,8 +216,22 @@ delete_planned() {
     # group deletion to its subgroups, so an object can already be gone by the
     # time its own delete request is sent. --silentStatusCodes stops c8y
     # reporting those, and --silentExit keeps them out of its exit code.
+    #
+    # --withDeviceUser because a migration that provisioned credentials created a
+    # device user alongside every device it registered. Deleting the object and
+    # leaving the user would strand a credential that still authenticates against
+    # the target tenant, so the undo would report success while the device could
+    # still connect.
+    #
+    # Passed for every delete rather than only for runs that registered
+    # anything. The platform applies it when the object is a device, so it is a
+    # no-op on a group, on an asset, and on a device that never had a user - and
+    # nothing here knows which objects had one. These commands do not provision
+    # credentials themselves; this is here so that undoing a migration made by
+    # the Go implementation, which does, leaves nothing behind.
     local deleteCommand=(
         c8y inventory delete "${deleteArgs[@]}" --nullInput
+        --withDeviceUser
         --silentStatusCodes 404 --silentExit
     )
 

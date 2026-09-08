@@ -97,9 +97,9 @@ The table is **the platform's own data grid**, given rows rather than a
 `serverSideDataCallback` — which is what makes it sort, page and search through
 them itself, and brings its own refresh button and column chooser. Sorting
 defaults to **Timestamp, newest first**, which is the useful order for a list of
-things that happened. Cancel, Revert and Migration log are the grid's **row
-actions**, so each appears only where it applies and there are no button columns
-to keep aligned.
+things that happened. Cancel, Revert, Migration log and
+Download device credentials are the grid's **row actions**, so each appears only
+where it applies and there are no button columns to keep aligned.
 
 **Pagination is the grid's, not the service's**, and that distinction matters:
 `GET /migrations` and `GET /reverts` have no paging parameters and return every
@@ -473,6 +473,30 @@ it from there left finished migrations wearing a full bar for good. A finished j
 has an outcome, not progress. What every row does carry is how long it has been
 going, or how long it took.
 
+### The credentials download
+
+A migration can provision a device user per device — the dialogue's **Device
+credentials** box — and the passwords are then downloadable from the migration's
+row, once.
+
+Once is not a figure of speech. The service holds the file in memory and drops it
+as it serves it, so the action disappears after the download and there is no way
+to ask again: the row's offer is driven by `credentialsAvailable`, which the
+service computes from its own memory rather than from the job record. The
+dialogue says so before anything runs, because a migration whose credentials
+nobody collects leaves devices registered with passwords no one has.
+
+The download fetches the body with the platform's own client and only then hands
+it to the browser as a file, rather than pointing a link at the endpoint. A
+navigation the session might redirect, or that a popup blocker might swallow,
+would spend the one read on nothing. The object URL is revoked in a `finally`, so
+the blob does not keep a list of working passwords reachable for the life of the
+page.
+
+The box is **hidden** for a remote target rather than disabled: that target is
+reached with a device access token, which cannot register devices at all, so
+there is nothing to explain about a control that could never be used.
+
 ## Languages
 
 Every string the plugin shows goes through the platform's own translation pipe,
@@ -589,3 +613,8 @@ things about the toolchain are not what older examples suggest:
   [the command line tool](cli.md).
 - **No tenant subscription screen.** The platform already has one, and doing it
   here would duplicate a permission model that is not ours.
+- **No credential distribution.** The download hands over a file; getting it onto
+  the devices is the operator's own channel. Pushing it through the source tenant
+  as an operation would work and is tempting, and it would write plaintext
+  passwords into that tenant's operation log — so it belongs in a runbook that
+  accepts that, not in a button here.

@@ -603,6 +603,22 @@ describe("what the list says about tenants and objects", () => {
       expect(revertWarnings(migrated())[0]).toContain("propagates");
     });
 
+    // Undoing a migration that issued credentials invalidates the file somebody
+    // may be holding, and that is the point of undoing it rather than a side
+    // effect - so the confirmation has to say so before the button is pressed.
+    it("says that device credentials stop working", () => {
+      const warnings = revertWarnings(migrated({ credentialsIssued: 3 }));
+
+      expect(warnings.some(w => w.includes("stop working"))).toBe(true);
+    });
+
+    it("says nothing about credentials for a migration that issued none", () => {
+      expect(revertWarnings(migrated()).some(w => w.includes("stop working"))).toBe(false);
+      expect(
+        revertWarnings(migrated({ credentialsIssued: 0 })).some(w => w.includes("stop working"))
+      ).toBe(false);
+    });
+
     it("says when the run's own account of itself cannot be relied on", () => {
       const warnings = revertWarnings(migrated({ countsVerified: false }));
 

@@ -9,6 +9,7 @@ package testfixture
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -92,10 +93,23 @@ type Server struct {
 	failCreateSet   bool
 	failCreateAfter int
 
-	created    map[string][]byte
+	created map[string][]byte
+
+	// updated is every object a PUT touched, keyed by id. A merge writes to
+	// created as well, so without this an update is indistinguishable from a
+	// create that happened to produce the same body.
+	updated    map[string][]byte
 	identities []CreatedIdentity
-	links      []Link
-	deleted    []string
+
+	// deviceUsers is the users bulk registration created, as the platform does
+	// alongside each device. A revert has to take these with the objects or it
+	// leaves working credentials in the target.
+	deviceUsers map[string]bool
+
+	// deletedWithDeviceUser is the ids deleted with withDeviceUser=true.
+	deletedWithDeviceUser []string
+	links                 []Link
+	deleted               []string
 
 	// cascade models group propagation: deleting a key also removes its values.
 	cascade map[string][]string
@@ -112,6 +126,38 @@ type Server struct {
 	uploadedBinaries []string
 	failDataSet      bool
 	failDataAfter    int
+
+	// registrations is every row the bulk registration endpoint was sent, in
+	// order, parsed back out of the uploaded file. The file itself is the whole
+	// contract with that endpoint - its delimiter, its column set and its
+	// dotted marker header - so a test asserts on what arrived rather than on
+	// what the writer intended.
+	registrations []RegisteredRow
+
+	// registrationHeader is the header row of the last file uploaded.
+	registrationHeader []string
+
+	// refuseRegistration answers the given external ids in failedCreationList,
+	// and rotateRegistration answers them in credentialUpdatedList. Both model
+	// something the platform really does: a row it will not create, and a row
+	// for an id it already knows.
+	refuseRegistration map[string]string
+	rotateRegistration map[string]bool
+}
+
+// RegisteredRow is one row of a bulk registration file the server received.
+type RegisteredRow struct {
+	ExternalID   string
+	AuthType     string
+	Password     string
+	Name         string
+	Type         string
+	ExternalType string
+
+	// Fragments holds any column whose header was a dotted fragment path, keyed
+	// by the header exactly as it arrived - which is how a test checks the run
+	// marker landed under the name the importer will later query for.
+	Fragments map[string]string
 }
 
 // CreatedIdentity is one external identity the server was asked to create.
@@ -327,6 +373,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		s.writeJSON(w, map[string]any{"name": identity, "domainName": host})
 
+	case r.Method == http.MethodPost && r.URL.Path == "/devicecontrol/bulkNewDeviceRequests":
+		s.bulkRegister(w, r)
+
 	case r.Method == http.MethodPost && r.URL.Path == "/inventory/managedObjects":
 		s.createManagedObject(w, r)
 
@@ -354,6 +403,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		id := strings.Split(strings.TrimPrefix(r.URL.Path, "/identity/globalIds/"), "/")[0]
 		s.createIdentity(w, r, id)
 
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/identity/externalIds/"):
+		// /identity/externalIds/<type>/<externalId> - the lookup that lets an
+		// import find the object a registration already created for a device.
+		s.getIdentity(w, strings.TrimPrefix(r.URL.Path, "/identity/externalIds/"))
+
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
 		s.assignChild(w, r)
 
@@ -361,7 +415,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.updateManagedObject(w, r)
 
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/inventory/managedObjects/"):
-		s.deleteManagedObject(w, strings.TrimPrefix(r.URL.Path, "/inventory/managedObjects/"))
+		s.deleteManagedObject(w, strings.TrimPrefix(r.URL.Path, "/inventory/managedObjects/"),
+			r.URL.Query().Get("withDeviceUser") == "true")
 
 	// The marker query.
 	case r.Method == http.MethodGet && r.URL.Path == "/inventory/managedObjects":
@@ -439,9 +494,20 @@ func (s *Server) Deleted() []string {
 	return append([]string(nil), s.deleted...)
 }
 
-func (s *Server) deleteManagedObject(w http.ResponseWriter, id string) {
+func (s *Server) deleteManagedObject(w http.ResponseWriter, id string, withDeviceUser bool) {
 	s.mu.Lock()
 	s.deleted = append(s.deleted, id)
+
+	// The platform removes the associated device user when asked, and only when
+	// the object is a device. Modelled rather than merely recorded, because the
+	// thing worth asserting is that no credential is left behind - not that a
+	// query parameter was sent.
+	if withDeviceUser {
+		s.deletedWithDeviceUser = append(s.deletedWithDeviceUser, id)
+		if owner := gjson.GetBytes(s.created[id], "owner").String(); strings.HasPrefix(owner, "device_") {
+			delete(s.deviceUsers, owner)
+		}
+	}
 
 	if s.refuseDelete[id] {
 		s.mu.Unlock()
@@ -877,6 +943,16 @@ func (s *Server) FailDataAfter(n int) {
 	s.failDataAfter = n
 }
 
+// AllowData undoes FailDataAfter, so a test can interrupt a run and then let the
+// resume succeed against the same server - which is the only way to observe what
+// a resume does differently from a first attempt.
+func (s *Server) AllowData() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failDataSet = false
+	s.failDataAfter = 0
+}
+
 // listData answers a data collection query out of the fixture.
 //
 // dateFrom and dateTo are applied, because the export's whole windowing story
@@ -1101,6 +1177,17 @@ func sourceIDOf(body []byte) string {
 func (s *Server) nextID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.nextIDLocked()
+}
+
+// nextIDLocked assigns a target id, for callers already holding the lock.
+//
+// The 1000 offset is not decoration: one server stands in for both tenants, and
+// ids starting at 1 would collide with the source fixture's own 1..11. A deleted
+// target object would then still resolve - to the *source* object of the same id -
+// and a revert would report everything as still present. Every path that creates
+// an object in the target has to come through here.
+func (s *Server) nextIDLocked() string {
 	if s.counter == 0 {
 		s.counter = 1000
 	}
@@ -1156,11 +1243,32 @@ func (s *Server) updateManagedObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.created[id] = merged
+	if s.updated == nil {
+		s.updated = map[string][]byte{}
+	}
+	s.updated[id] = merged
 	s.mu.Unlock()
 
 	object["id"] = id
 	object["self"] = s.selfLink(id)
 	s.writeJSON(w, object)
+}
+
+// Updated returns the objects that received a PUT, keyed by id, holding the
+// merged result.
+//
+// Separate from Created even though a merge lands in both: an import that
+// updates an object it should have created, or creates one it should have
+// updated, is the mistake worth being able to see - and it is invisible when
+// only the final state is recorded.
+func (s *Server) Updated() map[string][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string][]byte, len(s.updated))
+	for id, body := range s.updated {
+		out[id] = body
+	}
+	return out
 }
 
 func (s *Server) createManagedObject(w http.ResponseWriter, r *http.Request) {
@@ -1306,6 +1414,262 @@ func stringify(v any) string {
 	default:
 		return ""
 	}
+}
+
+// getIdentity resolves an external id to the object carrying it.
+//
+// Served from the identities the server has been asked to create - by an import
+// or by a bulk registration - so a test never has to seed the lookup separately
+// from the thing that made the identity. A 404 for an unknown id, because that is
+// the answer the adopt path has to treat as "nothing to adopt" rather than as a
+// failure.
+func (s *Server) getIdentity(w http.ResponseWriter, rest string) {
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 {
+		http.Error(w, `{"error":"malformed external id path"}`, http.StatusBadRequest)
+		return
+	}
+	identityType, externalID := parts[0], parts[1]
+	if unescaped, err := url.PathUnescape(externalID); err == nil {
+		externalID = unescaped
+	}
+
+	s.mu.Lock()
+	var deviceID string
+	for _, existing := range s.identities {
+		if existing.Type == identityType && existing.ExternalID == externalID {
+			deviceID = existing.DeviceID
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	if deviceID == "" {
+		w.WriteHeader(http.StatusNotFound)
+		s.writeJSON(w, map[string]any{
+			"error":   "identity/Not Found",
+			"message": "External ID not found",
+		})
+		return
+	}
+	s.writeJSON(w, map[string]any{
+		"externalId":    externalID,
+		"type":          identityType,
+		"managedObject": map[string]any{"id": deviceID},
+	})
+}
+
+// DeviceUsers returns the device users that still exist, sorted.
+func (s *Server) DeviceUsers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.deviceUsers))
+	for user := range s.deviceUsers {
+		out = append(out, user)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// DeletedWithDeviceUser returns the ids deleted with withDeviceUser=true.
+func (s *Server) DeletedWithDeviceUser() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.deletedWithDeviceUser...)
+}
+
+// Registrations returns the rows the bulk registration endpoint received.
+func (s *Server) Registrations() []RegisteredRow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]RegisteredRow(nil), s.registrations...)
+}
+
+// RegistrationHeader returns the header row of the last registration file.
+func (s *Server) RegistrationHeader() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.registrationHeader...)
+}
+
+// RefuseRegistration makes the endpoint answer these external ids in
+// failedCreationList with the given reason.
+func (s *Server) RefuseRegistration(reason string, externalIDs ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refuseRegistration == nil {
+		s.refuseRegistration = map[string]string{}
+	}
+	for _, id := range externalIDs {
+		s.refuseRegistration[id] = reason
+	}
+}
+
+// RotateRegistration makes the endpoint answer these external ids in
+// credentialUpdatedList, as it does for an id the tenant already knows.
+func (s *Server) RotateRegistration(externalIDs ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rotateRegistration == nil {
+		s.rotateRegistration = map[string]bool{}
+	}
+	for _, id := range externalIDs {
+		s.rotateRegistration[id] = true
+	}
+}
+
+// bulkRegister stands in for POST /devicecontrol/bulkNewDeviceRequests.
+//
+// It parses the uploaded file with encoding/csv and **refuses a tab-separated
+// one**, which is the platform behaviour that decided the writer: go-c8y's own
+// BulkRegistrationRecordWriter emits tabs and the real endpoint rejects what it
+// produces. A fixture that accepted both would let that regress silently.
+//
+// A row for a refused id lands in failedCreationList and creates nothing; a row
+// for a rotated id lands in credentialUpdatedList and, as the platform does,
+// creates nothing and leaves any existing object alone. Everything else creates
+// a managed object owned by the new device user, because that single call
+// creating the object is what the whole register-first order depends on.
+func (s *Server) bulkRegister(w http.ResponseWriter, r *http.Request) {
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, `{"error":"no file part"}`, http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, `{"error":"unreadable file"}`, http.StatusBadRequest)
+		return
+	}
+	if bytes.Contains(raw, []byte("\t")) {
+		// The real endpoint rejects this, and the reason is worth stating in the
+		// body: a test that hits it should not have to guess.
+		http.Error(w,
+			`{"error":"the registration file is tab separated; this endpoint reads commas"}`,
+			http.StatusBadRequest)
+		return
+	}
+
+	rows, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if err != nil || len(rows) < 2 {
+		http.Error(w, `{"error":"unparseable registration file"}`, http.StatusBadRequest)
+		return
+	}
+
+	header := rows[0]
+	column := map[string]int{}
+	for index, name := range header {
+		column[name] = index
+	}
+	field := func(row []string, name string) string {
+		index, ok := column[name]
+		if !ok || index >= len(row) {
+			return ""
+		}
+		return row[index]
+	}
+
+	s.mu.Lock()
+	s.registrationHeader = header
+	var created, failedCount, rotatedCount int
+	failed := []map[string]any{}
+	rotated := []map[string]any{}
+
+	for _, row := range rows[1:] {
+		parsed := RegisteredRow{
+			ExternalID:   field(row, "ID"),
+			AuthType:     field(row, "AUTH_TYPE"),
+			Password:     field(row, "CREDENTIALS"),
+			Name:         field(row, "NAME"),
+			Type:         field(row, "TYPE"),
+			ExternalType: field(row, "IDTYPE"),
+			Fragments:    map[string]string{},
+		}
+		for index, name := range header {
+			// A dotted header is how a custom fragment is written, and the
+			// platform stores the value as a string - which is why the marker
+			// cannot be a bare column carrying "{}".
+			if strings.Contains(name, ".") && index < len(row) {
+				parsed.Fragments[name] = row[index]
+			}
+		}
+		s.registrations = append(s.registrations, parsed)
+
+		if reason, refused := s.refuseRegistration[parsed.ExternalID]; refused {
+			failedCount++
+			failed = append(failed, map[string]any{
+				"deviceId":            parsed.ExternalID,
+				"bulkNewDeviceStatus": "FAILED",
+				"failureReason":       reason,
+			})
+			continue
+		}
+		if s.rotateRegistration[parsed.ExternalID] {
+			rotatedCount++
+			rotated = append(rotated, map[string]any{
+				"deviceId":            parsed.ExternalID,
+				"bulkNewDeviceStatus": "CREDENTIAL_UPDATED",
+			})
+			continue
+		}
+
+		id := s.nextIDLocked()
+		object := map[string]any{
+			"id":    id,
+			"name":  parsed.Name,
+			"type":  parsed.Type,
+			"owner": "device_" + parsed.ExternalID,
+			// Registration creates a device, and the object it creates is owned
+			// by the device user it created alongside it. That single call
+			// producing an object the device owns is what the register-first
+			// order exists for.
+			"c8y_IsDevice": map[string]any{},
+		}
+		// A dotted header becomes a fragment with that subfield, and the value
+		// arrives as a **string** whatever it looked like in the file - so
+		// `true` is "true", and `{}` would have been the literal "{}". This is
+		// why the run marker is written as `<marker>.phase` rather than as a
+		// bare column.
+		for header, value := range parsed.Fragments {
+			fragment, field, found := strings.Cut(header, ".")
+			if !found {
+				continue
+			}
+			nested, _ := object[fragment].(map[string]any)
+			if nested == nil {
+				nested = map[string]any{}
+			}
+			nested[field] = value
+			object[fragment] = nested
+		}
+		body, _ := json.Marshal(object)
+		if s.created == nil {
+			s.created = map[string][]byte{}
+		}
+		s.created[id] = body
+		s.identities = append(s.identities, CreatedIdentity{
+			DeviceID:   id,
+			Type:       parsed.ExternalType,
+			ExternalID: parsed.ExternalID,
+		})
+		if s.deviceUsers == nil {
+			s.deviceUsers = map[string]bool{}
+		}
+		s.deviceUsers["device_"+parsed.ExternalID] = true
+		created++
+	}
+	s.mu.Unlock()
+
+	s.writeJSON(w, map[string]any{
+		"numberOfAll":           created + failedCount + rotatedCount,
+		"numberOfCreated":       created,
+		"numberOfSuccessful":    created + rotatedCount,
+		"numberOfFailed":        failedCount,
+		"credentialUpdatedList": rotated,
+		"failedCreationList":    failed,
+	})
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, v any) {

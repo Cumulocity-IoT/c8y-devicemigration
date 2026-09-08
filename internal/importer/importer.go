@@ -2,7 +2,6 @@ package importer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,6 +52,17 @@ type Options struct {
 	// AllowSameTenant permits importing back into the tenant the export came
 	// from. Off by default: that duplicates a hierarchy inside itself.
 	AllowSameTenant bool
+
+	// AdoptRegistered updates the objects a registration phase created for this
+	// run instead of creating new ones.
+	//
+	// Set when credentials were provisioned before the import, which is the
+	// order that makes a migrated device own its own twin. Off by default and
+	// never inferred: it costs an identity lookup per device, and more
+	// importantly the guarantee that an import creates rather than updates is
+	// documented behaviour. Even when it is on, an object is only ever updated
+	// if it carries this run's marker - see findAdopted.
+	AdoptRegistered bool
 }
 
 // Importer recreates objects, their external identities and their
@@ -67,6 +77,10 @@ type Importer struct {
 
 	identitiesCreated int
 	identitiesFailed  int
+
+	// adoptedCount is how many objects were updated rather than created,
+	// because a registration phase had already made them for this run.
+	adoptedCount int
 
 	measurementsCreated int
 	eventsCreated       int
@@ -187,6 +201,15 @@ func (i *Importer) Run(ctx context.Context) error {
 		i.identitiesCreated, plural(i.identitiesCreated, "external identity", "external identities"),
 		i.opts.MappingFile)
 
+	// Said separately rather than folded into the count above, because "created"
+	// and "filled in an object that was already registered" are different
+	// things to have done to a tenant.
+	if i.adoptedCount > 0 {
+		fmt.Fprintf(i.stderr,
+			"%d of them were objects this run had already registered, and were updated rather than created\n",
+			i.adoptedCount)
+	}
+
 	if err := i.reportData(); err != nil {
 		return err
 	}
@@ -305,6 +328,26 @@ func (i *Importer) importDevices(ctx context.Context) error {
 			}
 		}
 
+		// Registered objects are updated rather than created. Checked before
+		// anything is built, because the two paths write different marker
+		// bodies and there is nothing to strip twice.
+		target, err := i.findAdopted(ctx, oldID)
+		if err != nil {
+			return err
+		}
+		if target != nil {
+			if err := i.updateAdopted(ctx, target, body, oldID, name); err != nil {
+				return err
+			}
+			if err := i.importIdentities(ctx, oldID, target.TargetID, name, target); err != nil {
+				return err
+			}
+			if err := i.importDeviceData(ctx, i.opts.InputDirectory, oldID, target.TargetID, name); err != nil {
+				return err
+			}
+			continue
+		}
+
 		stripped, err := jsonraw.StripServerManaged(body)
 		if err != nil {
 			return err
@@ -334,7 +377,7 @@ func (i *Importer) importDevices(ctx context.Context) error {
 		}
 		fmt.Fprintf(i.stderr, "Imported %s (%s -> %s)\n", name, oldID, newID)
 
-		if err := i.importIdentities(ctx, oldID, newID, name); err != nil {
+		if err := i.importIdentities(ctx, oldID, newID, name, nil); err != nil {
 			return err
 		}
 		if err := i.importDeviceData(ctx, i.opts.InputDirectory, oldID, newID, name); err != nil {
@@ -344,25 +387,26 @@ func (i *Importer) importDevices(ctx context.Context) error {
 	return nil
 }
 
-func (i *Importer) importIdentities(ctx context.Context, oldID, newID, name string) error {
-	path := filepath.Join(i.opts.InputDirectory, oldID+"_identities.json")
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+// importIdentities recreates an object's external identities.
+//
+// target is non-nil when the object was adopted, and names the one identity the
+// registration phase already created. That one is skipped rather than attempted:
+// it exists because everything worked, and reporting it as a collision would
+// make every adopted device look like a partial failure.
+func (i *Importer) importIdentities(ctx context.Context, oldID, newID, name string, target *adopted) error {
+	identities, err := readIdentityArtefact(i.opts.InputDirectory, oldID)
 	if err != nil {
 		return err
 	}
 
-	var identities []struct {
-		Type       string `json:"type"`
-		ExternalID string `json:"externalId"`
-	}
-	if err := jsonUnmarshal(raw, &identities); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-
 	for _, external := range identities {
+		if target != nil &&
+			external.Type == target.ExternalType && external.ExternalID == target.ExternalID {
+			fmt.Fprintf(i.stderr,
+				"External identity %s:%s is already on %s (%s), created when the device was registered\n",
+				external.Type, external.ExternalID, name, newID)
+			continue
+		}
 		result := i.client.Identity.Create(ctx, newID, identity.IdentityOptions{
 			Type:       external.Type,
 			ExternalID: external.ExternalID,

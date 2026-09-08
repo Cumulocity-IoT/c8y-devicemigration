@@ -17,6 +17,7 @@ import { gettext, message, type Message } from '../i18n';
 import { MigrateComponent } from '../migrate/migrate.component';
 import { kindLabel } from '../migrate/labels';
 import { byId } from '../tenants';
+import { saveTextFile } from './download';
 import { OutputComponent } from './output.component';
 import { RevertConfirmComponent } from './revert-confirm.component';
 import { RevertExpiredComponent } from './revert-expired.component';
@@ -215,6 +216,17 @@ export class HistoryComponent implements OnInit, OnDestroy {
       callback: (row: GridRow) => void this.cancel(row.job)
     },
     {
+      // Offered only while there is something to collect. The service hands the
+      // file over once and forgets it, so this disappears the moment it is
+      // downloaded - which is also the honest thing to show, because asking
+      // again cannot work.
+      type: 'DOWNLOAD_CREDENTIALS',
+      text: gettext('Download device credentials'),
+      icon: 'download',
+      showIf: (row: GridRow) => row.credentialsCollectable,
+      callback: (row: GridRow) => void this.downloadCredentials(row.job)
+    },
+    {
       type: 'REVERT_JOB',
       text: gettext('Revert'),
       icon: 'undo',
@@ -388,6 +400,31 @@ export class HistoryComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Collects a migration's device credentials and saves them as a file.
+   *
+   * One chance: the service drops them as it serves them, so anything that goes
+   * wrong after the response has arrived loses them. The download is therefore
+   * triggered from the body already in hand rather than by navigating the browser
+   * to the endpoint - a navigation the platform's session might redirect, or that
+   * a popup blocker might swallow, would spend the one read on nothing.
+   *
+   * The list is refreshed afterwards so the action disappears, which is what
+   * tells the operator this cannot be done twice.
+   */
+  async downloadCredentials(job: Job): Promise<void> {
+    if (!job.id) {
+      return;
+    }
+    try {
+      const body = await this.migration.api.migrationCredentials(job.id);
+      saveTextFile(`credentials-${job.id}.csv`, body);
+    } catch (error) {
+      this.problem.set(explain(error));
+    }
+    await this.load();
+  }
+
+  /**
    * One row, as the grid needs it: flat, and in words.
    *
    * The translating happens here because this is the only place with a
@@ -432,6 +469,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
       revertable: row.revertable,
       revertExpired: row.revertExpired,
       cancellable: row.cancellable,
+      credentialsCollectable: row.credentialsCollectable,
       hasOutput: hasDetail(row),
       scope: this.forScope(row.job),
       revertWarnings: revertWarnings(row).map(warning => this.say(warning)),

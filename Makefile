@@ -27,15 +27,22 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 .PHONY: check test test-fast test-bash3 lint workflow-lint parser-freshness docs docs-freshness \
 	go-build go-test go-lint install install-completion bootstrap clean \
 	service-build service-image service-package service-deploy dist \
-	ui-install ui-types ui-types-freshness ui-test ui-typecheck ui-build ui-package ui-deploy \
+	ui-install ui-types ui-types-freshness ui-test ui-typecheck ui-templatecheck ui-build \
+	ui-package ui-deploy \
 	version version-check tag
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
 # that no longer exists - which happened once, with a bug that had already been
 # fixed in the source.
+#
+# ui-templatecheck is in here for the same reason, learned the same way.
+# ui-typecheck runs tsc, which does not look at Angular templates at all: a
+# component field renamed without updating its template passed a green `make
+# check` and failed only when somebody ran the plugin. Only the Angular compiler
+# reads the templates, so only it can catch that.
 check: version-check lint parser-freshness docs-freshness ui-types-freshness go-lint go-build \
-	go-test ui-typecheck ui-test test
+	go-test ui-typecheck ui-templatecheck ui-test test
 
 bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
 
@@ -450,6 +457,21 @@ ui-test:
 ui-typecheck:
 	@if [ -x $(UI_BIN)/tsc ]; then \
 		cd $(UI_DIR) && ./node_modules/.bin/tsc --noEmit -p tsconfig.json && echo "tsc: clean"; \
+	else \
+		echo "ui dependencies not installed, skipping (make ui-install)"; \
+	fi
+
+# The templates, checked by the only thing that reads them.
+#
+# A build rather than a bespoke invocation of ngc: `ng build` is what the release
+# runs, so this checks the templates exactly as they will be compiled. The
+# default configuration rather than production - the optimiser has nothing to say
+# about a type error and only costs time. Output goes to ui/dist, which is
+# ignored.
+ui-templatecheck:
+	@if [ -x $(UI_BIN)/ng ]; then \
+		cd $(UI_DIR) && ./node_modules/.bin/ng build >/dev/null \
+			&& echo "angular templates: clean"; \
 	else \
 		echo "ui dependencies not installed, skipping (make ui-install)"; \
 	fi

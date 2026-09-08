@@ -71,6 +71,15 @@ type MigrationRequest struct {
 
 	NoFlag bool `json:"noFlag,omitempty"`
 
+	// ProvisionCredentials provisions a device user for every migrated device,
+	// so the devices can reconnect to the target.
+	//
+	// Registration runs before the import, which is what makes each object
+	// belong to its own device user. The passwords are never written to this
+	// record - they are held in memory keyed by the job and collected once from
+	// GET /migrations/{id}/credentials.
+	ProvisionCredentials bool `json:"provisionCredentials,omitempty"`
+
 	// RemoteTargetID references a remote target established with
 	// POST /remote-targets, for a target this instance is not subscribed to. It
 	// is a handle, not a secret - the certificate behind it lives only in memory
@@ -136,6 +145,18 @@ type Job struct {
 
 	// Progress is the tail of what the engine printed.
 	Progress []string `json:"progress,omitempty"`
+
+	// CredentialsIssued is how many devices got a device user, or zero.
+	//
+	// A count and never the secrets: this record is an ordinary managed object
+	// any tenant administrator can read.
+	CredentialsIssued int `json:"credentialsIssued,omitempty"`
+
+	// CredentialsAvailable is whether the credentials are still waiting to be
+	// collected, so a user interface can offer the download only while there is
+	// something to download. Computed per response rather than stored - the
+	// answer changes the moment they are collected.
+	CredentialsAvailable bool `json:"credentialsAvailable,omitempty"`
 
 	// CountsVerified is false when the run was cut short. The engine reports
 	// what it believes it did, and a cancelled or interrupted run's beliefs are
@@ -260,6 +281,18 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 	// Resolved here but filled in only after the pre-flight: the pre-flight wants
 	// exactly one of a tenant or a remote id, so targetTenant must stay empty
 	// while it runs.
+	// Credentials and a remote target cannot go together. A remote target is
+	// reached with a device access token obtained from a certificate, whose
+	// effective roles are the device ones - it cannot bulk-register anything,
+	// and finding that out mid-run would leave a half-migrated hierarchy. See
+	// docs/concepts/remote-targets.md for what that token can and cannot do.
+	if request.ProvisionCredentials && request.RemoteTargetID != "" {
+		return nil, &BadRequestError{Reason: "provisionCredentials cannot be used with a remote " +
+			"target: a remote target is reached with a device access token, which has no " +
+			"permission to register devices. Migrate without credentials and provision them " +
+			"from the target tenant, or subscribe the target to this service"}
+	}
+
 	var remoteTenant string
 	if request.RemoteTargetID != "" {
 		rt, ok := s.remoteTargets.get(request.RemoteTargetID)
@@ -536,13 +569,25 @@ func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 	// nil stdin: Force is set, so the confirmation is never reached. The engine
 	// treats a nil reader as a refusal rather than blocking, which is the safe
 	// way round if Force were ever lost.
-	err = migrate.New(source.client, target.client, source.session, target.session,
-		output, nil, options).Run(ctx)
+	migrator := migrate.New(source.client, target.client, source.session, target.session,
+		output, nil, options)
+	err = migrator.Run(ctx)
+
+	// Taken whether or not the run succeeded, and before the error is returned.
+	// A migration that registered devices and then failed has left working
+	// device users in the target, and their passwords exist only in the
+	// migrator - dropping them because the run failed would strand every device
+	// it registered.
+	issued := migrator.Credentials()
+	if storeErr := s.credentials.put(job.ID, issued); storeErr != nil {
+		slog.Error("could not hold the issued credentials", "job", job.ID, "error", storeErr)
+	}
 
 	output.Flush()
 	queued.with(func(job *Job) {
 		job.RunID = output.RunID()
 		job.Progress = output.Lines()
+		job.CredentialsIssued = len(issued)
 	})
 	return err
 }
@@ -590,6 +635,12 @@ func (s *Service) resolveOptions(request MigrationRequest, mappingFile string) (
 		DataTypes:   dataTypes,
 		Windows:     windows,
 		NoFlag:      request.NoFlag,
+
+		Credentials: request.ProvisionCredentials,
+		// No CredentialsFile: the service holds them in memory and hands them
+		// over once, rather than writing a list of device passwords into a
+		// container's filesystem where a crash dump or a stray volume would
+		// keep them.
 
 		// Always incremental: it is what bounds the staging directory to one
 		// device's data, and a container's disk is not something to gamble with.

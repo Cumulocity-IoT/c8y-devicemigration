@@ -253,6 +253,37 @@
           </c8y-form-group>
 
           <!--
+            Credentials. Hidden rather than disabled for a remote target: that
+            target is reached with a device access token, which cannot register
+            devices at all, so there is nothing to explain about a box that could
+            never be ticked.
+
+            The warning is not decoration. The file is handed over once, and if
+            nobody takes it the devices are registered with passwords no one has.
+          -->
+          @if (v.canProvisionCredentials) {
+            <c8y-form-group>
+              <label>{{ 'Device credentials' | translate }}</label>
+              <label class="c8y-checkbox">
+                <input
+                  type="checkbox"
+                  [ngModel]="v.choices.provisionCredentials"
+                  (ngModelChange)="chooseCredentials($event)"
+                  [ngModelOptions]="{ standalone: true }"
+                />
+                <span></span>
+                <span>{{ 'Provision a device user for each device' | translate }}</span>
+              </label>
+              <p class="help-block m-0">
+                {{
+                  'Migrated devices cannot reconnect without credentials of their own. The passwords can be downloaded once, from this migration in the device migration list, and getting them onto the devices is your own channel.'
+                    | translate
+                }}
+              </p>
+            </c8y-form-group>
+          }
+
+          <!--
             One field, two ways to fill it in: type the syntax the engine takes,
             or open the calendar in the button beside it. The text is the value -
             the picker writes into it - so there is nowhere for the two to
@@ -368,6 +399,34 @@
               </td>
               <td class="text-muted">{{ 'no limit' | translate }}</td>
             </tr>
+            <!--
+              Only when credentials were asked for. The count is in the estimate
+              either way, but a row saying how many device users would be created
+              in a migration that is not creating any would be noise.
+
+              The note is what makes the number honest: it is fewer than the
+              object count for reasons the operator can do something about - a
+              device with no external identity, or with several and no c8y_Serial,
+              gets no credential and cannot reconnect on its own.
+            -->
+            @if (v.choices.provisionCredentials) {
+              <tr>
+                <td>{{ 'Device credentials' | translate }}</td>
+                <td class="text-right">
+                  <strong>{{ v.estimate ? (v.estimate.credentials | number) : '—' }}</strong>
+                </td>
+                <td class="text-muted">
+                  @if (v.estimate && v.estimate.credentials !== v.estimate.objects) {
+                    {{
+                      'of {{ objects }} objects; the rest are groups or have no usable external identity'
+                        | translate: { objects: v.estimate.objects | number }
+                    }}
+                  } @else {
+                    {{ 'one device user per device' | translate }}
+                  }
+                </td>
+              </tr>
+            }
             <!-- Every kind, ticked or not: a row that appears when something is
                  ticked would resize the dialogue. -->
             @for (kind of dataTypes; track kind) {

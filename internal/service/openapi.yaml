@@ -623,6 +623,60 @@ paths:
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/Conflict"}
 
+  /migrations/{id}/credentials:
+    get:
+      tags: [migrations]
+      summary: Collect the device credentials a migration issued, once
+      description: |
+        Returns the credentials file for a migration run with
+        `provisionCredentials`, as `text/csv` with the columns `EXTERNAL_ID`,
+        `TENANT`, `USERNAME`, `PASSWORD` - the same file the command line writes.
+
+        **Handed over exactly once.** The passwords are held in this service's
+        memory and dropped as they are served, so a second call is a **410**. That
+        is deliberate: it makes "were these collected?" an answerable question,
+        and it bounds how long a list of working device passwords sits in a
+        long-lived process. They are never written to the job record, which is an
+        ordinary managed object any administrator of the owner tenant can read.
+
+        A **410** therefore means one of three things, and this endpoint cannot
+        tell them apart: they have already been collected, the container was
+        replaced since the migration ran, or the migration issued none. The way
+        back in every case is to register the devices again, which **rotates**
+        their passwords and invalidates any file handed out earlier.
+
+        Getting the file onto the devices is the operator's own channel - a
+        configuration push through the source tenant while they are still
+        connected to it, a field technician, or existing device-management
+        tooling. This service does not deliver credentials to devices.
+      operationId: getMigrationCredentials
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: |
+            The credentials file. This is the only copy, and asking again returns
+            410.
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                EXTERNAL_ID,TENANT,USERNAME,PASSWORD
+                PLANT-BERLIN-01,t22222,device_PLANT-BERLIN-01,aB3xY7zQ2tR5wK8
+                LINE-A-SN,t22222,device_LINE-A-SN,7mQ4bW9nH2xL6dK
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "410":
+          description: |
+            There are no credentials to hand over: already collected, lost to a
+            restart, or none were issued. Register the devices again to issue new
+            ones, which rotates their passwords.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+
   /reverts:
     post:
       tags: [migrations]
@@ -1076,6 +1130,28 @@ components:
         dateTo:
           type: string
           description: End of the data window.
+        provisionCredentials:
+          type: boolean
+          description: |
+            Provision a device user for every migrated device, so the devices can
+            reconnect to the target tenant.
+
+            The devices are registered **before** the hierarchy is imported, which
+            is what makes each object belong to its own device user: bulk
+            registration creates the managed object owned by the user it creates
+            alongside it, and the import then fills that object in. Registering
+            after an import cannot give a device ownership of an object that
+            already exists.
+
+            The passwords are never written to the job record. They are held in
+            this service's memory and collected **once** from
+            `GET /migrations/{id}/credentials`; a restart loses them, and
+            re-registering to replace them rotates every password it touches.
+
+            Cannot be combined with `remoteTargetId`: a remote target is reached
+            with a device access token, which has no permission to register
+            devices.
+          default: false
         noFlag:
           type: boolean
           description: |
@@ -1222,6 +1298,16 @@ components:
           type: integer
         identities:
           type: integer
+        credentials:
+          type: integer
+          description: |
+            How many of those objects would be given a device user if the
+            migration asked for credentials with `provisionCredentials`.
+
+            Always fewer than `objects`: a group has no device user, and a device
+            whose external identities leave no unambiguous choice is skipped
+            rather than guessed at. Decided by the same rule the run applies, so
+            this cannot disagree with what a migration then does.
         records:
           type: object
           additionalProperties:
@@ -1373,6 +1459,21 @@ components:
             output is in the container log.
           items:
             type: string
+        credentialsIssued:
+          type: integer
+          description: |
+            How many devices were given a device user, when the migration asked
+            for credentials. A count and never the secrets: this object is
+            readable by any administrator of the owner tenant.
+        credentialsAvailable:
+          type: boolean
+          description: |
+            Whether those credentials are still waiting to be collected from
+            `GET /migrations/{id}/credentials`.
+
+            Not part of the stored record: it is this service's memory, and it
+            becomes false the moment they are collected or the container is
+            replaced.
         countsVerified:
           type: boolean
           description: |

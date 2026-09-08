@@ -46,6 +46,15 @@ export interface Row {
   /** Was undoable, until the remote target's certificate expired. */
   revertExpired: boolean;
   cancellable: boolean;
+
+  /**
+   * Whether this migration's device credentials are still there to collect.
+   *
+   * The service hands them over once and then forgets them, so this goes false
+   * as soon as somebody downloads the file - and after a restart of the service,
+   * which loses them. It is the service's memory, not the job record.
+   */
+  credentialsCollectable: boolean;
 }
 
 /** One undo of one migration, as its expansion needs it. */
@@ -162,6 +171,7 @@ export function rows(
         revertExpired: revertExpired(job, live),
         undos,
         cancellable: isRunning(job),
+        credentialsCollectable: job.credentialsAvailable === true,
       };
     });
 }
@@ -388,6 +398,18 @@ export function revertWarnings(row: Row): string[] {
     ),
   ];
 
+  // Said before the credential warnings, because it is about what else goes:
+  // the device users are deleted with the objects they own, in the same platform
+  // call. Anybody holding the credentials file for this migration needs to know
+  // it stops working - and that is the point of undoing it, not a side effect.
+  if ((row.job.credentialsIssued ?? 0) > 0) {
+    warnings.push(
+      gettext(
+        "The device users this migration created are deleted along with their devices, so the credentials issued for them stop working. Devices still using them cannot reconnect to the target tenant.",
+      ),
+    );
+  }
+
   if (row.job.countsVerified === false) {
     warnings.push(
       gettext(
@@ -537,6 +559,8 @@ export interface GridRow {
   /** Was undoable, until the remote target's certificate expired. */
   revertExpired: boolean;
   cancellable: boolean;
+  /** Whether the device credentials are still there to collect - once. */
+  credentialsCollectable: boolean;
   hasOutput: boolean;
 
   /** What the migration included, for the expansion to show. */

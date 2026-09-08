@@ -185,6 +185,17 @@ live_objects() { ls "$REC/objects" 2>/dev/null | grep -c '' | tr -d ' '; }
     assert_flag_on_all_calls "--silentExit" "inventory delete"
 }
 
+# A migration that provisioned credentials created a device user per device.
+# Deleting the objects and leaving the users behind would leave credentials that
+# still authenticate, while the undo reported success - so the flag goes on every
+# delete, not only on runs that registered something.
+@test "revert: every delete takes the device user with the object" {
+    do_full_import
+    run_revert --mapping id_mapping.json --force
+    assert_success
+    assert_flag_on_all_calls "--withDeviceUser" "inventory delete"
+}
+
 @test "revert: propagation produces no error noise" {
     do_full_import
     local root childA childB

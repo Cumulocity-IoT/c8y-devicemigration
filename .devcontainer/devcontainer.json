@@ -53,6 +53,21 @@
 		"DISABLE_AUTOUPDATER": "1"
 	},
 
+	// Claude Code for VS Code, installed into the container by the host's VS
+	// Code when a window attaches - the same way it installs any devcontainer
+	// extension: the host fetches the VSIX and hands it to the server inside.
+	// The marketplace hosts are already on the firewall's allowlist for exactly
+	// that, so this opens nothing new.
+	//
+	// The extension drives the `claude` CLI the image already carries: the
+	// editor half of the same agent, not a second one. It arrives only with a VS
+	// Code window - `devcontainer up` and `docker exec` sessions are unaffected.
+	"customizations": {
+		"vscode": {
+			"extensions": ["anthropic.claude-code"]
+		}
+	},
+
 	"remoteUser": "node",
 
 	// Firewall FIRST, then dependency priming THROUGH it - so the first start

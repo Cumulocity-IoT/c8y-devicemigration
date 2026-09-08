@@ -164,6 +164,56 @@ The fields are the CLI's flags — `childTypes`, `noChildren`, `dataTypes`,
 `"asset,device"` mean exactly what they mean there. An unknown field is refused
 rather than ignored, so a typo is a 400 and not a surprise.
 
+### Device credentials
+
+`POST /migrations` accepts `provisionCredentials: true`, which gives every
+migrated device a device user of its own so the fleet can reconnect to the
+target. The devices are registered **before** the hierarchy is imported, because
+bulk registration creates each managed object owned by the device user it creates
+alongside it and the import then fills that object in; registering afterwards
+only rotates a password and leaves the object alone.
+
+The passwords are **not on the job record**. That record is an ordinary managed
+object in the owner tenant, kept by default forever, rewritten every ten seconds
+while a job runs, echoed in every job response and forced into the publicly
+served OpenAPI document by the parity tests — any administrator of the owner
+tenant can read it. So the record carries a count, `credentialsIssued`, and
+nothing else.
+
+The file itself is held in this container's memory and collected **once**:
+
+```sh
+c8y api GET /service/devicemigration/migrations/<id>/credentials > credentials.csv
+```
+
+It arrives as `text/csv` with `EXTERNAL_ID`, `TENANT`, `USERNAME`, `PASSWORD`,
+and is dropped as it is served. A second call is **410 Gone**, which is
+deliberate: it makes "were these collected?" an answerable question, and it
+bounds how long a list of working device passwords sits in a long-lived process.
+`credentialsAvailable` on the job says whether there is still something to
+collect, which is what the UI's download action watches.
+
+A 410 means one of three things and cannot tell them apart — already collected,
+the container was replaced, or none were issued. The way back in every case is to
+register the devices again, which **rotates** their passwords and invalidates any
+file handed out earlier.
+
+Two refusals worth knowing:
+
+- **`provisionCredentials` cannot be combined with `remoteTargetId`.** A remote
+  target is reached with a device access token, whose effective roles are the
+  device ones — it has no permission to register anything. Refused when the
+  migration is accepted rather than discovered half way through a run. Migrate
+  without credentials and provision them from the target tenant, or subscribe the
+  target.
+- **Devices with no external identity are skipped**, along with groups and
+  devices carrying several identities and no `c8y_Serial`. Each appears in the
+  job's progress with its reason. They are migrated like any other object; they
+  simply arrive without credentials.
+
+`revert` removes the device users along with the objects, in the same platform
+call, so an undone migration leaves nothing behind that still authenticates.
+
 ### Undoing a migration
 
 ```sh
@@ -566,6 +616,11 @@ library is ever fixed — at which point the local decoder can go.
 - **Job records accumulate until a retention period is set.** The default keeps
   everything, which is right for an audit trail and wrong for a tenant that
   migrates daily. See [Settings](#settings).
+- **Issued credentials do not survive a restart.** They are held in memory on
+  purpose — see [Device credentials](#device-credentials) — so a container
+  replaced between the migration and the download takes them with it. The devices
+  are registered and working; nobody has their passwords. Recover by registering
+  again, which rotates them.
 - **Progress is kept, not streamed.** The last 200 lines of a job's output are on
   its record and in the status response; everything goes to the container log as
   well. There is no streaming endpoint.

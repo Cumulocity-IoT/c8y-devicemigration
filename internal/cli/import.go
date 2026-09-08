@@ -19,6 +19,7 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 		runID           string
 		noFlag          bool
 		allowSameTenant bool
+		adoptRegistered bool
 		sessionValue    string
 	)
 
@@ -30,6 +31,8 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 			"objects and all external identities. Device protocols are not migrated.\n\n" +
 			"Existing objects are never matched or updated: every import creates new\n" +
 			"managed objects, so importing the same export twice produces two copies.\n" +
+			"The one exception is --adoptRegistered, which updates the objects a prior\n" +
+			"`register` created for the same --runId, and only those.\n" +
 			"Importing back into the tenant the export came from is refused unless\n" +
 			"--allowSameTenant is given.\n\n" +
 			"Every created object is marked with an empty c8y_DeviceMigration_<runId>\n" +
@@ -46,6 +49,7 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 				RunID:           runID,
 				NoFlag:          noFlag,
 				AllowSameTenant: allowSameTenant,
+				AdoptRegistered: adoptRegistered,
 			})
 		},
 	}
@@ -63,6 +67,10 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 			"can only be found again through the mapping file")
 	cmd.Flags().BoolVar(&allowSameTenant, "allowSameTenant", false,
 		"Import even when the export came from this same tenant")
+	cmd.Flags().BoolVar(&adoptRegistered, "adoptRegistered", false,
+		"Update the objects `register` created for this run instead of creating new "+
+			"ones. Needs the same --runId, and only ever updates an object carrying "+
+			"that run's marker")
 	cmd.Flags().StringVar(&sessionValue, "session", "",
 		"Session to write to: a path, a full file name including its extension, or a glob. "+
 			"Defaults to the active session")

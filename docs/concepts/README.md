@@ -12,5 +12,6 @@ concept is built, its concept file is replaced by real documentation up in
 
 | | |
 | --- | --- |
-| [credentials.md](credentials.md) | Giving migrated devices their new credentials (requirement #3). Three options; not started. |
+| [credentials.md](credentials.md) | Giving migrated devices their new credentials (requirement #3). **Option A is built** and documented up in `docs/`; B and C remain proposals. |
+| [credentials-verification.md](credentials-verification.md) | The procedures that settle the assumptions `credentials.md` rests on. Three of them can sink the option they belong to, so they gate the build. |
 | [remote-targets.md](remote-targets.md) | Migrating to a tenant this instance is not subscribed to — different parent, or a different system. Option 4 (certificate exchange) chosen, verified, and now being built. |
