@@ -187,30 +187,47 @@ func (r *Registrar) Run(ctx context.Context) ([]Credential, error) {
 		plan.Records[index].Password = password
 	}
 
-	var file bytes.Buffer
-	if err := WriteRegistrationFile(&file, r.opts.Marker, plan.Records); err != nil {
-		return nil, err
-	}
-
 	fmt.Fprintf(r.stderr, "Registering %d %s in %s\n",
 		len(plan.Records), plural(len(plan.Records), "device", "devices"), r.opts.Tenant)
+
+	outcome, err := Register(ctx, r.client, r.opts.Marker, plan.Records)
+	if err != nil {
+		return nil, err
+	}
+	return r.collect(plan.Records, outcome)
+}
+
+// Register uploads a registration file and returns what the platform said.
+//
+// Separate from the Registrar because a registration does not always come from
+// an export directory: Option B mints one device's credential when that device
+// asks for it, long after the migration, and needs exactly this call with one
+// record and no plan.
+//
+// The passwords are expected to be set on the records already - Registrar.Run
+// generates them, and a single-record caller generates its own - so this
+// function does not touch them. It writes the file to memory and never to disk.
+func Register(ctx context.Context, client *api.Client, marker string, records []Record) (Outcome, error) {
+	var file bytes.Buffer
+	if err := WriteRegistrationFile(&file, marker, records); err != nil {
+		return Outcome{}, err
+	}
 
 	// Name and ContentType are what the endpoint sees; the reader is the file
 	// built above rather than a path, so nothing writes a list of passwords to
 	// disk on the way.
-	result := r.client.Devices.Registration.CreateBulk(ctx, core.UploadFileOptions{
+	result := client.Devices.Registration.CreateBulk(ctx, core.UploadFileOptions{
 		Reader:      bytes.NewReader(file.Bytes()),
 		Name:        "devices.csv",
 		ContentType: "text/csv",
 	})
 	if result.Err != nil {
-		return nil, fmt.Errorf("bulk registration failed: %w", result.Err)
+		return Outcome{}, fmt.Errorf("bulk registration failed: %w", result.Err)
 	}
-
-	return r.collect(plan.Records, newOutcome(result.Data))
+	return newOutcome(result.Data), nil
 }
 
-// outcome is the platform's answer reduced to what this package reads.
+// Outcome is the platform's answer reduced to what this package reads.
 //
 // Reduced at the boundary rather than passed through, for two reasons: it makes
 // collect a pure function a test can drive without a server, and go-c8y's
@@ -218,7 +235,7 @@ func (r *Registrar) Run(ctx context.Context) ([]Credential, error) {
 // platform sends "bulkNewDeviceStatus", so that accessor always answers empty.
 // Nothing here depends on it - which list an entry arrives in is the same
 // information - but the next reader should not have to rediscover that.
-type outcome struct {
+type Outcome struct {
 	// failed maps external id to the platform's stated reason.
 	failed map[string]string
 
@@ -227,8 +244,24 @@ type outcome struct {
 	rotated map[string]bool
 }
 
-func newOutcome(response jsonmodels.BulkNewDeviceRequests) outcome {
-	out := outcome{failed: map[string]string{}, rotated: map[string]bool{}}
+// Refused returns the platform's reason for refusing an external id, and whether
+// it refused it at all.
+//
+// The reason is the platform's own words and is not interpreted: this endpoint
+// answers at least one cause that has nothing to do with passwords with "Error
+// during password validation.", so a caller that read meaning into it would send
+// somebody somewhere false.
+func (o Outcome) Refused(externalID string) (string, bool) {
+	reason, refused := o.failed[externalID]
+	return reason, refused
+}
+
+// Rotated reports whether the target already knew this external id, so nothing
+// was created and only the password changed.
+func (o Outcome) Rotated(externalID string) bool { return o.rotated[externalID] }
+
+func newOutcome(response jsonmodels.BulkNewDeviceRequests) Outcome {
+	out := Outcome{failed: map[string]string{}, rotated: map[string]bool{}}
 	for _, detail := range response.FailedCreationList() {
 		// The reason is recorded verbatim and never interpreted. This endpoint
 		// answers at least one cause that has nothing to do with passwords with
@@ -243,7 +276,7 @@ func newOutcome(response jsonmodels.BulkNewDeviceRequests) outcome {
 }
 
 // collect turns the platform's answer into credentials.
-func (r *Registrar) collect(records []Record, out outcome) ([]Credential, error) {
+func (r *Registrar) collect(records []Record, out Outcome) ([]Credential, error) {
 	failed, rotated := out.failed, out.rotated
 
 	var (

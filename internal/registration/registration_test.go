@@ -15,8 +15,10 @@ func records() []registration.Record {
 	}
 }
 
-// The delimiter is the one thing about this file that was established the hard
-// way: the endpoint rejects the tab-separated file go-c8y's own writer produces.
+// Commas are this tool's choice, not the endpoint's requirement - it reads
+// either, retested 2026-09-09. Still pinned: the file goes to an operator who
+// opens it in a spreadsheet, and the generated passwords exclude a comma on the
+// strength of this format.
 func TestRegistrationFileIsCommaSeparated(t *testing.T) {
 	var out bytes.Buffer
 	if err := registration.WriteRegistrationFile(&out, "", records()); err != nil {

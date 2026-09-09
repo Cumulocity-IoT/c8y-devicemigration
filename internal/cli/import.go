@@ -9,6 +9,7 @@ import (
 
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/importer"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/registration"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 )
 
@@ -20,6 +21,8 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 		noFlag          bool
 		allowSameTenant bool
 		adoptRegistered bool
+		stampOwner      bool
+		identityType    string
 		sessionValue    string
 	)
 
@@ -32,7 +35,11 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 			"Existing objects are never matched or updated: every import creates new\n" +
 			"managed objects, so importing the same export twice produces two copies.\n" +
 			"The one exception is --adoptRegistered, which updates the objects a prior\n" +
-			"`register` created for the same --runId, and only those.\n" +
+			"`register` created for the same --runId, and only those.\n\n" +
+			"A migrated device cannot write to its own managed object until it owns it,\n" +
+			"because ROLE_DEVICE carries writes only together with ownership. Pass\n" +
+			"--stampDeviceOwner to name each device as the owner of its own object up\n" +
+			"front, which works even though the device user does not exist yet.\n" +
 			"Importing back into the tenant the export came from is refused unless\n" +
 			"--allowSameTenant is given.\n\n" +
 			"Every created object is marked with an empty c8y_DeviceMigration_<runId>\n" +
@@ -50,6 +57,9 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 				NoFlag:          noFlag,
 				AllowSameTenant: allowSameTenant,
 				AdoptRegistered: adoptRegistered,
+
+				StampDeviceOwner: stampOwner,
+				IdentityType:     identityType,
 			})
 		},
 	}
@@ -71,12 +81,22 @@ func newImportCommand(stderr io.Writer) *cobra.Command {
 		"Update the objects `register` created for this run instead of creating new "+
 			"ones. Needs the same --runId, and only ever updates an object carrying "+
 			"that run's marker")
+	cmd.Flags().BoolVar(&stampOwner, "stampDeviceOwner", false,
+		"Make each migrated device the owner of its own managed object, so it can "+
+			"write to it once it has credentials. Needed when credentials are issued "+
+			"after the import; not needed with --adoptRegistered, which already "+
+			"creates each object owned by its device user")
+	cmd.Flags().StringVar(&identityType, "identityType", registration.DefaultIdentityType,
+		"External identity type the stamped owner is derived from")
 	cmd.Flags().StringVar(&sessionValue, "session", "",
 		"Session to write to: a path, a full file name including its extension, or a glob. "+
 			"Defaults to the active session")
 
 	_ = cmd.MarkFlagRequired("input-directory")
 	cmd.MarkFlagsMutuallyExclusive("runId", "noFlag")
+	// Both arrange the same thing by different means, and asking for both says
+	// the caller does not know which order their credentials arrive in.
+	cmd.MarkFlagsMutuallyExclusive("adoptRegistered", "stampDeviceOwner")
 
 	return cmd
 }

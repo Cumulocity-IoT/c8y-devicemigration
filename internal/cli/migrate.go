@@ -38,6 +38,7 @@ func newMigrateCommand(stderr io.Writer) *cobra.Command {
 		credentials     bool
 		credentialsFile string
 		identityType    string
+		stampOwner      bool
 	)
 
 	cmd := &cobra.Command{
@@ -87,9 +88,10 @@ func newMigrateCommand(stderr io.Writer) *cobra.Command {
 					KeepStaging:  keepStaging,
 					Force:        force,
 
-					Credentials:     credentials,
-					CredentialsFile: credentialsFile,
-					IdentityType:    identityType,
+					Credentials:      credentials,
+					CredentialsFile:  credentialsFile,
+					IdentityType:     identityType,
+					StampDeviceOwner: stampOwner,
 				})
 		},
 	}
@@ -127,13 +129,20 @@ func newMigrateCommand(stderr io.Writer) *cobra.Command {
 		"File to write the device credentials to. Required with --credentials, and "+
 			"never stdout: the file holds working device passwords")
 	cmd.Flags().StringVar(&identityType, "identityType", registration.DefaultIdentityType,
-		"External identity type to register each device under, with --credentials")
+		"External identity type to register each device under, or to derive a "+
+			"stamped owner from")
+	cmd.Flags().BoolVar(&stampOwner, "stampDeviceOwner", false,
+		"Make each migrated device the owner of its own managed object, so it can "+
+			"write to it once it has credentials issued by some other means. Not "+
+			"needed with --credentials, which already leaves each object owned by "+
+			"its device user")
 
 	_ = cmd.MarkFlagRequired("rootId")
 	_ = cmd.MarkFlagRequired("sourceSession")
 	_ = cmd.MarkFlagRequired("targetSession")
 	cmd.MarkFlagsMutuallyExclusive("childTypes", "no-children")
 	cmd.MarkFlagsRequiredTogether("credentials", "credentialsFile")
+	cmd.MarkFlagsMutuallyExclusive("credentials", "stampDeviceOwner")
 
 	return cmd
 }

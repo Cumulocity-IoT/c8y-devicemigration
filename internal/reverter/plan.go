@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/inventory/managedobjects"
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/pagination"
@@ -35,6 +36,17 @@ type Entry struct {
 	// Present is whether the object was there when the plan was built. An
 	// object that is already gone is reported and skipped rather than tried.
 	Present bool
+
+	// HasDeviceUser is whether this object is owned by a device user, and so
+	// whether its delete should take that user with it.
+	//
+	// Read from the object's owner rather than assumed, because the flag that
+	// does it is not harmless when it does not apply: a *device* with no device
+	// user of its own answers withDeviceUser=true with a 409 and stays where it
+	// is. Every object an import creates without provisioning credentials is
+	// exactly that, so setting the flag unconditionally breaks the ordinary
+	// revert while appearing to make it more thorough.
+	HasDeviceUser bool
 }
 
 // Plan is what the revert intends to do.
@@ -126,9 +138,23 @@ func (r *Reverter) BuildFromMapping(ctx context.Context, path string) (*Plan, er
 		plan.Entries = append(plan.Entries, Entry{
 			SourceID: oldID, TargetID: newID,
 			Name: displayName(result.Data.Name()), Present: true,
+			HasDeviceUser: ownedByDeviceUser(result.Data.Owner()),
 		})
 	}
 	return plan, nil
+}
+
+// DeviceUserPrefix is what the platform names a device's own user.
+//
+// The same convention registration.DeviceUsername builds, and go-c8y's
+// users.ByDeviceUser encodes. Repeated here rather than imported so the reverter
+// does not depend on the package that provisions credentials - it has to undo
+// migrations made by versions that had no such package at all.
+const DeviceUserPrefix = "device_"
+
+// ownedByDeviceUser reports whether an owner is a device's own user.
+func ownedByDeviceUser(owner string) bool {
+	return strings.HasPrefix(owner, DeviceUserPrefix)
 }
 
 // MarkerQuery is the inventory query that selects one run's objects.
@@ -169,6 +195,7 @@ func (r *Reverter) BuildFromMarker(ctx context.Context, runID string) (*Plan, er
 		plan.Entries = append(plan.Entries, Entry{
 			SourceID: NoSourceID, TargetID: object.ID(),
 			Name: displayName(object.Name()), Present: true,
+			HasDeviceUser: ownedByDeviceUser(object.Owner()),
 		})
 	}
 	if err := iterator.Err(); err != nil {

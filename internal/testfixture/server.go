@@ -134,8 +134,10 @@ type Server struct {
 	// what the writer intended.
 	registrations []RegisteredRow
 
-	// registrationHeader is the header row of the last file uploaded.
-	registrationHeader []string
+	// registrationHeader is the header row of the last file uploaded, and
+	// registrationDelimiter the character that separated it.
+	registrationHeader    []string
+	registrationDelimiter rune
 
 	// refuseRegistration answers the given external ids in failedCreationList,
 	// and rotateRegistration answers them in credentialUpdatedList. Both model
@@ -143,6 +145,17 @@ type Server struct {
 	// for an id it already knows.
 	refuseRegistration map[string]string
 	rotateRegistration map[string]bool
+
+	// trustedCertificates is this tenant's truststore, keyed by fingerprint.
+	// Modelled because moving one is the whole of Option C, and because the
+	// platform's rules about it are surprising enough to be worth holding in a
+	// fake: a fingerprint is unique per instance, and disabling one does not
+	// free it.
+	trustedCertificates map[string]map[string]any
+
+	// refuseCertificateCreate makes a create fail, which is the case a cutover
+	// has to recover from: the source has already lost the certificate.
+	refuseCertificateCreate bool
 }
 
 // RegisteredRow is one row of a bulk registration file the server received.
@@ -373,6 +386,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		s.writeJSON(w, map[string]any{"name": identity, "domainName": host})
 
+	case strings.HasPrefix(r.URL.Path, "/tenant/tenants/") &&
+		strings.Contains(r.URL.Path, "/trusted-certificates"):
+		s.trustedCertificateRequest(w, r)
+
 	case r.Method == http.MethodPost && r.URL.Path == "/devicecontrol/bulkNewDeviceRequests":
 		s.bulkRegister(w, r)
 
@@ -498,14 +515,32 @@ func (s *Server) deleteManagedObject(w http.ResponseWriter, id string, withDevic
 	s.mu.Lock()
 	s.deleted = append(s.deleted, id)
 
-	// The platform removes the associated device user when asked, and only when
-	// the object is a device. Modelled rather than merely recorded, because the
-	// thing worth asserting is that no credential is left behind - not that a
-	// query parameter was sent.
+	// The platform removes the associated device user when asked - and refuses
+	// the whole delete when there is no such user to remove.
+	//
+	// That refusal is the point of modelling this at all. withDeviceUser=true on
+	// a *device* that has no device user of its own answers **409 and leaves the
+	// object where it is**; it is not the no-op it reads as. Every object an
+	// import creates without provisioning credentials is exactly that, so a
+	// reverter that sets the flag unconditionally breaks the ordinary revert
+	// while looking more thorough - which is what happened, and passed a test
+	// suite whose fake accepted any query parameter it was given.
+	//
+	// Measured on a live tenant 2026-09-08: device owned by a device user 204,
+	// device owned by an ordinary user 409 and still present, group 204.
 	if withDeviceUser {
 		s.deletedWithDeviceUser = append(s.deletedWithDeviceUser, id)
-		if owner := gjson.GetBytes(s.created[id], "owner").String(); strings.HasPrefix(owner, "device_") {
+		owner := gjson.GetBytes(s.created[id], "owner").String()
+		isDevice := gjson.GetBytes(s.created[id], "c8y_IsDevice").Exists()
+		switch {
+		case strings.HasPrefix(owner, "device_") && s.deviceUsers[owner]:
 			delete(s.deviceUsers, owner)
+		case isDevice:
+			s.mu.Unlock()
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"inventory/Conflict",` +
+				`"message":"Cannot delete device user, the device has no device user"}`))
+			return
 		}
 	}
 
@@ -1478,6 +1513,127 @@ func (s *Server) DeletedWithDeviceUser() []string {
 	return append([]string(nil), s.deletedWithDeviceUser...)
 }
 
+// AddTrustedCertificate puts a certificate in this tenant's truststore.
+func (s *Server) AddTrustedCertificate(fingerprint string, fields map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.trustedCertificates == nil {
+		s.trustedCertificates = map[string]map[string]any{}
+	}
+	entry := map[string]any{
+		"fingerprint":             fingerprint,
+		"name":                    fingerprint,
+		"status":                  "ENABLED",
+		"certInPemFormat":         "MIIBase64Body",
+		"autoRegistrationEnabled": true,
+	}
+	for key, value := range fields {
+		entry[key] = value
+	}
+	s.trustedCertificates[fingerprint] = entry
+}
+
+// TrustedCertificates returns the fingerprints in this tenant's truststore,
+// sorted.
+func (s *Server) TrustedCertificates() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.trustedCertificates))
+	for fingerprint := range s.trustedCertificates {
+		out = append(out, fingerprint)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TrustedCertificate returns one entry, and whether it is there.
+func (s *Server) TrustedCertificate(fingerprint string) (map[string]any, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.trustedCertificates[fingerprint]
+	return entry, ok
+}
+
+// RefuseCertificateCreate makes this tenant refuse a trusted certificate create,
+// which is how a cutover's worst case is reached: the source has already deleted
+// it by then.
+func (s *Server) RefuseCertificateCreate() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refuseCertificateCreate = true
+}
+
+// trustedCertificateRequest serves /tenant/tenants/{id}/trusted-certificates.
+func (s *Server) trustedCertificateRequest(w http.ResponseWriter, r *http.Request) {
+	rest := r.URL.Path[strings.Index(r.URL.Path, "/trusted-certificates")+len("/trusted-certificates"):]
+	fingerprint := strings.Trim(rest, "/")
+
+	s.mu.Lock()
+	if s.trustedCertificates == nil {
+		s.trustedCertificates = map[string]map[string]any{}
+	}
+
+	switch {
+	case r.Method == http.MethodGet && fingerprint == "":
+		entries := make([]map[string]any, 0, len(s.trustedCertificates))
+		for _, key := range sortedKeys(s.trustedCertificates) {
+			entries = append(entries, s.trustedCertificates[key])
+		}
+		s.mu.Unlock()
+		s.writeJSON(w, map[string]any{
+			"certificates": entries,
+			"statistics":   map[string]any{"totalPages": 1, "currentPage": 1},
+		})
+
+	case r.Method == http.MethodGet:
+		entry, ok := s.trustedCertificates[fingerprint]
+		s.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"tenants/Not Found","message":"no such certificate"}`))
+			return
+		}
+		s.writeJSON(w, entry)
+
+	case r.Method == http.MethodPost:
+		refuse := s.refuseCertificateCreate
+		s.mu.Unlock()
+		if refuse {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"error":"tenants/Invalid","message":"refused"}`))
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var posted map[string]any
+		_ = json.Unmarshal(body, &posted)
+		// The fingerprint is the platform's, derived from the certificate. The
+		// fake takes it from the name, which is what the tests set.
+		created := gjson.GetBytes(body, "name").String()
+		s.AddTrustedCertificate(created, posted)
+		entry, _ := s.TrustedCertificate(created)
+		w.WriteHeader(http.StatusCreated)
+		s.writeJSON(w, entry)
+
+	case r.Method == http.MethodDelete:
+		delete(s.trustedCertificates, fingerprint)
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		s.mu.Unlock()
+		http.NotFound(w, r)
+	}
+}
+
+func sortedKeys(m map[string]map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Registrations returns the rows the bulk registration endpoint received.
 func (s *Server) Registrations() []RegisteredRow {
 	s.mu.Lock()
@@ -1490,6 +1646,17 @@ func (s *Server) RegistrationHeader() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.registrationHeader...)
+}
+
+// RegistrationDelimiter is the character that separated the last registration
+// file's fields.
+//
+// The endpoint accepts either, so this is here for tests that pin what this
+// tool writes rather than what the platform demands.
+func (s *Server) RegistrationDelimiter() rune {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.registrationDelimiter
 }
 
 // RefuseRegistration makes the endpoint answer these external ids in
@@ -1520,10 +1687,14 @@ func (s *Server) RotateRegistration(externalIDs ...string) {
 
 // bulkRegister stands in for POST /devicecontrol/bulkNewDeviceRequests.
 //
-// It parses the uploaded file with encoding/csv and **refuses a tab-separated
-// one**, which is the platform behaviour that decided the writer: go-c8y's own
-// BulkRegistrationRecordWriter emits tabs and the real endpoint rejects what it
-// produces. A fixture that accepted both would let that regress silently.
+// It reads whichever delimiter the file uses, because the real endpoint does.
+// This fixture used to refuse a tab-separated file, on a finding that was
+// retested on 2026-09-09 and turned out to be wrong - tabs and commas both
+// registered correctly, including go-c8y's own tab-separated output. Modelling
+// a restriction the platform does not have is worse than modelling nothing: it
+// fails changes that would have worked. What the delimiter is used for now is
+// RegistrationDelimiter, so a test can pin *our* choice without claiming the
+// endpoint enforces it.
 //
 // A row for a refused id lands in failedCreationList and creates nothing; a row
 // for a rotated id lands in credentialUpdatedList and, as the platform does,
@@ -1543,16 +1714,17 @@ func (s *Server) bulkRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"unreadable file"}`, http.StatusBadRequest)
 		return
 	}
-	if bytes.Contains(raw, []byte("\t")) {
-		// The real endpoint rejects this, and the reason is worth stating in the
-		// body: a test that hits it should not have to guess.
-		http.Error(w,
-			`{"error":"the registration file is tab separated; this endpoint reads commas"}`,
-			http.StatusBadRequest)
-		return
+	// Sniffed from the header, as the platform evidently does. Recorded rather
+	// than enforced.
+	delimiter := ','
+	firstLine, _, _ := bytes.Cut(raw, []byte("\n"))
+	if bytes.Contains(firstLine, []byte("\t")) {
+		delimiter = '\t'
 	}
 
-	rows, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	reader := csv.NewReader(bytes.NewReader(raw))
+	reader.Comma = delimiter
+	rows, err := reader.ReadAll()
 	if err != nil || len(rows) < 2 {
 		http.Error(w, `{"error":"unparseable registration file"}`, http.StatusBadRequest)
 		return
@@ -1573,6 +1745,7 @@ func (s *Server) bulkRegister(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	s.registrationHeader = header
+	s.registrationDelimiter = delimiter
 	var created, failedCount, rotatedCount int
 	failed := []map[string]any{}
 	rotated := []map[string]any{}

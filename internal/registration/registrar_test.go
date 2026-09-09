@@ -174,14 +174,18 @@ func TestRunStampsTheRunMarker(t *testing.T) {
 	}
 }
 
-// The fixture refuses a tab-separated file because the real endpoint does. This
-// asserts the writer never produces one, through the whole path rather than at
-// the unit level.
+// What actually arrived at the endpoint, through the whole path rather than at
+// the unit level: the delimiter this tool chose and the columns it leaves out.
+// The fixture accepts either delimiter, as the platform does, so this pins the
+// choice without asserting a restriction that does not exist.
 func TestRunSendsACommaSeparatedFile(t *testing.T) {
 	server, registrar, _ := exportThenRegister(t, registration.Options{})
 
 	if _, err := registrar.Run(context.Background()); err != nil {
 		t.Fatalf("the endpoint refused the registration file: %v", err)
+	}
+	if got := server.RegistrationDelimiter(); got != ',' {
+		t.Errorf("the file arrived separated by %q, want a comma", got)
 	}
 	header := server.RegistrationHeader()
 	if len(header) < 6 {

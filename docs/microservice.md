@@ -214,6 +214,142 @@ Two refusals worth knowing:
 `revert` removes the device users along with the objects, in the same platform
 call, so an undone migration leaves nothing behind that still authenticates.
 
+### Device self-service credentials
+
+The alternative to distributing a file: the devices collect their own. Ask for it
+per migration with `deviceSelfCredentials: true`, and each device then calls one
+endpoint to learn **both** where to reconnect and who it now is:
+
+```sh
+# as the device, with the credentials it already has for its own tenant
+curl -sS -X POST -u "$SRC_TENANT/device_LINE-A-SN:$PW" \
+    "https://$SRC_HOST/service/devicemigration/devices/self/migration" | jq .
+```
+
+```json
+{
+  "migrate": true,
+  "host": "t22222.eu-latest.cumulocity.com",
+  "tenant": "t22222",
+  "username": "device_LINE-A-SN",
+  "password": "…",
+  "runId": "20260908T101112Z_ab12cd"
+}
+```
+
+**This is the only endpoint that accepts a caller from outside the owner tenant**,
+and the exception is deliberately narrow: device users, one endpoint, **no
+parameters**. The device's identity comes from the platform rather than the
+request, so there is nothing in the call to tamper with and no device id to
+substitute — which is the difference between this and an API key with a
+self-declared id. The external id is read out of the authenticated username, and
+nothing consults an object's `owner`, which any tenant administrator can rewrite.
+
+A migration is still started by a person through `POST /migrations`. This endpoint
+neither starts nor authorises one.
+
+Three properties worth knowing before using it:
+
+- **The password is handed over once.** It is generated when the device asks and
+  stored nowhere, so a second call answers with the endpoint and
+  `alreadyIssued: true` rather than a new password. A device retrying a failed
+  move needs to know where to go on every attempt, but a device that cannot keep
+  its credential must not be able to rotate it forever. To re-issue, an
+  administrator removes the `c8y_DeviceMigrationCredentialsIssued` fragment from
+  that device's managed object in the target tenant.
+- **Only migrations that asked for it are collectable.** The flag is what bounds
+  this endpoint's reach to migrations somebody deliberately opened, rather than to
+  every migration this service has ever run.
+- **`deviceSelfCredentials` and `provisionCredentials` are refused together.** The
+  first hands you a file of every password; the second lets devices collect their
+  own. A device collecting one afterwards would rotate the password already in
+  your file.
+
+Asking for it also makes each migrated object **owned by the device user it will
+authenticate as** — a user that does not exist yet, which the platform accepts and
+lines up when the device's credential is finally created. Without that a device
+arrives bound to its own twin and unable to write it.
+
+"Nothing to do" is a `200` with `migrate: false`, not an error: a device asking on
+a timer should not fill its log with failures.
+
+Not built, by decision: **rate limiting** per caller, and an **audit trail** of
+who collected when. The issuance fragment is not that trail — it records *that* a
+credential was issued, because the once-only rule needs it, not who asked or how
+often.
+
+### Moving a trust anchor, for a certificate fleet
+
+For a certificate fleet the credential is the chain and it never changes: the
+device keeps its key and its certificate, and migrating it means making the
+**target** tenant trust that chain instead. Two endpoints:
+
+```sh
+# what can be moved out of a tenant, and what cannot
+c8y api GET /service/devicemigration/tenants/t11111/trusted-certificates | jq .
+
+# move one
+c8y api POST /service/devicemigration/certificate-cutovers \
+    --data '{"sourceTenant":"t11111","targetTenant":"t22222",
+             "fingerprint":"f75bd686243e6916c94408e1fa65e34367136077"}'
+```
+
+**There is an outage in the cutover and no flag to flip back.** A fingerprint can
+exist in only one tenant per platform instance, and disabling it in the source
+does *not* free it — it is held by existence, not by status. So the operation is
+delete-then-create, and between the two calls every device chained to that
+certificate can reach neither tenant. If the target then refuses, the service puts
+the certificate back in the source and says so; if *that* fails too, it says that
+instead, which is the one case somebody has to fix by hand from the PEM the
+certificate's owner holds.
+
+That is why this is **synchronous rather than a job**: a failure has to reach the
+person who asked while they are still there to act on it. Everything checkable is
+checked before the source loses anything — the certificate exists and is movable,
+its PEM is readable, and the target does not already have it. A refusal at any of
+those points leaves the source untouched.
+
+Two certificates are never offered, and both would otherwise be discovered *after*
+the delete:
+
+| | |
+| --- | --- |
+| the tenant's **own** certificate authority | cannot be moved at all. A fleet enrolled against it needs re-enrolling in the target, which is a different mechanism |
+| an **expired** certificate | would produce a cutover that cannot work, after an outage that cannot be avoided |
+
+`autoRegistrationEnabled` in the response is **read back from the target** rather
+than assumed. A target that accepted the certificate while dropping that flag
+would refuse every arriving device, which is a silent failure of the only thing
+the operation is for.
+
+**One thing it cannot do**, and one it does after all. It cannot tell you how many
+devices a certificate serves: the platform records nothing linking a device to the
+certificate that authenticates it, so the `warning` says so rather than
+approximating a number.
+
+But it **does** move the devices, which took a correction to establish. This
+endpoint was written believing the tenant is resolved from the hostname a device
+dialled, which would have made the cutover an authorization change and left the
+fleet to be pointed elsewhere by an agent. Within one instance that is not how it
+works: a connection is routed by the certificate it presents, so a device still
+configured with the source host arrives in the target. Connected devices move when
+they reconnect, offline devices when they return, and no device-side change is
+involved at all.
+
+**This is the same-instance case, and it is the only one this endpoint can
+serve.** A fingerprint can be trusted in only one tenant *per platform instance*,
+which is what forces delete-then-create and the outage. Across instances the same
+certificate can be trusted in both at once, so there is no cutover to perform and
+no outage to suffer — stage the CA in the target, point the devices, and remove it
+again to back out. This endpoint cannot do that anyway: it resolves its target
+through the subscription mechanism, and a tenant on another instance cannot be
+subscribed here. See [Remote targets](#remote-targets).
+
+Reading a truststore needs `ROLE_TENANT_MANAGEMENT_READ`, which this service
+already had. Writing one needs `ROLE_TENANT_MANAGEMENT_ADMIN`, which the manifest
+gained for this — so an upgrade asks each subscribed tenant's administrator to
+approve it.
+
 ### Undoing a migration
 
 ```sh
@@ -302,9 +438,9 @@ target tenant by run id before retrying.
 A target the instance is not subscribed to — a different parent, or a different
 platform — is reached with a client certificate instead of a service user, which
 is what lets a device authenticate to a tenant nobody handed it a password for.
-The verified basis for this is in
-[docs/concepts/remote-targets.md](concepts/remote-targets.md); the flow the
-service exposes:
+What such a token can and cannot do was measured rather than assumed —
+[docs/platform-behaviour.md](platform-behaviour.md#device-access-tokens-for-a-target-reached-by-certificate).
+The flow the service exposes:
 
 ```sh
 # 1. establish a connection to the unsubscribed target; get the CA to register

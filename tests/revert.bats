@@ -185,15 +185,43 @@ live_objects() { ls "$REC/objects" 2>/dev/null | grep -c '' | tr -d ' '; }
     assert_flag_on_all_calls "--silentExit" "inventory delete"
 }
 
-# A migration that provisioned credentials created a device user per device.
-# Deleting the objects and leaving the users behind would leave credentials that
-# still authenticate, while the undo reported success - so the flag goes on every
-# delete, not only on runs that registered something.
-@test "revert: every delete takes the device user with the object" {
+# withDeviceUser is not a flag to set blindly. A *device* with no device user of
+# its own answers it with a 409 and stays where it is, and these commands never
+# provision credentials - so every object of a hierarchy they created is exactly
+# that case. Setting it on every delete deleted nothing at all.
+@test "revert: a delete does not ask for a device user that cannot exist" {
     do_full_import
     run_revert --mapping id_mapping.json --force
     assert_success
-    assert_flag_on_all_calls "--withDeviceUser" "inventory delete"
+    assert_flag_on_no_calls "--withDeviceUser" "inventory delete"
+    assert_equal "$(live_objects)" "0"
+}
+
+# The case the flag exists for: undoing a migration the Go implementation made
+# with credentials, whose objects are owned by their own device users. Simulated
+# by owning one object that way, because these commands cannot create one.
+@test "revert: an object owned by a device user takes that user with it" {
+    do_full_import
+
+    local owned
+    owned=$(ls "$REC/objects" | head -1)
+    owned="${owned%.json}"
+    jq '. + {owner: "device_LINE-A-SN"}' "$REC/objects/$owned.json" > "$REC/objects/$owned.tmp"
+    mv "$REC/objects/$owned.tmp" "$REC/objects/$owned.json"
+
+    run_revert --mapping id_mapping.json --force
+    assert_success
+    assert_equal "$(live_objects)" "0"
+
+    # Two invocations: the device-user object with the flag, the rest without.
+    # One id in the first, because only one object was owned that way.
+    local withFlag
+    withFlag=$(grep '^inventory delete' "$REC/calls.log" | grep -c -- '--withDeviceUser')
+    assert_equal "$withFlag" "1"
+    local flagged
+    flagged=$(grep '^inventory delete' "$REC/calls.log" | grep -- '--withDeviceUser' \
+        | tr ' ' '\n' | grep -c '^--id$')
+    assert_equal "$flagged" "1"
 }
 
 @test "revert: propagation produces no error noise" {

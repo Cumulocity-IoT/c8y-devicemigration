@@ -10,7 +10,7 @@
 // included, so the device would arrive unable to write its own twin. Registering
 // first is what makes ownership correct by construction.
 //
-// docs/concepts/credentials.md records how that was established and what it
+// docs/platform-behaviour.md records how that was established and what it
 // costs; the constraints encoded here are the platform behaviours that pass
 // silently if they are got wrong.
 package registration
@@ -42,10 +42,17 @@ const AuthTypeBasic = "BASIC"
 // registrationColumns is the header of the file Cumulocity's bulk registration
 // reads.
 //
-// Comma-separated, not tab-separated. go-c8y's own
-// model.BulkRegistrationRecordWriter sets csvWriter.Comma = '\t' and the endpoint
-// rejects what it produces, which is why this package writes its own file rather
-// than borrowing that one.
+// Comma-separated, which is this tool's choice rather than the endpoint's
+// requirement: retested 2026-09-09, the platform reads tabs and commas alike,
+// including go-c8y's own tab-separated output. Commas because the file is handed
+// to an operator who will open it in a spreadsheet, and because the generated
+// passwords already exclude a comma for that reason.
+//
+// The reason this package writes the file itself survives that correction, and
+// it was never the delimiter. model.BulkRegistrationRecord has a fixed column
+// list with no way to add the dotted marker column, and its SetBasicAuth forces
+// com_cumulocity_model_Agent.active, which is exactly the column that has to be
+// absent rather than false.
 //
 // ICCID, TENANT, PATH and com_cumulocity_model_Agent.active are all omitted. The
 // first three have nothing to say about a migrated device, and the agent column is

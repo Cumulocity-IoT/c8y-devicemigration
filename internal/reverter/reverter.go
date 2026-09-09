@@ -175,20 +175,31 @@ func (r *Reverter) deletePlanned(ctx context.Context, plan *Plan) {
 		// No Cascade: the bash implementation does not pass it either, so
 		// Cumulocity's own propagation rules apply and nothing extra is taken.
 		//
-		// WithDeviceUser, though, because a migration that provisioned
-		// credentials created a device user alongside every device it
-		// registered. Deleting the object and leaving the user would strand a
-		// credential that still authenticates against the target - so the
-		// revert would look complete while the fleet could still connect.
+		// WithDeviceUser only where the object is owned by a device user,
+		// because a migration that provisioned credentials created one
+		// alongside every device it registered, and deleting the object while
+		// leaving the user would strand a credential that still authenticates
+		// against the target.
 		//
-		// Set unconditionally rather than only for runs that registered
-		// anything. The platform applies it when the object is a device, so it
-		// is a no-op on a group, on an asset, and on a device that never had a
-		// user - and tracking which objects had one would mean keeping a record
-		// that could disagree with the tenant.
-		_ = r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{
-			WithDeviceUser: true,
+		// Only where it applies, and that "only" was learned the hard way: the
+		// flag is not ignored when there is no such user. A *device* owned by
+		// an ordinary user - which is every device an import creates without
+		// provisioning credentials - answers it with a **409 and stays where it
+		// is**. Setting it on every delete therefore breaks the ordinary revert
+		// while looking more thorough. Measured on a live tenant 2026-09-08:
+		// device owned by a device user 204, device owned by a normal user 409
+		// and still present, group 204.
+		result := r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{
+			WithDeviceUser: entry.HasDeviceUser,
 		})
+
+		// A refusal of the flag itself must not cost the deletion. The owner is
+		// good evidence that a device user exists, but not proof - one deleted
+		// by hand leaves the owner behind - and an object that survives its own
+		// revert is a worse outcome than a device user that outlives it.
+		if result.Err != nil && entry.HasDeviceUser {
+			_ = r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{})
+		}
 	}
 }
 

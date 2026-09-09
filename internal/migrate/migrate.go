@@ -69,8 +69,17 @@ type Options struct {
 	CredentialsFile string
 
 	// IdentityType overrides which external identity a device is registered
-	// under. Empty means registration.DefaultIdentityType.
+	// under, and which one a stamped owner is derived from. Empty means
+	// registration.DefaultIdentityType.
 	IdentityType string
+
+	// StampDeviceOwner makes each migrated device the owner of its own object,
+	// so it can write to it once it has credentials by any route.
+	//
+	// Independent of Credentials, and refused alongside it: with Credentials the
+	// objects are created by registration and already owned by their device
+	// users, so stamping would be arranging the same thing twice.
+	StampDeviceOwner bool
 }
 
 // Migrator runs one migration.
@@ -216,7 +225,10 @@ func (m *Migrator) runChained(ctx context.Context) error {
 
 	fmt.Fprintln(m.stderr, "Importing into the target tenant")
 	m.importStarted = true
-	return m.importFrom(ctx, directory, importer.Options{AdoptRegistered: m.opts.Credentials})
+	return m.importFrom(ctx, directory, importer.Options{
+		AdoptRegistered:  m.opts.Credentials,
+		StampDeviceOwner: m.opts.StampDeviceOwner,
+	})
 }
 
 // runIncremental moves the hierarchy first and then the data one device at a
@@ -253,8 +265,9 @@ func (m *Migrator) runIncremental(ctx context.Context) error {
 	}
 	m.importStarted = true
 	if err := m.importFrom(ctx, metadata, importer.Options{
-		Resume:          m.opts.Resume != "",
-		AdoptRegistered: m.opts.Credentials,
+		Resume:           m.opts.Resume != "",
+		AdoptRegistered:  m.opts.Credentials,
+		StampDeviceOwner: m.opts.StampDeviceOwner,
 	}); err != nil {
 		return err
 	}
@@ -444,6 +457,7 @@ func markerFragment(runID string) string {
 func (m *Migrator) importFrom(ctx context.Context, directory string, shape importer.Options) error {
 	shape.InputDirectory = directory
 	shape.MappingFile = m.opts.MappingFile
+	shape.IdentityType = m.opts.IdentityType
 	shape.RunID = m.markerRunID
 	shape.NoFlag = m.opts.NoFlag
 	// The two tenants were already established as different by the pre-flight,

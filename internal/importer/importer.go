@@ -53,6 +53,25 @@ type Options struct {
 	// from. Off by default: that duplicates a hierarchy inside itself.
 	AllowSameTenant bool
 
+	// StampDeviceOwner sets each migrated device's owner to the device user it
+	// will authenticate as, so it can write its own twin once it has a
+	// credential.
+	//
+	// Needed by any route that gives a device credentials *after* the import: a
+	// device binds to its migrated twin and is read-only on it until something
+	// owns it, because ROLE_DEVICE carries writes only with source-ownership.
+	// The owner may name a user the tenant does not have yet, so this can be
+	// done up front and nothing has to revisit the object per device.
+	//
+	// Not needed with AdoptRegistered, where registration already created each
+	// object owned by its device user - and the two are refused together on the
+	// command line for that reason.
+	StampDeviceOwner bool
+
+	// IdentityType is which external identity a stamped owner is derived from.
+	// Empty means DefaultIdentityType.
+	IdentityType string
+
 	// AdoptRegistered updates the objects a registration phase created for this
 	// run instead of creating new ones.
 	//
@@ -81,6 +100,9 @@ type Importer struct {
 	// adoptedCount is how many objects were updated rather than created,
 	// because a registration phase had already made them for this run.
 	adoptedCount int
+
+	// stampedCount is how many objects were created owned by a device user.
+	stampedCount int
 
 	measurementsCreated int
 	eventsCreated       int
@@ -200,6 +222,12 @@ func (i *Importer) Run(ctx context.Context) error {
 		i.mapping.Len(), plural(i.mapping.Len(), "device", "devices"),
 		i.identitiesCreated, plural(i.identitiesCreated, "external identity", "external identities"),
 		i.opts.MappingFile)
+
+	if i.stampedCount > 0 {
+		fmt.Fprintf(i.stderr,
+			"%d of them are owned by the device user they will authenticate as, so those devices can write their own twin once they have a credential\n",
+			i.stampedCount)
+	}
 
 	// Said separately rather than folded into the count above, because "created"
 	// and "filled in an object that was already registered" are different
@@ -355,6 +383,21 @@ func (i *Importer) importDevices(ctx context.Context) error {
 		if i.markerFragment != "" {
 			if stripped, err = jsonraw.AddFragment(stripped, i.markerFragment); err != nil {
 				return err
+			}
+		}
+		// After the strip, because owner is one of the fields it removes - the
+		// source tenant's owner must not travel, and this one has to.
+		if i.opts.StampDeviceOwner {
+			identities, err := readIdentityArtefact(i.opts.InputDirectory, oldID)
+			if err != nil {
+				return err
+			}
+			var stamped bool
+			if stripped, stamped, err = stampDeviceOwner(stripped, identities, i.opts.IdentityType); err != nil {
+				return err
+			}
+			if stamped {
+				i.stampedCount++
 			}
 		}
 

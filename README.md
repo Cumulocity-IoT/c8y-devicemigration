@@ -78,9 +78,12 @@ the UI are complete but have not yet been run against a live tenant.
 
 Why the command line and the microservice share one engine, and how the two
 command line builds are kept in step, is in
-**[docs/internals.md](docs/internals.md)**. For working *on* this repository
-with an autonomous coding agent, there is a network-restricted sandbox in
-**[docs/devcontainer.md](docs/devcontainer.md)**.
+**[docs/internals.md](docs/internals.md)**. What the platform was measured to
+actually do — including the several assumptions that turned out to be wrong, and
+what in this repository depends on each finding — is in
+**[docs/platform-behaviour.md](docs/platform-behaviour.md)**. For working *on*
+this repository with an autonomous coding agent, there is a network-restricted
+sandbox in **[docs/devcontainer.md](docs/devcontainer.md)**.
 
 ## What gets migrated
 
@@ -299,6 +302,12 @@ target tenant or anywhere else, and re-issuing them rotates them rather than
 retrieving them. Getting it onto the devices is the operator's own channel.
 `revert` deletes the device users along with the objects.
 
+A device can only write to its own managed object if it **owns** it, so a
+migration whose credentials arrive by some other route — devices registered by
+hand later, or a certificate fleet that auto-registers — should pass
+`--stampDeviceOwner`, which names each device as the owner of its own object up
+front. Not needed with `--credentials`, where registration already does it.
+
 Devices with no external identity, groups, and devices with several identities
 and no `c8y_Serial` are reported and skipped rather than guessed at. The details,
 including what happens on a resume, are in
@@ -307,9 +316,9 @@ same thing with a one-time download, in
 **[docs/microservice.md](docs/microservice.md#device-credentials)**.
 
 Certificate fleets are a different matter: the credential is the chain and the
-devices keep it, which is a trust-anchor move rather than a credential hand-out.
-Not built — see
-[docs/concepts/credentials.md](docs/concepts/credentials.md).
+devices keep it, so the migration moves the **trust anchor** instead of handing
+out a credential — see
+**[docs/microservice.md](docs/microservice.md#moving-a-trust-anchor-for-a-certificate-fleet)**.
 
 ## Limitations
 
@@ -324,10 +333,10 @@ particular the following are **not** covered:
 - binaries attached to managed objects (event attachments *are* migrated)
 - applications, tenant options and user or role assignments
 
-Device credentials **are** covered, for basic-authentication fleets: see
-[Device credentials](#device-credentials). A certificate fleet keeps its own
-chain and needs a different mechanism, which is not built —
-[docs/concepts/credentials.md](docs/concepts/credentials.md).
+Device credentials **are** covered: see [Device credentials](#device-credentials)
+for a basic-authentication fleet, and
+[moving a trust anchor](docs/microservice.md#moving-a-trust-anchor-for-a-certificate-fleet)
+for a certificate fleet, which keeps its own chain.
 
 There is no per-record ID mapping for data. On tenants with enhanced time series
 enabled there is no stable per-measurement identity to map, so traceability, if

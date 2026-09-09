@@ -80,6 +80,22 @@ type MigrationRequest struct {
 	// GET /migrations/{id}/credentials.
 	ProvisionCredentials bool `json:"provisionCredentials,omitempty"`
 
+	// DeviceSelfCredentials lets the migrated devices collect their own
+	// credentials from POST /devices/self/migration, instead of an operator
+	// distributing a file.
+	//
+	// Two things follow from setting it. Each migrated object is created owned by
+	// the device user it will authenticate as, so that a device arriving later
+	// can write its own twin - ROLE_DEVICE carries writes only together with
+	// ownership. And this run becomes collectable: the device endpoint answers
+	// only for migrations that asked for it.
+	//
+	// That second part is the point of the flag rather than an implementation
+	// detail. It is what makes the reach of the one endpoint outside the owner
+	// tenant a decision somebody takes per migration, rather than a standing
+	// property of every migration this service has ever run.
+	DeviceSelfCredentials bool `json:"deviceSelfCredentials,omitempty"`
+
 	// RemoteTargetID references a remote target established with
 	// POST /remote-targets, for a target this instance is not subscribed to. It
 	// is a handle, not a secret - the certificate behind it lives only in memory
@@ -285,7 +301,19 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 	// reached with a device access token obtained from a certificate, whose
 	// effective roles are the device ones - it cannot bulk-register anything,
 	// and finding that out mid-run would leave a half-migrated hierarchy. See
-	// docs/concepts/remote-targets.md for what that token can and cannot do.
+	// docs/platform-behaviour.md for what that token can and cannot do.
+	// Both arrange credentials, by opposite routes, and together they would
+	// fight: provisionCredentials registers every device up front and hands the
+	// operator a file, and a device then collecting its own would rotate the
+	// password already in that file.
+	if request.ProvisionCredentials && request.DeviceSelfCredentials {
+		return nil, &BadRequestError{Reason: "provisionCredentials and " +
+			"deviceSelfCredentials cannot both be given: the first issues every " +
+			"credential up front and hands you a file, the second lets each device " +
+			"collect its own, and a device collecting one would rotate the password " +
+			"already in that file"}
+	}
+
 	if request.ProvisionCredentials && request.RemoteTargetID != "" {
 		return nil, &BadRequestError{Reason: "provisionCredentials cannot be used with a remote " +
 			"target: a remote target is reached with a device access token, which has no " +
@@ -637,6 +665,11 @@ func (s *Service) resolveOptions(request MigrationRequest, mappingFile string) (
 		NoFlag:      request.NoFlag,
 
 		Credentials: request.ProvisionCredentials,
+
+		// The objects have to belong to the device users that do not exist yet,
+		// or a device collecting its credential later arrives unable to write
+		// its own twin.
+		StampDeviceOwner: request.DeviceSelfCredentials,
 		// No CredentialsFile: the service holds them in memory and hands them
 		// over once, rather than writing a list of device passwords into a
 		// container's filesystem where a crash dump or a stray volume would

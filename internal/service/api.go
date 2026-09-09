@@ -47,7 +47,7 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodPost, Path: "/estimates", handler: s.handleEstimate},
 
 		// Establishing a certificate connection to a target this instance is not
-		// subscribed to. See remotetarget.go and docs/concepts/remote-targets.md.
+		// subscribed to. See remotetarget.go and docs/platform-behaviour.md.
 		{Method: http.MethodPost, Path: "/remote-targets", handler: s.handleCreateRemoteTarget},
 		{Method: http.MethodGet, Path: "/remote-targets", handler: s.handleListRemoteTargets},
 		{Method: http.MethodDelete, Path: "/remote-targets/{id}",
@@ -80,6 +80,19 @@ func (s *Service) Routes() []Route {
 			handler: s.handleCancelMigration},
 		{Method: http.MethodGet, Path: "/migrations/{id}/credentials",
 			handler: s.handleGetCredentials},
+
+		// The one endpoint a caller from outside the owner tenant may reach: a
+		// migrated device asking where to reconnect and who it now is. The whole
+		// of that exception is in deviceself.go.
+		{Method: http.MethodPost, Path: "/devices/self/migration",
+			handler: s.handleDeviceSelfMigration},
+
+		// Moving what a tenant trusts, for a certificate fleet. See
+		// trustanchor.go and docs/platform-behaviour.md.
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/trusted-certificates",
+			handler: s.handleListTrustedCertificates},
+		{Method: http.MethodPost, Path: "/certificate-cutovers",
+			handler: s.handleTrustAnchorCutover},
 
 		{Method: http.MethodPost, Path: "/reverts", handler: s.handleCreateRevert},
 		{Method: http.MethodGet, Path: "/reverts", handler: s.handleListReverts},

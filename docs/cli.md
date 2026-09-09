@@ -122,6 +122,39 @@ That is also why an import only ever updates an object carrying **its own run's
 marker**: everything else is created, exactly as before. `--adoptRegistered`
 without a matching `--runId` finds nothing to adopt.
 
+### Ownership, and why an import may stamp it
+
+A device authenticates with `ROLE_DEVICE`, and that role carries writes **only
+together with ownership of the object**. So a migrated device that later gets
+credentials by some route other than `--credentials` can read its own managed
+object and cannot write it — measured on a live tenant as `403` on updating the
+object and `403` on posting a measurement against it. The fleet looks migrated and
+silently sends nothing.
+
+`--stampDeviceOwner` prevents that, on `import` and on `migrate`:
+
+```sh
+./bin/c8y-devicemigration migrate --rootId 12345 \
+    --sourceSession source.json --targetSession target.json \
+    --stampDeviceOwner
+```
+
+It names each device as the owner of its own object — `device_<externalId>`,
+derived from the same identity `register` would use. That works even though the
+device user does not exist yet: Cumulocity accepts an owner it has no user for,
+on create as well as on update, and lines the two up when that user is finally
+created. So nothing has to revisit the object per device afterwards.
+
+You do **not** need it with `--credentials`. There the objects are created by the
+registration phase and are already owned by their device users, so the two flags
+are refused together. Reach for it when the credentials arrive by another route —
+devices registered by hand later, or a certificate fleet whose devices
+auto-register into the target.
+
+Skipped, as with registration: groups, devices with no external identity, and
+devices carrying several identities with none of the preferred type. The count of
+what was stamped is in the import's summary.
+
 ### As three steps
 
 `export`, `register` and `import` compose, for anyone who stages a migration by
@@ -186,7 +219,8 @@ passwords into that tenant's operation log.
 
 For a fleet on **certificate** authentication there is nothing to provision here:
 the credential is the chain, and the devices keep it. That is a different
-mechanism — see [docs/concepts/credentials.md](concepts/credentials.md).
+mechanism, and it is the microservice's — see
+[moving a trust anchor](microservice.md#moving-a-trust-anchor-for-a-certificate-fleet).
 
 ## Confirmations
 
