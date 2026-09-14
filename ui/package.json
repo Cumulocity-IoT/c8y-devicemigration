@@ -1,6 +1,6 @@
 {
   "name": "c8y-devicemigration-ui",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Migrate a device hierarchy from one Cumulocity tenant to another",
   "license": "Apache-2.0",
   "private": true,
