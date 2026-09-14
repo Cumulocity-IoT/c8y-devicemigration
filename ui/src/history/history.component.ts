@@ -16,6 +16,7 @@ import { MigrationService } from '../api/migration.service';
 import { gettext, message, type Message } from '../i18n';
 import { MigrateComponent } from '../migrate/migrate.component';
 import { kindLabel } from '../migrate/labels';
+import { DeviceMigrationIconComponent } from '../icon/device-migration-icon.component';
 import { byId } from '../tenants';
 import { saveTextFile } from './download';
 import { DeleteConfirmComponent } from './delete-confirm.component';
@@ -71,6 +72,7 @@ import { TimestampCellComponent } from './timestamp-cell.component';
     CommonModule,
     CoreModule,
     CollectionProgressComponent,
+    DeviceMigrationIconComponent,
     RegisterCertificateComponent
   ],
   templateUrl: './history.component.html',
@@ -89,6 +91,19 @@ import { TimestampCellComponent } from './timestamp-cell.component';
         opacity: 0.35;
         margin-left: auto;
         padding-right: 24px;
+      }
+
+      /* The platform's .c8y-empty-state sizes its icon through selectors that
+         match its own icon classes - .c8y-icon and [class^='dlt-c8y-icon-'] -
+         which a custom element does not carry. These are the same values, from
+         @c8y/style's _c8y-empty-state.scss, so the two look alike. The colour
+         needs nothing: the empty state sets a muted text colour on itself and
+         the icon's dark layer is currentColor. */
+      .c8y-empty-state .empty-state-emblem {
+        display: block;
+        margin: 0 auto 16px;
+        font-size: 90px;
+        opacity: 0.6;
       }
 
       /* The row's expansion. Everything in it sits on one of two axes: labels
