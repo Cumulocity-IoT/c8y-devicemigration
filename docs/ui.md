@@ -97,9 +97,9 @@ The table is **the platform's own data grid**, given rows rather than a
 `serverSideDataCallback` — which is what makes it sort, page and search through
 them itself, and brings its own refresh button and column chooser. Sorting
 defaults to **Timestamp, newest first**, which is the useful order for a list of
-things that happened. Cancel, Revert and Migration log are the grid's **row
-actions**, so each appears only where it applies and there are no button columns
-to keep aligned.
+things that happened. Cancel, Revert, Migration log, Download device credentials
+and Move trust anchor are the grid's **row actions**, so each appears only where
+it applies and there are no button columns to keep aligned.
 
 **Pagination is the grid's, not the service's**, and that distinction matters:
 `GET /migrations` and `GET /reverts` have no paging parameters and return every
@@ -185,12 +185,36 @@ whenever `expandableRows` is on, `uniqBy(columns, 'name')` keeps the built-in on
 over any replacement, and there is no row-class or `trackBy` hook to reach it with
 CSS. Rather than leave a chevron that sometimes opens onto nothing, the panel
 carries what no column does — the full run id, which relationships were followed,
-which device data was included and over what window, and whether the target was
-reached with a certificate. The undo is the headline of that panel when there is
-one, and a migration nobody undid still has something to say. The defaults are
-why [`scopeOf`](../ui/src/history/rows.ts) is a tested function rather than a
+which device data was included and over what window, how the devices got
+credentials, and whether the target was reached with a certificate. The undo is
+the headline of that panel when there is one, and a migration nobody undid still
+has something to say. The defaults are why
+[`scopeOf`](../ui/src/history/rows.ts) is a tested function rather than a
 template reading the request: an omitted `childTypes` means `asset,device`, while
 an omitted `dataTypes` really does mean none.
+
+**The credentials line is said even when it says "None"**, which is the whole
+reason it exists. *Download device credentials* is offered only while the file is
+still there to collect — the service hands it over once and forgets it — so as
+soon as somebody had downloaded it, a migration that provisioned a device user
+per device was indistinguishable from one that never did. The count comes from
+`credentialsIssued` on the job record rather than from the service's memory, so
+it survives the download and a restart.
+
+The other two answers say so as well. A migration whose devices **collect their
+own** carries a live count beside it —
+[`CollectionProgressComponent`](../ui/src/history/collection-progress.component.ts)
+reads two numbers through the inventory proxy, objects carrying this run's marker
+and those carrying the issued fragment as well. That is the only signal there is:
+the job finishes long before the fleet has moved, so without it a migration whose
+devices never managed to reach the endpoint looks exactly like one that is
+working. It counts on expansion rather than on load, which is what a component
+inside the expansion template buys — `ngOnInit` fires when somebody opens a row,
+and the list itself re-reads every few seconds and must not carry two queries per
+row along with it.
+
+A **certificate fleet** reads as unfinished business, because it is: the objects
+are across and the devices are not, until the trust anchor moves.
 
 **An expanded row survives the refresh.** The grid remembers which rows are open
 in a `Map` keyed by the **row object itself**, so handing it a fresh array every
@@ -263,6 +287,30 @@ that were never undoable (a revert, an unmarked run, one already undone), while
 this one *was*, until a deadline passed. It is a second `ActionControl` wearing
 `iconClasses: 'text-muted'`, because the grid has no disabled action — `showIf` is
 all `ActionControl` offers.
+
+**Move trust anchor is the second half of a certificate-fleet migration**, and it
+is offered from the row rather than from a screen of its own. It appears for a
+succeeded migration that asked for `certificateFleet` and, unlike every other
+action here, it does **not** go away once used: a cutover creates no job, so
+nothing in the list can know it has happened. The dialogue answers that instead by
+reading the source tenant's truststore every time it opens — a certificate that has
+already moved is simply no longer there. The cost of that choice is stated in
+[the microservice docs](microservice.md#moving-a-trust-anchor-for-a-certificate-fleet):
+a CA that needs moving with no migration in the list, or whose migration has aged
+out of the records, is reachable only through the API.
+
+[`CutoverComponent`](../ui/src/history/cutover.component.ts) is built on the undo
+confirmation's shape — `c8y-modal` with `[close]` bound, so the dialogue performs
+the operation itself and a refusal stays on screen carrying the service's own
+words. That matters more here than anywhere: a refused cutover may have left the
+source certificate restored, and the message is the only place that says so. It
+lists unmovable certificates with their reason rather than hiding them, because
+*this fleet needs re-enrolling* is the answer somebody needs, not an empty list
+that reads as a bug; it shows the service's coverage warning, which admits the
+device count cannot be determined rather than approximating it; and on success it
+shows `autoRegistrationEnabled` read back from the target, since a target that
+accepted the certificate while dropping that flag would refuse every arriving
+device in silence.
 
 **An undo cannot itself be undone, and the expansion says so** rather than
 leaving it to the absence of an action. It has to be said in the row's content:
@@ -381,6 +429,28 @@ estimate has a row for every data kind whether or not it is ticked — reading
 *not included* until it is — with dashes until the counts arrive, and the From
 field is always there, disabled until there is device data for it to apply to.
 
+**The credentials question has one answer, so it is radios.** *How will the
+migrated devices authenticate?* — nothing, a device user each downloaded once,
+each device collecting its own, or they keep their own certificates. The service
+refuses any pair of them, so a set of checkboxes would invite a combination that
+is rejected on submit. One help line follows the answer rather than restating the
+label: what is handed over and once, who has to ask, and that a certificate fleet
+is only half migrated until its anchor moves.
+
+**Two of those answers disappear for a remote target**, hidden rather than
+disabled, with a line saying why. Such a target is reached with a device access
+token whose effective roles are the device ones; bulk registration needs
+`ROLE_DEVICE_CONTROL_ADMIN` and the token does not hold it, so neither issuing
+answer is possible there. The certificate answer stays, because it registers
+nothing — it only names an owner on objects that same token already owns.
+
+The summary's credentials row uses the same number for all three answers and
+labels it differently: users created, devices able to collect, devices owning
+their twins. Its note — *of N objects; the rest are groups or have no usable
+external identity* — is load-bearing for a certificate fleet in a way it is not
+elsewhere: those devices do not merely arrive without a password, they arrive
+unable to write their own twin, and the note says so.
+
 **Relationships and device data are both multi-select.** Checkboxes over the
 API's own values, `asset`/`device`/`addition` and
 `measurements`/`events`/`alarms`, sent in the order the API documents them.
@@ -472,6 +542,30 @@ line can be found": the line stays in the log after the job is over, and reading
 it from there left finished migrations wearing a full bar for good. A finished job
 has an outcome, not progress. What every row does carry is how long it has been
 going, or how long it took.
+
+### The credentials download
+
+A migration can provision a device user per device — the dialogue's **Device
+credentials** box — and the passwords are then downloadable from the migration's
+row, once.
+
+Once is not a figure of speech. The service holds the file in memory and drops it
+as it serves it, so the action disappears after the download and there is no way
+to ask again: the row's offer is driven by `credentialsAvailable`, which the
+service computes from its own memory rather than from the job record. The
+dialogue says so before anything runs, because a migration whose credentials
+nobody collects leaves devices registered with passwords no one has.
+
+The download fetches the body with the platform's own client and only then hands
+it to the browser as a file, rather than pointing a link at the endpoint. A
+navigation the session might redirect, or that a popup blocker might swallow,
+would spend the one read on nothing. The object URL is revoked in a `finally`, so
+the blob does not keep a list of working passwords reachable for the life of the
+page.
+
+The box is **hidden** for a remote target rather than disabled: that target is
+reached with a device access token, which cannot register devices at all, so
+there is nothing to explain about a control that could never be used.
 
 ## Languages
 
@@ -589,3 +683,8 @@ things about the toolchain are not what older examples suggest:
   [the command line tool](cli.md).
 - **No tenant subscription screen.** The platform already has one, and doing it
   here would duplicate a permission model that is not ours.
+- **No credential distribution.** The download hands over a file; getting it onto
+  the devices is the operator's own channel. Pushing it through the source tenant
+  as an operation would work and is tempting, and it would write plaintext
+  passwords into that tenant's operation log — so it belongs in a runbook that
+  accepts that, not in a button here.

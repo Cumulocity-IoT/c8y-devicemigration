@@ -174,7 +174,32 @@ func (r *Reverter) deletePlanned(ctx context.Context, plan *Plan) {
 		}
 		// No Cascade: the bash implementation does not pass it either, so
 		// Cumulocity's own propagation rules apply and nothing extra is taken.
-		_ = r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{})
+		//
+		// WithDeviceUser only where the object is owned by a device user,
+		// because a migration that provisioned credentials created one
+		// alongside every device it registered, and deleting the object while
+		// leaving the user would strand a credential that still authenticates
+		// against the target.
+		//
+		// Only where it applies, and that "only" was learned the hard way: the
+		// flag is not ignored when there is no such user. A *device* owned by
+		// an ordinary user - which is every device an import creates without
+		// provisioning credentials - answers it with a **409 and stays where it
+		// is**. Setting it on every delete therefore breaks the ordinary revert
+		// while looking more thorough. Measured on a live tenant 2026-09-08:
+		// device owned by a device user 204, device owned by a normal user 409
+		// and still present, group 204.
+		result := r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{
+			WithDeviceUser: entry.HasDeviceUser,
+		})
+
+		// A refusal of the flag itself must not cost the deletion. The owner is
+		// good evidence that a device user exists, but not proof - one deleted
+		// by hand leaves the owner behind - and an object that survives its own
+		// revert is a worse outcome than a device user that outlives it.
+		if result.Err != nil && entry.HasDeviceUser {
+			_ = r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{})
+		}
 	}
 }
 

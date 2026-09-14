@@ -12,12 +12,16 @@ import {
 import { BsModalService } from 'ngx-bootstrap/modal';
 
 import { type Job } from '../api/client';
+import { CREDENTIALS_ISSUED_FRAGMENT, markerFragment } from '../api/fragments';
 import { MigrationService } from '../api/migration.service';
 import { gettext, message, type Message } from '../i18n';
 import { MigrateComponent } from '../migrate/migrate.component';
 import { kindLabel } from '../migrate/labels';
 import { byId } from '../tenants';
+import { saveTextFile } from './download';
 import { OutputComponent } from './output.component';
+import { CollectionProgressComponent } from './collection-progress.component';
+import { CutoverComponent } from './cutover.component';
 import { RevertConfirmComponent } from './revert-confirm.component';
 import { RevertExpiredComponent } from './revert-expired.component';
 import { RegisterCertificateComponent } from '../trust/register-certificate.component';
@@ -29,6 +33,7 @@ import {
   refreshInterval,
   revertWarnings,
   rows,
+  type Scope,
   scopeOf,
   serviceAbsent,
   statusTag,
@@ -57,7 +62,12 @@ import { TimestampCellComponent } from './timestamp-cell.component';
 @Component({
   selector: 'c8y-device-migration-history',
   standalone: true,
-  imports: [CommonModule, CoreModule, RegisterCertificateComponent],
+  imports: [
+    CommonModule,
+    CoreModule,
+    CollectionProgressComponent,
+    RegisterCertificateComponent
+  ],
   templateUrl: './history.component.html',
   // Both are pipes, injected so a row can be built as text; a pipe has to be
   // provided to be injectable.
@@ -213,6 +223,30 @@ export class HistoryComponent implements OnInit, OnDestroy {
       icon: 'ban',
       showIf: (row: GridRow) => row.cancellable,
       callback: (row: GridRow) => void this.cancel(row.job)
+    },
+    {
+      // Offered only while there is something to collect. The service hands the
+      // file over once and forgets it, so this disappears the moment it is
+      // downloaded - which is also the honest thing to show, because asking
+      // again cannot work.
+      type: 'DOWNLOAD_CREDENTIALS',
+      text: gettext('Download device credentials'),
+      icon: 'download',
+      showIf: (row: GridRow) => row.credentialsCollectable,
+      callback: (row: GridRow) => void this.downloadCredentials(row.job)
+    },
+    {
+      // The other half of a certificate-fleet migration. Offered for as long as
+      // the migration stands, not only once: the cutover leaves no record - it
+      // creates no job, being two calls rather than a run - so nothing here can
+      // say it has already happened. The dialogue answers that by listing the
+      // source's truststore live, where a certificate already moved is simply no
+      // longer present.
+      type: 'MOVE_TRUST_ANCHOR',
+      text: gettext('Move trust anchor'),
+      icon: 'certificate',
+      showIf: (row: GridRow) => row.trustAnchorMovable,
+      callback: (row: GridRow) => this.confirmCutover(row)
     },
     {
       type: 'REVERT_JOB',
@@ -375,6 +409,26 @@ export class HistoryComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Moving a certificate fleet's trust anchor, with everything that costs said
+   * first.
+   *
+   * Same shape as the undo confirmation, and for the same reason: the dialogue
+   * performs the operation itself, so a refusal stays on screen carrying the
+   * service's own words. It matters more here - a refused cutover may have left
+   * the source certificate restored, and that message is the only place saying so.
+   */
+  confirmCutover(row: GridRow): void {
+    const dialog = this.modals.show(CutoverComponent, {
+      class: 'modal-md',
+      initialState: { row }
+    });
+
+    (dialog.content as CutoverComponent | undefined)?.movedOver.subscribe(() => {
+      void this.load();
+    });
+  }
+
   async cancel(job: Job): Promise<void> {
     if (!job.id) {
       return;
@@ -385,6 +439,31 @@ export class HistoryComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.problem.set(explain(error));
     }
+  }
+
+  /**
+   * Collects a migration's device credentials and saves them as a file.
+   *
+   * One chance: the service drops them as it serves them, so anything that goes
+   * wrong after the response has arrived loses them. The download is therefore
+   * triggered from the body already in hand rather than by navigating the browser
+   * to the endpoint - a navigation the platform's session might redirect, or that
+   * a popup blocker might swallow, would spend the one read on nothing.
+   *
+   * The list is refreshed afterwards so the action disappears, which is what
+   * tells the operator this cannot be done twice.
+   */
+  async downloadCredentials(job: Job): Promise<void> {
+    if (!job.id) {
+      return;
+    }
+    try {
+      const body = await this.migration.api.migrationCredentials(job.id);
+      saveTextFile(`credentials-${job.id}.csv`, body);
+    } catch (error) {
+      this.problem.set(explain(error));
+    }
+    await this.load();
   }
 
   /**
@@ -432,6 +511,8 @@ export class HistoryComponent implements OnInit, OnDestroy {
       revertable: row.revertable,
       revertExpired: row.revertExpired,
       cancellable: row.cancellable,
+      credentialsCollectable: row.credentialsCollectable,
+      trustAnchorMovable: row.trustAnchorMovable,
       hasOutput: hasDetail(row),
       scope: this.forScope(row.job),
       revertWarnings: revertWarnings(row).map(warning => this.say(warning)),
@@ -452,6 +533,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
 
     return {
       runId: job.runId ?? '',
+      marker: markerFragment(job.runId ?? ''),
       relationships: scope.rootOnly
         ? this.say(message('The root object only'))
         : kinds(scope.relationships),
@@ -459,8 +541,38 @@ export class HistoryComponent implements OnInit, OnDestroy {
         ? kinds(scope.dataTypes)
         : this.say(message('None')),
       window: this.window(scope.from, scope.to),
-      remote: scope.remote
+      remote: scope.remote,
+      credentials: this.credentials(scope),
+      selfService: scope.selfService
     };
+  }
+
+  /**
+   * How the devices of this migration got credentials.
+   *
+   * Said even when the answer is "none", which is the point: the download
+   * action disappears once the file has been collected, so without a line here
+   * there is nothing left anywhere to distinguish a migration that provisioned
+   * credentials from one that did not.
+   */
+  private credentials(scope: Scope): string {
+    if (scope.certificateFleet) {
+      // Said as unfinished business rather than as a fact, because that is what
+      // it is: the objects are across, the fleet is not, and the action beside
+      // this row is the rest of the move. Nothing here can tell whether the
+      // anchor has already moved - a cutover leaves no record - so this reads
+      // the same before and after, and the dialogue shows the live truth.
+      return this.say(message('They keep their certificates — move the trust anchor to complete it'));
+    }
+    if (scope.selfService) {
+      return this.say(message('Each device collects its own'));
+    }
+    if (scope.credentialsIssued > 0) {
+      return this.say(
+        message('{{ count }} device users created', { count: scope.credentialsIssued })
+      );
+    }
+    return this.say(message('None'));
   }
 
   /** The data window, said only when there is data for it to apply to. */

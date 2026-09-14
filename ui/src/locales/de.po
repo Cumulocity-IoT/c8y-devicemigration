@@ -68,7 +68,7 @@ msgstr "Migrationsprotokoll"
 
 
 msgid "The last {{ lines }} lines the engine printed. The whole output is in the microservice log."
-msgstr "Die letzten {{ lines }} Zeilen der Ausgabe. Die vollständige Ausgabe steht im Protokoll des Microservice."
+msgstr "Die letzten {{ lines }} Zeilen der Ausgabe. Die vollständige Ausgabe steht im Log des Microservice."
 
 
 msgid "roughly at device {{ current }} of {{ total }}"
@@ -409,6 +409,12 @@ msgstr "Gerätedaten"
 msgid "None"
 msgstr "Keine"
 
+msgid "{{ count }} device users created"
+msgstr "{{ count }} Gerätebenutzer angelegt"
+
+msgid "Each device collects its own"
+msgstr "Jedes Gerät holt seine eigenen ab"
+
 msgid "The root object only"
 msgstr "Nur das Wurzelobjekt"
 
@@ -477,3 +483,105 @@ msgstr "Nehmen Sie sie über die Kommandozeile zurück, mit einer Sitzung für d
 
 msgid "Or, in the target tenant itself, delete the objects carrying the run marker below."
 msgstr "Oder löschen Sie im Zielmandanten selbst die Objekte mit der unten genannten Lauf-Markierung."
+
+msgid "Device credentials"
+msgstr "Geräte-Zugangsdaten"
+
+msgid "Download device credentials"
+msgstr "Geräte-Zugangsdaten herunterladen"
+
+msgid "The device users this migration created are deleted along with their devices, so the credentials issued for them stop working. Devices still using them cannot reconnect to the target tenant."
+msgstr "Die von dieser Migration angelegten Gerätebenutzer werden mit ihren Geräten gelöscht, sodass die dafür ausgegebenen Zugangsdaten nicht mehr funktionieren. Geräte, die sie noch verwenden, können sich nicht mehr mit dem Zielmandanten verbinden."
+
+msgid "They keep their certificates — move the trust anchor to complete it"
+msgstr "Sie behalten ihre Zertifikate — verschieben Sie den Vertrauensanker, um die Migration abzuschließen"
+
+msgid "{{ collected }} of {{ total }} devices have collected their credentials"
+msgstr "{{ collected }} von {{ total }} Geräten haben ihre Zugangsdaten abgeholt"
+
+msgid "None yet. The devices ask on their own schedule, so this stays at zero until the first one reaches the endpoint."
+msgstr "Noch keine. Die Geräte fragen nach ihrem eigenen Zeitplan an, daher bleibt dies bei null, bis das erste den Endpunkt erreicht."
+
+msgid "Counting…"
+msgstr "Wird gezählt…"
+
+msgid "Could not read how many devices have collected."
+msgstr "Es konnte nicht ermittelt werden, wie viele Geräte abgeholt haben."
+
+msgid "Try again"
+msgstr "Erneut versuchen"
+
+msgid "Move trust anchor"
+msgstr "Vertrauensanker verschieben"
+
+msgid "Move the trust anchor?"
+msgstr "Vertrauensanker verschieben?"
+
+msgid "Move certificate"
+msgstr "Zertifikat verschieben"
+
+msgid "The devices of this migration authenticate with certificates, so they have nothing new to learn. They move when {{ target }} trusts the authority that issued them."
+msgstr "Die Geräte dieser Migration authentifizieren sich mit Zertifikaten und müssen daher nichts Neues erfahren. Sie wechseln, sobald {{ target }} der ausstellenden Zertifizierungsstelle vertraut."
+
+msgid "Reading the trusted certificates…"
+msgstr "Vertrauenswürdige Zertifikate werden gelesen…"
+
+msgid "This tenant has no trusted certificates to move."
+msgstr "Dieser Mandant hat keine vertrauenswürdigen Zertifikate, die verschoben werden könnten."
+
+msgid "The certificate is removed from the source tenant before it is added to the target. Until the second step finishes, no device chained to it can reach either tenant. If the target refuses it, this service puts it back in the source."
+msgstr "Das Zertifikat wird aus dem Quellmandanten entfernt, bevor es im Zielmandanten angelegt wird. Bis der zweite Schritt abgeschlossen ist, erreicht kein daran gebundenes Gerät einen der beiden Mandanten. Lehnt das Ziel es ab, stellt dieser Dienst es im Quellmandanten wieder her."
+
+msgid "The certificate has moved."
+msgstr "Das Zertifikat wurde verschoben."
+
+msgid "The target reports auto-registration as disabled for this certificate, so devices arriving with it will be refused. Enable it in the target tenant before the devices reconnect."
+msgstr "Das Ziel meldet die automatische Registrierung für dieses Zertifikat als deaktiviert, sodass damit ankommende Geräte abgewiesen werden. Aktivieren Sie sie im Zielmandanten, bevor sich die Geräte neu verbinden."
+
+msgid "These devices authenticate with certificates. If their trust anchor has already been moved they are connecting to the target now, and deleting their migrated objects will not send them back - they will register fresh, empty ones instead. Move the trust anchor back to the source tenant first."
+msgstr "Diese Geräte authentifizieren sich mit Zertifikaten. Wurde ihr Vertrauensanker bereits verschoben, verbinden sie sich jetzt mit dem Ziel; das Löschen ihrer migrierten Objekte schickt sie nicht zurück, sondern sie registrieren stattdessen neue, leere. Verschieben Sie den Vertrauensanker zuerst zurück in den Quellmandanten."
+
+msgid "How will the migrated devices authenticate?"
+msgstr "Wie werden sich die migrierten Geräte authentifizieren?"
+
+msgid "Nothing is arranged for them"
+msgstr "Es wird nichts für sie eingerichtet"
+
+msgid "A device user for each device, downloaded once"
+msgstr "Ein Gerätebenutzer je Gerät, einmalig heruntergeladen"
+
+msgid "They keep their own certificates"
+msgstr "Sie behalten ihre eigenen Zertifikate"
+
+msgid "The copies are created but no device can connect as itself. Right for a rehearsal or a staging tenant, and for a hierarchy with no devices under it."
+msgstr "Die Kopien werden angelegt, aber kein Gerät kann sich als es selbst verbinden. Richtig für einen Probelauf oder einen Staging-Mandanten und für eine Hierarchie ohne Geräte darunter."
+
+msgid "A device user is created for each device and the passwords can be downloaded once, from this migration in the list. Getting them onto the devices is your own channel."
+msgstr "Für jedes Gerät wird ein Gerätebenutzer angelegt, und die Passwörter lassen sich einmalig herunterladen, über diese Migration in der Liste. Sie auf die Geräte zu bringen, bleibt Ihr eigener Weg."
+
+msgid "No file and nothing to distribute: each device asks for its own credential, authenticating with the one it already has in the source tenant. It is issued once per device."
+msgstr "Keine Datei und nichts zu verteilen: Jedes Gerät fordert seine eigenen Zugangsdaten an und authentifiziert sich dabei mit denen, die es im Quellmandanten bereits hat. Sie werden je Gerät einmalig ausgegeben."
+
+msgid "Nothing is issued - the devices keep the key and certificate they already have. They stay where they are until the target tenant trusts their CA, which you can do from this migration once it has finished."
+msgstr "Es wird nichts ausgegeben — die Geräte behalten Schlüssel und Zertifikat, die sie bereits haben. Sie bleiben, wo sie sind, bis der Zielmandant ihrer CA vertraut; das können Sie von dieser Migration aus veranlassen, sobald sie abgeschlossen ist."
+
+msgid "A remote target is reached with a device access token, which has no permission to register device users, so no credential can be issued into it from here."
+msgstr "Ein entferntes Ziel wird mit einem Device-Access-Token erreicht, das keine Berechtigung zum Anlegen von Gerätebenutzern hat; von hier aus können dorthin also keine Zugangsdaten ausgegeben werden."
+
+msgid "Device users created"
+msgstr "Angelegte Gerätebenutzer"
+
+msgid "Devices able to collect"
+msgstr "Geräte, die abholen können"
+
+msgid "Devices owning their twins"
+msgstr "Geräte, die ihren Zwilling besitzen"
+
+msgid "one per device"
+msgstr "eines pro Gerät"
+
+msgid "of {{ objects }} objects; the rest are groups or have no usable external identity and would arrive unable to write their own twin"
+msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine verwendbare externe ID und kämen ohne Schreibrecht auf ihren eigenen Zwilling an"
+
+msgid "of {{ objects }} objects; the rest are groups or have no usable external identity"
+msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine verwendbare externe ID"

@@ -36,7 +36,7 @@ type Session struct {
 	// Certificate and CertificateKey authenticate with a client certificate
 	// instead of a password: PEM contents, not paths. Used only for a remote
 	// migration target the service reaches without a service user (see
-	// docs/concepts/remote-targets.md). Like the fields above, Read decodes into
+	// docs/platform-behaviour.md). Like the fields above, Read decodes into
 	// its own private struct, so no session file can set these either.
 	Certificate    string
 	CertificateKey string

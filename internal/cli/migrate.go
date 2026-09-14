@@ -13,6 +13,7 @@ import (
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/c8yclient"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/migrate"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/registration"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 )
 
@@ -33,6 +34,11 @@ func newMigrateCommand(stderr io.Writer) *cobra.Command {
 		keepStaging   bool
 		noFlag        bool
 		force         bool
+
+		credentials     bool
+		credentialsFile string
+		identityType    string
+		stampOwner      bool
 	)
 
 	cmd := &cobra.Command{
@@ -81,6 +87,11 @@ func newMigrateCommand(stderr io.Writer) *cobra.Command {
 					NoFlag:       noFlag,
 					KeepStaging:  keepStaging,
 					Force:        force,
+
+					Credentials:      credentials,
+					CredentialsFile:  credentialsFile,
+					IdentityType:     identityType,
+					StampDeviceOwner: stampOwner,
 				})
 		},
 	}
@@ -111,11 +122,27 @@ func newMigrateCommand(stderr io.Writer) *cobra.Command {
 	cmd.Flags().BoolVar(&noFlag, "noFlag", false,
 		"Do not mark created managed objects with the run fragment")
 	cmd.Flags().BoolVar(&force, "force", false, "Do not ask for confirmation")
+	cmd.Flags().BoolVar(&credentials, "credentials", false,
+		"Provision a device user for every migrated device, so the devices can "+
+			"reconnect to the target. Needs --credentialsFile")
+	cmd.Flags().StringVar(&credentialsFile, "credentialsFile", "",
+		"File to write the device credentials to. Required with --credentials, and "+
+			"never stdout: the file holds working device passwords")
+	cmd.Flags().StringVar(&identityType, "identityType", registration.DefaultIdentityType,
+		"External identity type to register each device under, or to derive a "+
+			"stamped owner from")
+	cmd.Flags().BoolVar(&stampOwner, "stampDeviceOwner", false,
+		"Make each migrated device the owner of its own managed object, so it can "+
+			"write to it once it has credentials issued by some other means. Not "+
+			"needed with --credentials, which already leaves each object owned by "+
+			"its device user")
 
 	_ = cmd.MarkFlagRequired("rootId")
 	_ = cmd.MarkFlagRequired("sourceSession")
 	_ = cmd.MarkFlagRequired("targetSession")
 	cmd.MarkFlagsMutuallyExclusive("childTypes", "no-children")
+	cmd.MarkFlagsRequiredTogether("credentials", "credentialsFile")
+	cmd.MarkFlagsMutuallyExclusive("credentials", "stampDeviceOwner")
 
 	return cmd
 }

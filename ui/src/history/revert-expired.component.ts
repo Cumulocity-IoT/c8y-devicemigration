@@ -58,7 +58,7 @@ import type { GridRow } from './rows';
 
         <p class="text-muted small m-b-0">
           {{ 'Run marker' | translate }}:
-          <code>c8y_DeviceMigration_{{ row.scope.runId }}</code>
+          <code>{{ row.scope.marker }}</code>
         </p>
       </div>
     </c8y-modal>

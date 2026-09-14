@@ -6,7 +6,13 @@ import { BsDropdownModule } from 'ngx-bootstrap/dropdown';
 
 import { MigrationService } from '../api/migration.service';
 import type { Message } from '../i18n';
-import { MigrationFlow, type Choices, type Failure, type Tenant } from './flow';
+import {
+  MigrationFlow,
+  type Choices,
+  type CredentialChoice,
+  type Failure,
+  type Tenant
+} from './flow';
 import { kindLabel } from './labels';
 import { dateFromWindow, windowFromDate } from './window';
 import { RootPickerComponent } from './root-picker.component';
@@ -39,6 +45,17 @@ interface View {
 
   /** The remote target just established, so its CA can be shown to register. */
   remoteTarget?: MigrationFlow['remoteTarget'];
+
+  /**
+   * Whether a credential can be issued into the target now chosen - false for a
+   * remote target, which is reached with a device access token that cannot
+   * register a device user.
+   *
+   * On the view rather than read through the flow, because the template only
+   * ever sees this snapshot - and it has to be re-read on every refresh anyway,
+   * since choosing a remote target changes the answer.
+   */
+  canIssueCredentials: boolean;
 
   busy: boolean;
 }
@@ -287,6 +304,15 @@ export class MigrateComponent implements OnInit {
     this.refresh();
   }
 
+  /**
+   * Answering the credentials question. No estimate round trip: the count it
+   * needs is already in the estimate the dialogue has, whatever the answer -
+   * this changes what is created alongside the migration, not what moves.
+   */
+  chooseCredentials(choice: CredentialChoice): void {
+    this.flow.chooseCredentials(choice);
+    this.refresh();
+  }
 
 
   // --- starting --------------------------------------------------------------
@@ -336,6 +362,7 @@ export class MigrateComponent implements OnInit {
       failure: this.flow.failure,
       windowError: this.flow.windowError,
       remoteTarget: this.flow.remoteTarget,
+      canIssueCredentials: this.flow.canIssueCredentials,
       busy: this.flow.busy
     });
   }

@@ -46,6 +46,25 @@ export interface Row {
   /** Was undoable, until the remote target's certificate expired. */
   revertExpired: boolean;
   cancellable: boolean;
+
+  /**
+   * Whether this migration's device credentials are still there to collect.
+   *
+   * The service hands them over once and then forgets them, so this goes false
+   * as soon as somebody downloads the file - and after a restart of the service,
+   * which loses them. It is the service's memory, not the job record.
+   */
+  credentialsCollectable: boolean;
+
+  /**
+   * Whether this migration's trust anchor can still be moved from here.
+   *
+   * True for a succeeded certificate-fleet migration, which is only half a move
+   * until the target trusts the fleet's CA. It does not go false afterwards,
+   * because a cutover leaves no record to read - the dialogue answers that by
+   * listing the source's truststore live.
+   */
+  trustAnchorMovable: boolean;
 }
 
 /** One undo of one migration, as its expansion needs it. */
@@ -162,6 +181,14 @@ export function rows(
         revertExpired: revertExpired(job, live),
         undos,
         cancellable: isRunning(job),
+        credentialsCollectable: job.credentialsAvailable === true,
+        // Certificate fleets only, and only once the objects are actually there:
+        // moving the anchor before the migration succeeded would send the fleet
+        // to a tenant with nothing in it.
+        trustAnchorMovable:
+          job.kind === "MIGRATION" &&
+          job.status === "SUCCEEDED" &&
+          !!job.request?.certificateFleet,
       };
     });
 }
@@ -388,6 +415,31 @@ export function revertWarnings(row: Row): string[] {
     ),
   ];
 
+  // Said before the credential warnings, because it is about what else goes:
+  // the device users are deleted with the objects they own, in the same platform
+  // call. Anybody holding the credentials file for this migration needs to know
+  // it stops working - and that is the point of undoing it, not a side effect.
+  if ((row.job.credentialsIssued ?? 0) > 0) {
+    warnings.push(
+      gettext(
+        "The device users this migration created are deleted along with their devices, so the credentials issued for them stop working. Devices still using them cannot reconnect to the target tenant.",
+      ),
+    );
+  }
+
+  // A certificate fleet is the one case where undoing can leave the target worse
+  // than it started. Once the trust anchor has moved, the devices are arriving in
+  // that tenant on their own: deleting their twins does not send them back, it
+  // just makes them auto-register empty ones owned by themselves, with none of
+  // the history the migration carried across.
+  if (row.job.request?.certificateFleet) {
+    warnings.push(
+      gettext(
+        "These devices authenticate with certificates. If their trust anchor has already been moved they are connecting to the target now, and deleting their migrated objects will not send them back - they will register fresh, empty ones instead. Move the trust anchor back to the source tenant first.",
+      ),
+    );
+  }
+
   if (row.job.countsVerified === false) {
     warnings.push(
       gettext(
@@ -537,6 +589,10 @@ export interface GridRow {
   /** Was undoable, until the remote target's certificate expired. */
   revertExpired: boolean;
   cancellable: boolean;
+  /** Whether the device credentials are still there to collect - once. */
+  credentialsCollectable: boolean;
+  /** Whether the trust-anchor move is offered. Read by the action's showIf. */
+  trustAnchorMovable: boolean;
   hasOutput: boolean;
 
   /** What the migration included, for the expansion to show. */
@@ -552,11 +608,30 @@ export interface GridRow {
 /** What a migration moved, in words, for its expansion. */
 export interface ScopeRow {
   runId: string;
+
+  /**
+   * The fragment everything this run created carries, ready to render.
+   *
+   * Built here rather than assembled in each template: two of them spelled the
+   * prefix out by hand, which is a duplicate of a name the service owns and a
+   * Go test now refuses.
+   */
+  marker: string;
   relationships: string;
   dataTypes: string;
   /** Empty when no window was given. */
   window: string;
   remote: boolean;
+
+  /** How the devices got credentials, in words. Never empty. */
+  credentials: string;
+
+  /**
+   * Whether the devices collect their own, which is the one answer with progress
+   * worth counting - and the only one where a finished job says nothing about
+   * whether the fleet has actually moved.
+   */
+  selfService: boolean;
 }
 
 /** One undo in a row's expansion, already in words. */
@@ -621,6 +696,33 @@ export interface Scope {
   to?: string;
   /** Whether the target was reached with a certificate rather than a subscription. */
   remote: boolean;
+
+  /**
+   * How the migrated devices got credentials, and how many.
+   *
+   * Read from the job record rather than from the service's memory, which is
+   * the difference that makes this worth showing: `credentialsCollectable` goes
+   * false the moment somebody downloads the file, and until this was added a
+   * migration that had provisioned credentials became indistinguishable from
+   * one that never did.
+   *
+   * `selfService` is the other mechanism - the devices collect their own - and
+   * it has no other trace in the interface at all. It cannot be *chosen* here,
+   * deliberately, but a migration somebody opted in through the API should not
+   * be silent about it.
+   */
+  credentialsIssued: number;
+  selfService: boolean;
+
+  /**
+   * Whether the devices authenticate with certificates, so nothing was issued
+   * and the migration is only half of the move.
+   *
+   * The other half is making the target trust the fleet's CA, which is what the
+   * row's trust-anchor action is for - and this is what decides whether that
+   * action is offered at all.
+   */
+  certificateFleet: boolean;
 }
 
 export function scopeOf(job: Job): Scope {
@@ -636,6 +738,9 @@ export function scopeOf(job: Job): Scope {
     from: request?.dateFrom,
     to: request?.dateTo,
     remote: !!request?.remoteTargetId,
+    credentialsIssued: job.credentialsIssued ?? 0,
+    selfService: !!request?.deviceSelfCredentials,
+    certificateFleet: !!request?.certificateFleet,
   };
 }
 

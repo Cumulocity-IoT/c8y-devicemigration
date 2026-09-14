@@ -106,6 +106,11 @@ type Service struct {
 	// not subscribed to. In memory only; see remotetarget.go.
 	remoteTargets *remoteTargetStore
 
+	// credentials are the device credentials a migration issued, waiting to be
+	// collected once. In memory only, and for the same reason: see
+	// credentialstore.go.
+	credentials *credentialStore
+
 	// tenantNames is how each tenant has been described, once asked, and
 	// managementNames is what tenant management said about all of them - with
 	// managementAsked recording that it was asked, since a refusal is an answer.
@@ -169,6 +174,7 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		running:            make(map[string]*queuedJob),
 		tenantNames:        make(map[string]TenantDescription),
 		remoteTargets:      newRemoteTargetStore(),
+		credentials:        newCredentialStore(),
 	}
 
 	if err := s.prepareStaging(); err != nil {

@@ -14,7 +14,7 @@ import (
 // Reaching a target this instance is not subscribed to means authenticating to
 // it without a service user. The chosen mechanism is a client certificate: the
 // platform issues a device access token to whoever presents, over mTLS, a leaf
-// certificate whose issuer it trusts (see docs/concepts/remote-targets.md, the
+// certificate whose issuer it trusts (see docs/platform-behaviour.md, the
 // verified section). So the service mints a throwaway certificate authority and
 // one leaf signed by it. The public CA is what the operator registers on the
 // target as trusted; the service keeps the leaf and its key and presents them.

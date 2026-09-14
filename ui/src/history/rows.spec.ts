@@ -568,6 +568,55 @@ describe("what the list says about tenants and objects", () => {
       expect(scope.relationships).toEqual([]);
     });
 
+    // The download action is offered only while the file is still collectable,
+    // so before this the record was the only place a completed provisioning
+    // survived - and nothing read it.
+    it("carries how the devices got credentials, from the record", () => {
+      const provisioned = scopeOf(
+        job({
+          id: "m",
+          request: { sourceTenant: "s", rootId: "1", provisionCredentials: true },
+          credentialsIssued: 42,
+        }),
+      );
+
+      expect(provisioned.credentialsIssued).toBe(42);
+      expect(provisioned.selfService).toBe(false);
+    });
+
+    it("notices a migration whose devices collect their own", () => {
+      const self = scopeOf(
+        job({
+          id: "m",
+          request: { sourceTenant: "s", rootId: "1", deviceSelfCredentials: true },
+        }),
+      );
+
+      expect(self.selfService).toBe(true);
+      // Nothing was issued at migration time - each device mints its own later.
+      expect(self.credentialsIssued).toBe(0);
+    });
+
+    it("carries a certificate fleet, which issues nothing but still stamps", () => {
+      const scope = scopeOf(
+        job({
+          id: "m",
+          request: { sourceTenant: "s", rootId: "1", certificateFleet: true },
+        }),
+      );
+
+      expect(scope.certificateFleet).toBe(true);
+      expect(scope.credentialsIssued).toBe(0);
+      expect(scope.selfService).toBe(false);
+    });
+
+    it("reads a migration that provisioned nothing as none", () => {
+      const scope = scopeOf(job({ id: "m", request: { sourceTenant: "s", rootId: "1" } }));
+
+      expect(scope.credentialsIssued).toBe(0);
+      expect(scope.selfService).toBe(false);
+    });
+
     it("splits what was asked for, and notices a remote target", () => {
       const scope = scopeOf(
         job({
@@ -590,6 +639,48 @@ describe("what the list says about tenants and objects", () => {
     });
   });
 
+  // The row action for the other half of a certificate-fleet move. It does not
+  // go false once the anchor has moved, because a cutover leaves no record to
+  // read - the dialogue answers that by listing the source's truststore live.
+  describe("offering the trust-anchor move", () => {
+    const rowFor = (fields: Partial<Job>) => rows([job(fields)], [])[0];
+
+    it("offers it for a succeeded certificate fleet", () => {
+      expect(
+        rowFor({ request: { sourceTenant: "s", rootId: "1", certificateFleet: true } })
+          .trustAnchorMovable,
+      ).toBe(true);
+    });
+
+    it("does not offer it before the objects are there", () => {
+      // Moving the anchor first would send the fleet to a tenant with nothing
+      // in it, and every device would auto-register an empty twin.
+      expect(
+        rowFor({
+          status: "RUNNING",
+          request: { sourceTenant: "s", rootId: "1", certificateFleet: true },
+        }).trustAnchorMovable,
+      ).toBe(false);
+      expect(
+        rowFor({
+          status: "FAILED",
+          request: { sourceTenant: "s", rootId: "1", certificateFleet: true },
+        }).trustAnchorMovable,
+      ).toBe(false);
+    });
+
+    it("does not offer it for a migration of any other kind", () => {
+      expect(rowFor({ request: { sourceTenant: "s", rootId: "1" } }).trustAnchorMovable).toBe(
+        false,
+      );
+      expect(
+        rowFor({
+          request: { sourceTenant: "s", rootId: "1", provisionCredentials: true },
+        }).trustAnchorMovable,
+      ).toBe(false);
+    });
+  });
+
   describe("confirming an undo", () => {
     const migrated = (over: Record<string, unknown> = {}) =>
       rows(
@@ -601,6 +692,39 @@ describe("what the list says about tenants and objects", () => {
       // Cumulocity propagates a group deletion to its subgroups, which can
       // remove objects this migration never created. True of every undo.
       expect(revertWarnings(migrated())[0]).toContain("propagates");
+    });
+
+    // Undoing a migration that issued credentials invalidates the file somebody
+    // may be holding, and that is the point of undoing it rather than a side
+    // effect - so the confirmation has to say so before the button is pressed.
+    it("says that device credentials stop working", () => {
+      const warnings = revertWarnings(migrated({ credentialsIssued: 3 }));
+
+      expect(warnings.some(w => w.includes("stop working"))).toBe(true);
+    });
+
+    it("says nothing about credentials for a migration that issued none", () => {
+      expect(revertWarnings(migrated()).some(w => w.includes("stop working"))).toBe(false);
+      expect(
+        revertWarnings(migrated({ credentialsIssued: 0 })).some(w => w.includes("stop working"))
+      ).toBe(false);
+    });
+
+    // The one case where undoing can leave the target worse than it started:
+    // once the anchor has moved the devices are arriving in that tenant on their
+    // own, and deleting their twins only makes them register empty ones.
+    it("warns that a certificate fleet cannot be called back by deleting its objects", () => {
+      const warnings = revertWarnings(
+        migrated({ request: { sourceTenant: "s", rootId: "1", certificateFleet: true } }),
+      );
+
+      expect(warnings.some(w => w.includes("will not send them back"))).toBe(true);
+    });
+
+    it("says nothing about certificates for a migration that is not one", () => {
+      expect(
+        revertWarnings(migrated()).some(w => w.includes("will not send them back")),
+      ).toBe(false);
     });
 
     it("says when the run's own account of itself cannot be relied on", () => {

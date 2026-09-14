@@ -7,6 +7,9 @@ import (
 	"sort"
 
 	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api"
+	"github.com/reubenmiller/go-c8y/v2/pkg/c8y/api/inventory/managedobjects"
+
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/jsonraw"
 )
 
 // Answering "how big is this migration?" without performing it.
@@ -64,10 +67,25 @@ type Plan struct {
 	Limits Limits
 }
 
-// DeviceCounts is one object's records.
+// DeviceCounts is what a plan learned about one object.
+//
+// Named for the records it started as; it now also carries the two facts that
+// decide whether a device could be given a credential, so a caller can predict
+// that without walking the hierarchy a second time.
 type DeviceCounts struct {
 	ObjectID string
 	Records  map[DataType]int
+
+	// IsDevice is whether the object carries c8y_IsDevice. A group has no device
+	// user, so nothing would be registered for it.
+	IsDevice bool
+
+	// IdentityTypes is the type of each external identity the object carries, in
+	// the order the platform returned them. Types only: which identity would be
+	// chosen is decided from these, and the external ids themselves are of no
+	// use to a count and would put device identifiers in an estimate response
+	// that does not otherwise carry any.
+	IdentityTypes []string
 }
 
 // Breach is one limit that would refuse the export.
@@ -151,13 +169,23 @@ func MakePlan(ctx context.Context, client *api.Client, opts PlanOptions) (*Plan,
 			return nil, err
 		}
 
-		identities, err := e.countIdentities(ctx, id)
+		identityTypes, err := e.identityTypes(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		plan.Identities += identities
+		plan.Identities += len(identityTypes)
 
-		counts := DeviceCounts{ObjectID: id, Records: map[DataType]int{}}
+		isDevice, err := e.isDevice(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+
+		counts := DeviceCounts{
+			ObjectID:      id,
+			Records:       map[DataType]int{},
+			IsDevice:      isDevice,
+			IdentityTypes: identityTypes,
+		}
 		for _, kind := range opts.DataTypes {
 			count, err := e.countRecords(ctx, kind, id)
 			if err != nil {
@@ -230,20 +258,37 @@ func orderedIDs(rootID string, planned map[string]bool) []string {
 	return append([]string{rootID}, ids...)
 }
 
-// countIdentities is how many external identities an object carries. The same
-// call exportIdentities makes, without the writing.
-func (e *Exporter) countIdentities(ctx context.Context, id string) (int, error) {
+// identityTypes is the type of each external identity an object carries.
+//
+// The same call exportIdentities makes, without the writing. It used to return
+// only a count; the types come from the same response and cost nothing extra.
+func (e *Exporter) identityTypes(ctx context.Context, id string) ([]string, error) {
 	result := e.client.Identity.List(ctx, id)
 	if result.Err != nil {
-		return 0, fmt.Errorf("cannot list external identities of %s: %w", id, result.Err)
+		return nil, fmt.Errorf("cannot list external identities of %s: %w", id, result.Err)
 	}
 
-	count := 0
-	for _, err := range result.Items() {
+	var types []string
+	for item, err := range result.Items() {
 		if err != nil {
-			return 0, fmt.Errorf("cannot read an external identity of %s: %w", id, err)
+			return nil, fmt.Errorf("cannot read an external identity of %s: %w", id, err)
 		}
-		count++
+		types = append(types, item.Type())
 	}
-	return count, nil
+	return types, nil
+}
+
+// isDevice is whether an object carries c8y_IsDevice.
+//
+// One object read per planned object, which is the only new cost this plan
+// carries. Paid unconditionally rather than only when credentials are asked for,
+// because the alternative is an estimate whose answer changes when a checkbox
+// moves - and the number of objects a plan covers is capped, so this is bounded
+// by the child-object limit rather than by the size of a tenant.
+func (e *Exporter) isDevice(ctx context.Context, id string) (bool, error) {
+	result := e.client.ManagedObjects.Get(ctx, id, managedobjects.GetOptions{})
+	if result.Err != nil {
+		return false, fmt.Errorf("cannot read %s: %w", id, result.Err)
+	}
+	return jsonraw.Has([]byte(result.Data.Raw()), "c8y_IsDevice"), nil
 }

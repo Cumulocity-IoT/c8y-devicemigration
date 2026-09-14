@@ -123,6 +123,28 @@
             }
           </dd>
 
+          <!--
+            Always shown, including when it says "None". The download action is
+            offered only while the file is still collectable, so a migration
+            that provisioned credentials was otherwise indistinguishable from
+            one that never did as soon as somebody had collected them.
+          -->
+          <dt>{{ 'Device credentials' | translate }}</dt>
+          <dd>
+            {{ row.scope.credentials }}
+            <!--
+              Counted only for the answer whose progress is invisible otherwise.
+              Inside the expansion on purpose: this template is rendered when a
+              row is opened, so the two reads happen when somebody looks rather
+              than on every refresh of the list.
+            -->
+            @if (row.scope.selfService) {
+              <span class="d-block">
+                <c8y-device-migration-collection-progress [job]="row.job" />
+              </span>
+            }
+          </dd>
+
           @if (row.scope.remote) {
             <dt>{{ 'Target' | translate }}</dt>
             <dd>{{ 'Reached with a migration certificate, not a subscription' | translate }}</dd>

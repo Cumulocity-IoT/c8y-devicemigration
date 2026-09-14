@@ -71,6 +71,48 @@ type MigrationRequest struct {
 
 	NoFlag bool `json:"noFlag,omitempty"`
 
+	// ProvisionCredentials provisions a device user for every migrated device,
+	// so the devices can reconnect to the target.
+	//
+	// Registration runs before the import, which is what makes each object
+	// belong to its own device user. The passwords are never written to this
+	// record - they are held in memory keyed by the job and collected once from
+	// GET /migrations/{id}/credentials.
+	ProvisionCredentials bool `json:"provisionCredentials,omitempty"`
+
+	// DeviceSelfCredentials lets the migrated devices collect their own
+	// credentials from POST /devices/self/migration, instead of an operator
+	// distributing a file.
+	//
+	// Two things follow from setting it. Each migrated object is created owned by
+	// the device user it will authenticate as, so that a device arriving later
+	// can write its own twin - ROLE_DEVICE carries writes only together with
+	// ownership. And this run becomes collectable: the device endpoint answers
+	// only for migrations that asked for it.
+	//
+	// That second part is the point of the flag rather than an implementation
+	// detail. It is what makes the reach of the one endpoint outside the owner
+	// tenant a decision somebody takes per migration, rather than a standing
+	// property of every migration this service has ever run.
+	DeviceSelfCredentials bool `json:"deviceSelfCredentials,omitempty"`
+
+	// CertificateFleet says the migrated devices authenticate with X.509
+	// certificates, so there is no credential to issue at all.
+	//
+	// It still changes the migration, and that is why it exists: each object is
+	// created owned by the device user its certificate will authenticate as.
+	// Without it a certificate device arrives, auto-registers onto its migrated
+	// twin, and is silently read-only on it - ROLE_DEVICE carries writes only
+	// together with ownership. Nothing about that failure is visible until
+	// somebody notices a fleet that looks migrated and sends no data.
+	//
+	// Semantic rather than mechanical on purpose. The importer's flag is
+	// StampDeviceOwner and the command line exposes it directly, but a request
+	// field spelled that way would be a knob whose consequence only a reader of
+	// this file understands - and the record would then say an owner was stamped
+	// without saying why, which is what the trust-anchor offer keys on.
+	CertificateFleet bool `json:"certificateFleet,omitempty"`
+
 	// RemoteTargetID references a remote target established with
 	// POST /remote-targets, for a target this instance is not subscribed to. It
 	// is a handle, not a secret - the certificate behind it lives only in memory
@@ -136,6 +178,18 @@ type Job struct {
 
 	// Progress is the tail of what the engine printed.
 	Progress []string `json:"progress,omitempty"`
+
+	// CredentialsIssued is how many devices got a device user, or zero.
+	//
+	// A count and never the secrets: this record is an ordinary managed object
+	// any tenant administrator can read.
+	CredentialsIssued int `json:"credentialsIssued,omitempty"`
+
+	// CredentialsAvailable is whether the credentials are still waiting to be
+	// collected, so a user interface can offer the download only while there is
+	// something to download. Computed per response rather than stored - the
+	// answer changes the moment they are collected.
+	CredentialsAvailable bool `json:"credentialsAvailable,omitempty"`
 
 	// CountsVerified is false when the run was cut short. The engine reports
 	// what it believes it did, and a cancelled or interrupted run's beliefs are
@@ -253,6 +307,62 @@ func (e *QueueFullError) Error() string {
 func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller *Caller) (*Job, error) {
 	if _, err := s.resolveOptions(request, ""); err != nil {
 		return nil, err
+	}
+
+	// How the migrated devices will authenticate is one question with one answer,
+	// and the three ways of answering it are mutually exclusive. Checked here
+	// rather than left to fail later: each of these would otherwise produce a
+	// migration that looks like it worked.
+
+	// Both arrange credentials, by opposite routes, and together they would
+	// fight: provisionCredentials registers every device up front and hands the
+	// operator a file, and a device then collecting its own would rotate the
+	// password already in that file.
+	if request.ProvisionCredentials && request.DeviceSelfCredentials {
+		return nil, &BadRequestError{Reason: "provisionCredentials and " +
+			"deviceSelfCredentials cannot both be given: the first issues every " +
+			"credential up front and hands you a file, the second lets each device " +
+			"collect its own, and a device collecting one would rotate the password " +
+			"already in that file"}
+	}
+
+	// A certificate fleet keeps the chain it already has. Asking for a password
+	// alongside is a contradiction rather than a preference, and acting on both
+	// would leave every device holding two ways to authenticate where one was
+	// wanted.
+	if request.CertificateFleet && (request.ProvisionCredentials || request.DeviceSelfCredentials) {
+		return nil, &BadRequestError{Reason: "certificateFleet cannot be combined with " +
+			"provisionCredentials or deviceSelfCredentials: a certificate fleet authenticates " +
+			"with the chain it already has and has no password to issue. Choose one way for " +
+			"the migrated devices to authenticate"}
+	}
+
+	// Neither credential route can reach a remote target, and for one reason: a
+	// remote target is reached with a device access token obtained from a
+	// certificate, whose effective roles are the device ones. It cannot
+	// bulk-register anything, which is exactly what both routes need to create a
+	// device user. See docs/platform-behaviour.md for what that token can do.
+	//
+	// certificateFleet is deliberately *not* refused here. It creates no user -
+	// only an owner on objects that same token creates and therefore already
+	// owns - so it is the one answer that works across instances. It needs no
+	// cutover there either, because one certificate can be trusted in two
+	// instances at once.
+	if request.RemoteTargetID != "" {
+		switch {
+		case request.ProvisionCredentials:
+			return nil, &BadRequestError{Reason: "provisionCredentials cannot be used with a remote " +
+				"target: a remote target is reached with a device access token, which has no " +
+				"permission to register devices. Migrate without credentials and provision them " +
+				"from the target tenant, or subscribe the target to this service"}
+		case request.DeviceSelfCredentials:
+			return nil, &BadRequestError{Reason: "deviceSelfCredentials cannot be used with a remote " +
+				"target: issuing a device its credential means registering a device user in the " +
+				"target, and a remote target is reached with a device access token that has no " +
+				"permission to do so. This service also holds no client for an unsubscribed " +
+				"tenant, so a device asking would be told there is nothing to collect. Migrate " +
+				"with certificateFleet, or subscribe the target to this service"}
+		}
 	}
 
 	// A remote target names its tenant on the record for the listing to show,
@@ -536,13 +646,25 @@ func (s *Service) migrate(ctx context.Context, queued *queuedJob) error {
 	// nil stdin: Force is set, so the confirmation is never reached. The engine
 	// treats a nil reader as a refusal rather than blocking, which is the safe
 	// way round if Force were ever lost.
-	err = migrate.New(source.client, target.client, source.session, target.session,
-		output, nil, options).Run(ctx)
+	migrator := migrate.New(source.client, target.client, source.session, target.session,
+		output, nil, options)
+	err = migrator.Run(ctx)
+
+	// Taken whether or not the run succeeded, and before the error is returned.
+	// A migration that registered devices and then failed has left working
+	// device users in the target, and their passwords exist only in the
+	// migrator - dropping them because the run failed would strand every device
+	// it registered.
+	issued := migrator.Credentials()
+	if storeErr := s.credentials.put(job.ID, issued); storeErr != nil {
+		slog.Error("could not hold the issued credentials", "job", job.ID, "error", storeErr)
+	}
 
 	output.Flush()
 	queued.with(func(job *Job) {
 		job.RunID = output.RunID()
 		job.Progress = output.Lines()
+		job.CredentialsIssued = len(issued)
 	})
 	return err
 }
@@ -590,6 +712,21 @@ func (s *Service) resolveOptions(request MigrationRequest, mappingFile string) (
 		DataTypes:   dataTypes,
 		Windows:     windows,
 		NoFlag:      request.NoFlag,
+
+		Credentials: request.ProvisionCredentials,
+
+		// The objects have to belong to device users that do not exist yet, or a
+		// device arriving later is read-only on its own twin. Both remaining
+		// answers to "how will these devices authenticate" need it, for the same
+		// reason and at different moments: a device that collects a credential
+		// arrives once it has one, and a certificate device arrives as soon as
+		// its tenant trusts the chain. Neither can be fixed afterwards without a
+		// pass over every device.
+		StampDeviceOwner: request.DeviceSelfCredentials || request.CertificateFleet,
+		// No CredentialsFile: the service holds them in memory and hands them
+		// over once, rather than writing a list of device passwords into a
+		// container's filesystem where a crash dump or a stray volume would
+		// keep them.
 
 		// Always incremental: it is what bounds the staging directory to one
 		// device's data, and a container's disk is not something to gamble with.

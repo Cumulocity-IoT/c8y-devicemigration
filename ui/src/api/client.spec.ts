@@ -177,3 +177,87 @@ describe('failures', () => {
     expect(error.message).toContain('Could not reach the migration service');
   });
 });
+
+describe('moving a trust anchor', () => {
+  it('reads a tenant truststore through the microservice', async () => {
+    const { fetchLike, calls } = answers({ status: 200, body: { certificates: [] } });
+
+    await createApi(fetchLike).trustedCertificates('t 11111');
+
+    expect(calls[0].url).toBe(`${BASE}/tenants/t%2011111/trusted-certificates`);
+    expect(calls[0].method).toBe('GET');
+  });
+
+  it('sends the cutover as one call, with both tenants and the fingerprint', async () => {
+    const { fetchLike, calls } = answers({ status: 200, body: { autoRegistrationEnabled: true } });
+
+    await createApi(fetchLike).cutOverCertificate({
+      sourceTenant: 't11111',
+      targetTenant: 't22222',
+      fingerprint: 'f75bd6'
+    });
+
+    expect(calls[0].url).toBe(`${BASE}/certificate-cutovers`);
+    expect(calls[0].method).toBe('POST');
+    expect(JSON.parse(calls[0].body ?? '{}')).toEqual({
+      sourceTenant: 't11111',
+      targetTenant: 't22222',
+      fingerprint: 'f75bd6'
+    });
+  });
+});
+
+describe('counting objects by fragment', () => {
+  // pageSize=1 is what makes totalPages the object count, and withTotalPages is
+  // what makes the platform send it at all. Both are easy to drop and neither
+  // fails loudly: the answer would just be wrong.
+  it('asks for a count rather than for objects', async () => {
+    const { fetchLike, calls } = answers({ status: 200, body: { statistics: { totalPages: 42 } } });
+
+    const count = await createApi(fetchLike).countWithFragments('t22222', ['c8y_Marker']);
+
+    expect(count).toBe(42);
+    const query = new URL(calls[0].url, 'https://example.test').searchParams;
+    expect(query.get('query')).toBe('$filter=(has(c8y_Marker))');
+    expect(query.get('pageSize')).toBe('1');
+    expect(query.get('withTotalPages')).toBe('true');
+  });
+
+  // The interesting question is always an intersection. Counting the issued
+  // fragment on its own would count every migration the tenant ever received,
+  // and report more collected than were migrated.
+  it('intersects several fragments rather than counting one', async () => {
+    const { fetchLike, calls } = answers({ status: 200, body: { statistics: { totalPages: 7 } } });
+
+    await createApi(fetchLike).countWithFragments('t22222', ['c8y_Marker', 'c8y_Issued']);
+
+    const query = new URL(calls[0].url, 'https://example.test').searchParams;
+    expect(query.get('query')).toBe('$filter=(has(c8y_Marker) and has(c8y_Issued))');
+  });
+
+  it('reads a tenant with nothing matching as zero', async () => {
+    const { fetchLike } = answers({ status: 200, body: { statistics: { totalPages: 0 } } });
+
+    expect(await createApi(fetchLike).countWithFragments('t22222', ['c8y_Marker'])).toBe(0);
+  });
+
+  // The distinction that matters: an answer carrying no count at all is a
+  // failure. Reporting it as zero would be indistinguishable from "nothing has
+  // collected yet", which is the one thing this count exists to tell apart.
+  it('refuses to report a missing count as zero', async () => {
+    const { fetchLike } = answers({ status: 200, body: {} });
+
+    await expect(
+      createApi(fetchLike).countWithFragments('t22222', ['c8y_Marker'])
+    ).rejects.toThrow('nothing can be counted');
+  });
+
+  it('goes through the inventory proxy, so it reads the tenant it names', async () => {
+    const { fetchLike, calls } = answers({ status: 200, body: { statistics: { totalPages: 1 } } });
+
+    await createApi(fetchLike).countWithFragments('t22222', ['c8y_Marker']);
+
+    expect(calls[0].url.startsWith(`${BASE}/tenants/t22222/platform/inventory/managedObjects?`))
+      .toBe(true);
+  });
+});

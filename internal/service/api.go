@@ -47,7 +47,7 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodPost, Path: "/estimates", handler: s.handleEstimate},
 
 		// Establishing a certificate connection to a target this instance is not
-		// subscribed to. See remotetarget.go and docs/concepts/remote-targets.md.
+		// subscribed to. See remotetarget.go and docs/platform-behaviour.md.
 		{Method: http.MethodPost, Path: "/remote-targets", handler: s.handleCreateRemoteTarget},
 		{Method: http.MethodGet, Path: "/remote-targets", handler: s.handleListRemoteTargets},
 		{Method: http.MethodDelete, Path: "/remote-targets/{id}",
@@ -78,6 +78,21 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/migrations/{id}", handler: s.handleGetMigration},
 		{Method: http.MethodPost, Path: "/migrations/{id}/cancel",
 			handler: s.handleCancelMigration},
+		{Method: http.MethodGet, Path: "/migrations/{id}/credentials",
+			handler: s.handleGetCredentials},
+
+		// The one endpoint a caller from outside the owner tenant may reach: a
+		// migrated device asking where to reconnect and who it now is. The whole
+		// of that exception is in deviceself.go.
+		{Method: http.MethodPost, Path: "/devices/self/migration",
+			handler: s.handleDeviceSelfMigration},
+
+		// Moving what a tenant trusts, for a certificate fleet. See
+		// trustanchor.go and docs/platform-behaviour.md.
+		{Method: http.MethodGet, Path: "/tenants/{tenant}/trusted-certificates",
+			handler: s.handleListTrustedCertificates},
+		{Method: http.MethodPost, Path: "/certificate-cutovers",
+			handler: s.handleTrustAnchorCutover},
 
 		{Method: http.MethodPost, Path: "/reverts", handler: s.handleCreateRevert},
 		{Method: http.MethodGet, Path: "/reverts", handler: s.handleListReverts},
@@ -262,6 +277,45 @@ func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusOK, job)
 }
 
+// handleGetCredentials hands over the device credentials a migration issued,
+// exactly once.
+//
+// Served as text/csv rather than JSON, because what the caller wants is the file
+// - the same columns the command line writes - and a browser download is the
+// point. No-store, because a list of working device passwords must not sit in a
+// proxy or a browser cache after the one read that was allowed.
+func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.Authorize(r.Context(), r); err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	jobID := r.PathValue("id")
+
+	// The job has to exist and belong to this tenant before its credentials are
+	// discussed, so an unknown id is a 404 rather than a Gone that hints at what
+	// might once have been there.
+	if _, err := s.Record(r.Context(), jobID); err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	body, err := s.credentials.take(jobID)
+	if err != nil {
+		writeError(w, r, &GoneError{Reason: "the credentials for this migration are not " +
+			"available: they are handed over once, and a restart of this service loses them. " +
+			"Re-register the devices to issue new ones, which rotates their passwords"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=%q", "credentials-"+jobID+".csv"))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
 // handleGetJob and handleCancelJob serve reverts. A job is a job once it exists,
 // so these are the migration handlers under names that do not claim otherwise.
 func (s *Service) handleGetJob(w http.ResponseWriter, r *http.Request) {
@@ -436,6 +490,18 @@ type BadRequestError struct {
 
 func (e *BadRequestError) Error() string { return e.Reason }
 
+// GoneError means the thing existed and deliberately does not any more.
+//
+// Distinct from NotFoundError, and the distinction is the whole point for
+// credentials: "there is no such migration" and "its credentials have already
+// been collected" need different answers, or a caller who missed the download
+// cannot tell a mistake from a race with a colleague.
+type GoneError struct {
+	Reason string
+}
+
+func (e *GoneError) Error() string { return e.Reason }
+
 // --- plumbing ---------------------------------------------------------------
 
 func decodeJSON(r *http.Request, into any) error {
@@ -472,6 +538,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var notFound *NotFoundError
 	var conflict *ConflictError
 	var full *QueueFullError
+	var gone *GoneError
 
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
@@ -484,6 +551,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, kind = http.StatusBadRequest, "devicemigration/badRequest"
 	case errors.As(err, &notFound):
 		status, kind = http.StatusNotFound, "devicemigration/notFound"
+	case errors.As(err, &gone):
+		status, kind = http.StatusGone, "devicemigration/credentialsGone"
 	case errors.As(err, &conflict):
 		status, kind = http.StatusConflict, "devicemigration/conflict"
 	case errors.As(err, &full):

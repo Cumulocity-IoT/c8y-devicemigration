@@ -109,7 +109,7 @@ plan=""
 # is still present in the currently active session. Nothing is deleted here.
 build_plan() {
     local mappingFile="$1" workDirectory="$2"
-    local oldId newId name
+    local oldId newId owner name
 
     while IFS=$'\t' read -r oldId newId; do
         [[ -n "$oldId" && -n "$newId" ]] || continue
@@ -118,16 +118,26 @@ build_plan() {
         # non-zero exit code IS the signal: do not add --silentExit to this
         # call, or every object would look present. stdout and stderr are
         # discarded because the plan printed below is what the caller reads.
-        if c8y inventory get --id "$newId" --select id,name \
+        if c8y inventory get --id "$newId" --select id,name,owner \
             --outputFileRaw "$workDirectory/object.json" --nullInput \
             > /dev/null 2>&1; then
             name=$(jq -rj '.name // empty' "$workDirectory/object.json" | tr '\t\n' '  ')
             if [[ -z "${name// /}" ]]; then
                 name="<unnamed>"
             fi
-            printf '%s\t%s\t%s\t%s\n' "$oldId" "$newId" "present" "$name" >> "$plan"
+            # The owner decides whether this object's delete may ask for its
+            # device user to go too.
+            #
+            # "-" when there is none, never an empty field: tab counts as IFS
+            # whitespace, so `IFS=$'\t' read` collapses a run of tabs into one
+            # and an empty column in the middle shifts every column after it -
+            # which showed up as every object in the plan losing its name.
+            owner=$(jq -rj '.owner // empty' "$workDirectory/object.json" | tr '\t\n' '  ')
+            printf '%s\t%s\t%s\t%s\t%s\n' \
+                "$oldId" "$newId" "present" "${owner:--}" "$name" >> "$plan"
         else
-            printf '%s\t%s\t%s\t%s\n' "$oldId" "$newId" "missing" "<not found>" >> "$plan"
+            printf '%s\t%s\t%s\t%s\t%s\n' \
+                "$oldId" "$newId" "missing" "-" "<not found>" >> "$plan"
         fi
     done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' "$mappingFile")
 }
@@ -146,7 +156,7 @@ build_plan_from_marker() {
     # --includeAll because c8y's default page size is 5. Without it a run of more
     # than five objects would be planned only in part, and the revert would
     # report success having deleted a fraction of it.
-    found=$(c8y inventory find --fragmentType "$fragment" --select id,name \
+    found=$(c8y inventory find --fragmentType "$fragment" --select id,name,owner \
         --includeAll --nullInput)
 
     while IFS= read -r line; do
@@ -156,19 +166,21 @@ build_plan_from_marker() {
         if [[ -z "${name// /}" ]]; then
             name="<unnamed>"
         fi
-        # Found by querying the tenant, so it is present by construction
-        printf '%s\t%s\t%s\t%s\n' "-" "$id" "present" "$name" >> "$plan"
+        owner=$(printf '%s' "$line" | jq -rj '.owner // empty' | tr '\t\n' '  ')
+        # Found by querying the tenant, so it is present by construction. "-"
+        # for an absent owner, for the IFS reason in build_plan.
+        printf '%s\t%s\t%s\t%s\t%s\n' "-" "$id" "present" "${owner:--}" "$name" >> "$plan"
     done <<< "$found"
 }
 
 print_plan() {
-    local oldId newId state name presentCount missingCount
+    local oldId newId state owner name presentCount missingCount
 
     presentCount=$(awk -F'\t' '$3 == "present"' "$plan" | grep -c '' | tr -d ' ')
     missingCount=$(awk -F'\t' '$3 == "missing"' "$plan" | grep -c '' | tr -d ' ')
 
     echo "The following managed objects will be deleted from the active session:" >&2
-    while IFS=$'\t' read -r oldId newId state name; do
+    while IFS=$'\t' read -r oldId newId state owner name; do
         if [[ "$state" == "present" ]]; then
             if [[ "$oldId" == "-" ]]; then
                 echo "  delete $name ($newId)" >&2
@@ -181,7 +193,7 @@ print_plan() {
     if [[ "$missingCount" -gt 0 ]]; then
         echo "" >&2
         echo "Already absent, nothing to do for these:" >&2
-        while IFS=$'\t' read -r oldId newId state name; do
+        while IFS=$'\t' read -r oldId newId state owner name; do
             if [[ "$state" == "missing" ]]; then
                 echo "  skip   $newId (imported from $oldId)" >&2
             fi
@@ -204,29 +216,63 @@ print_plan() {
 # suppresses the dialog.
 delete_planned() {
     local force="$1" errorLog="$2"
-    local oldId newId state name
+    local oldId newId state owner name
     local deleteArgs=()
 
-    while IFS=$'\t' read -r oldId newId state name; do
+    # Partitioned by owner, because withDeviceUser is not a flag to set blindly.
+    # An object owned by a device user has one to remove; a *device* owned by
+    # anything else answers withDeviceUser=true with a 409 and stays where it is.
+    # These commands never provision credentials, so ordinarily every object
+    # lands in the second group and this is one invocation exactly as before -
+    # the split only appears when undoing a migration made by the Go
+    # implementation, which does provision them.
+    local deviceUserArgs=()
+    while IFS=$'\t' read -r oldId newId state owner name; do
         [[ "$state" == "present" ]] || continue
-        deleteArgs+=(--id "$newId")
+        if [[ "$owner" == device_* ]]; then
+            deviceUserArgs+=(--id "$newId")
+        else
+            deleteArgs+=(--id "$newId")
+        fi
     done < "$plan"
 
-    # A 404 here is expected rather than exceptional: Cumulocity propagates a
-    # group deletion to its subgroups, so an object can already be gone by the
-    # time its own delete request is sent. --silentStatusCodes stops c8y
-    # reporting those, and --silentExit keeps them out of its exit code.
+    : > "$errorLog"
+
+    # A 404 is expected rather than exceptional: Cumulocity propagates a group
+    # deletion to its subgroups, so an object can already be gone by the time its
+    # own delete request is sent. --silentStatusCodes stops c8y reporting those,
+    # and --silentExit keeps them out of its exit code.
+    #
+    # --withDeviceUser goes on the device-user group only. It is what stops an
+    # undo leaving a credential that still authenticates against the target,
+    # which would look like success while the device could still connect.
+    if [[ ${#deviceUserArgs[@]} -gt 0 ]]; then
+        run_delete "$force" "$errorLog" --withDeviceUser "${deviceUserArgs[@]}"
+    fi
+    if [[ ${#deleteArgs[@]} -gt 0 ]]; then
+        run_delete "$force" "$errorLog" "${deleteArgs[@]}"
+    fi
+}
+
+# One c8y invocation, so confirmation is c8y's own dialog rather than a home
+# grown one and its "Yes to All" is held for the whole batch.
+#
+# Appends to the error log rather than truncating it: with credentials in play
+# there can be two invocations, and the second must not erase what the first
+# reported.
+run_delete() {
+    local force="$1" errorLog="$2"
+    shift 2
+
     local deleteCommand=(
-        c8y inventory delete "${deleteArgs[@]}" --nullInput
+        c8y inventory delete "$@" --nullInput
         --silentStatusCodes 404 --silentExit
     )
-
-    : > "$errorLog"
 
     if [[ "$force" == "true" ]]; then
         # Nothing will be asked, so stderr can be captured and shown later only
         # if an object survived.
-        "${deleteCommand[@]}" --force > /dev/null 2> "$errorLog" || true
+        "${deleteCommand[@]}" --force > /dev/null 2>> "$errorLog" || true
     else
         # c8y renders its confirmation dialog on STDERR. Redirecting it would
         # hide the prompt while c8y waited on the terminal for an answer, which
@@ -242,9 +288,9 @@ delete_planned() {
 # because the confirmation was declined.
 report_outcome() {
     local outcome="$1"
-    local oldId newId state name
+    local oldId newId state owner name
 
-    while IFS=$'\t' read -r oldId newId state name; do
+    while IFS=$'\t' read -r oldId newId state owner name; do
         [[ "$state" == "present" ]] || continue
 
         # as in build_plan, the non-zero exit on a missing object is the signal

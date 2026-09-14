@@ -88,15 +88,33 @@ func TestTargetClientResolvesARemoteTarget(t *testing.T) {
 }
 
 // The structural guarantee behind the whole design: nothing on the migration
-// request can carry a secret, because there is no field for one. If somebody
-// adds a credential field here, this fails and the record/response/public schema
-// leak is caught before it ships.
+// request can carry a secret, because there is no field able to hold one. If
+// somebody adds a credential field here, this fails and the
+// record/response/public schema leak is caught before it ships.
+//
+// The check is on the name AND the type, not the name alone. A boolean asking
+// for credentials to be provisioned - provisionCredentials - is an instruction,
+// and no arrangement of one bit is a password; refusing it by name would only
+// push the flag into a worse spelling. What must never appear is a field that
+// can carry text, which is why every kind that can is listed here rather than
+// the few that cannot.
 func TestTheMigrationRequestHasNoCredentialField(t *testing.T) {
+	canHoldText := map[reflect.Kind]bool{
+		reflect.String: true, reflect.Slice: true, reflect.Array: true,
+		reflect.Map: true, reflect.Struct: true, reflect.Interface: true,
+		reflect.Pointer: true, reflect.Chan: true, reflect.Func: true,
+		reflect.UnsafePointer: true,
+	}
+
 	for _, f := range reflect.VisibleFields(reflect.TypeOf(MigrationRequest{})) {
 		name := strings.ToLower(f.Name)
 		for _, banned := range []string{"password", "secret", "token", "certificate", "key", "credential"} {
-			if strings.Contains(name, banned) {
-				t.Errorf("MigrationRequest.%s looks like a secret and would land on the job record", f.Name)
+			if !strings.Contains(name, banned) {
+				continue
+			}
+			if canHoldText[f.Type.Kind()] {
+				t.Errorf("MigrationRequest.%s is a %s named like a secret, and would land on the job record",
+					f.Name, f.Type.Kind())
 			}
 		}
 	}

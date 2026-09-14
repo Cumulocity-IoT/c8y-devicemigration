@@ -49,7 +49,28 @@ export interface Choices {
   dataTypes: string;
   dateFrom: string;
   dateTo: string;
+
+  /**
+   * How the migrated devices will authenticate in the target.
+   *
+   * One question with one answer, because the three ways of answering it are
+   * mutually exclusive and the service refuses any pair of them. `none` is the
+   * default: every other answer creates something - users, or an ownership stamp
+   * that decides who may write a twin - and none of that should happen by
+   * accident.
+   */
+  credentials: CredentialChoice;
 }
+
+/**
+ * The four answers to "how will these devices authenticate".
+ *
+ *   - `none`        nothing is created; the copy cannot connect as itself
+ *   - `file`        a device user each, downloaded once     (provisionCredentials)
+ *   - `self`        each device collects its own            (deviceSelfCredentials)
+ *   - `certificate` they keep the chain they have           (certificateFleet)
+ */
+export type CredentialChoice = 'none' | 'file' | 'self' | 'certificate';
 
 export const DEFAULT_CHOICES: Choices = {
   childTypes: "asset,device",
@@ -57,6 +78,7 @@ export const DEFAULT_CHOICES: Choices = {
   dataTypes: "",
   dateFrom: "",
   dateTo: "",
+  credentials: "none",
 };
 
 export class MigrationFlow {
@@ -191,6 +213,15 @@ export class MigrationFlow {
       this.remoteTarget = established;
       this.choices.remoteTargetId = established.id;
       this.choices.targetTenant = established.tenant;
+      // A remote target is reached with a device access token, whose roles are
+      // the device ones - it cannot register a device user, which is what both
+      // credential answers need. The service refuses either, so clearing here
+      // means the screen never offers something that would be rejected on
+      // submit. A certificate fleet survives: it creates no user, only an owner
+      // on objects that same token already owns.
+      if (this.choices.credentials !== "certificate") {
+        this.choices.credentials = "none";
+      }
     });
   }
 
@@ -200,6 +231,36 @@ export class MigrationFlow {
       return;
     }
     await this.preflight();
+  }
+
+  /**
+   * Turns credential provisioning on or off.
+   *
+   * Deliberately not changeScope: that discards the estimate, because anything
+   * changing what would *move* makes the estimate describe a different
+   * migration. This changes what else gets created alongside, and the estimate
+   * counts the registrable devices whether the box is ticked or not - so
+   * invalidating it here would cost a round trip to learn a number already in
+   * hand.
+   */
+  chooseCredentials(choice: CredentialChoice): void {
+    this.choices = { ...this.choices, credentials: choice };
+  }
+
+  /**
+   * Whether a credential can be issued into the target now chosen.
+   *
+   * False for a remote target, and for one reason that covers both answers that
+   * issue one: such a target is reached with a device access token, whose
+   * effective roles are the device ones. Bulk registration needs
+   * ROLE_DEVICE_CONTROL_ADMIN and the token does not hold it, so neither a file
+   * of passwords nor a device collecting its own is possible there.
+   *
+   * A certificate fleet is unaffected and stays on offer - see
+   * `chooseCredentials`.
+   */
+  get canIssueCredentials(): boolean {
+    return !this.choices.remoteTargetId;
   }
 
   /** The relationship kinds a migration can follow, in the API's own order. */
@@ -387,6 +448,17 @@ export class MigrationFlow {
     }
     if (this.choices.dateTo) {
       request.dateTo = this.choices.dateTo;
+    }
+    switch (this.choices.credentials) {
+      case "file":
+        request.provisionCredentials = true;
+        break;
+      case "self":
+        request.deviceSelfCredentials = true;
+        break;
+      case "certificate":
+        request.certificateFleet = true;
+        break;
     }
     return request;
   }

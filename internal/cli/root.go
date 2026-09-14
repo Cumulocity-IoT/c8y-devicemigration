@@ -70,6 +70,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newImportCommand(stderr))
 	root.AddCommand(newMigrateCommand(stderr))
 	root.AddCommand(newPreflightCommand(stderr))
+	root.AddCommand(newRegisterCommand(stderr))
 	root.AddCommand(newRevertCommand(stderr))
 
 	// Value completion for the flags with a knowable set of values. Attached

@@ -17,6 +17,7 @@ import (
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/confirm"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/importer"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/registration"
 	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/session"
 )
 
@@ -48,6 +49,37 @@ type Options struct {
 
 	// Force skips the confirmation.
 	Force bool
+
+	// Credentials provisions a device user for every migrated device, by
+	// registering them in the target tenant BEFORE the import runs.
+	//
+	// The order is what makes the credential usable: registration creates the
+	// managed object owned by the device user it creates alongside it, and the
+	// import then fills that object in. Registering after an import cannot give
+	// the device ownership of an object that already exists.
+	Credentials bool
+
+	// CredentialsFile is where the credentials are written, the moment
+	// registration returns.
+	//
+	// Optional: empty means the credentials are only available through
+	// Credentials(), which is what the microservice uses - it holds them in
+	// memory keyed by the job and hands them over once, rather than writing a
+	// list of device passwords into a container's filesystem.
+	CredentialsFile string
+
+	// IdentityType overrides which external identity a device is registered
+	// under, and which one a stamped owner is derived from. Empty means
+	// registration.DefaultIdentityType.
+	IdentityType string
+
+	// StampDeviceOwner makes each migrated device the owner of its own object,
+	// so it can write to it once it has credentials by any route.
+	//
+	// Independent of Credentials, and refused alongside it: with Credentials the
+	// objects are created by registration and already owned by their device
+	// users, so stamping would be arranging the same thing twice.
+	StampDeviceOwner bool
 }
 
 // Migrator runs one migration.
@@ -74,6 +106,28 @@ type Migrator struct {
 	// part way through". Without it a failure before the first import would
 	// report an earlier attempt's objects as this one's leftovers.
 	importStarted bool
+
+	// credentialsWritten is set once the file exists, so onExit can point at it
+	// on a failure. A run that registered devices and then failed has left
+	// working credentials in the target, and the operator needs to know the file
+	// holding them is the only copy.
+	credentialsWritten bool
+
+	// registeredCount is how many devices got a credential.
+	registeredCount int
+
+	// credentials is what registration issued, kept for a caller that collects
+	// them itself rather than through a file.
+	credentials []registration.Credential
+}
+
+// Credentials returns what this run issued, in the order they were registered.
+//
+// Empty unless Options.Credentials was set. The passwords are in this slice and
+// nowhere else unless CredentialsFile was given, so a caller that wants them has
+// to take them before the Migrator is discarded.
+func (m *Migrator) Credentials() []registration.Credential {
+	return append([]registration.Credential(nil), m.credentials...)
 }
 
 func New(source, target *api.Client, sourceSession, targetSession *session.Session,
@@ -165,9 +219,16 @@ func (m *Migrator) runChained(ctx context.Context) error {
 		return err
 	}
 
+	if err := m.register(ctx, directory); err != nil {
+		return err
+	}
+
 	fmt.Fprintln(m.stderr, "Importing into the target tenant")
 	m.importStarted = true
-	return m.importFrom(ctx, directory, importer.Options{})
+	return m.importFrom(ctx, directory, importer.Options{
+		AdoptRegistered:  m.opts.Credentials,
+		StampDeviceOwner: m.opts.StampDeviceOwner,
+	})
 }
 
 // runIncremental moves the hierarchy first and then the data one device at a
@@ -190,6 +251,10 @@ func (m *Migrator) runIncremental(ctx context.Context) error {
 		return err
 	}
 
+	if err := m.register(ctx, metadata); err != nil {
+		return err
+	}
+
 	if m.opts.Resume != "" {
 		// Re-imported rather than skipped: it is idempotent, and it is what
 		// repairs a hierarchy that stopped half way or that an object was
@@ -199,7 +264,11 @@ func (m *Migrator) runIncremental(ctx context.Context) error {
 		fmt.Fprintln(m.stderr, "Importing the hierarchy into the target tenant")
 	}
 	m.importStarted = true
-	if err := m.importFrom(ctx, metadata, importer.Options{Resume: m.opts.Resume != ""}); err != nil {
+	if err := m.importFrom(ctx, metadata, importer.Options{
+		Resume:           m.opts.Resume != "",
+		AdoptRegistered:  m.opts.Credentials,
+		StampDeviceOwner: m.opts.StampDeviceOwner,
+	}); err != nil {
 		return err
 	}
 
@@ -288,9 +357,107 @@ func (m *Migrator) export(ctx context.Context, rootID, directory string, shape e
 	}).Run(ctx)
 }
 
+// register provisions device users for the exported devices, and writes the
+// credentials file.
+//
+// Between the export and the import, which is the whole of Option A: bulk
+// registration creates each managed object owned by the device user it creates
+// alongside it, and the import then fills that object in rather than creating a
+// second one.
+//
+// The file is written the moment registration returns, before the import is
+// attempted. By then the device users exist in the target, and the passwords are
+// only in this process's memory - so an import failure must not be able to take
+// them with it. A device whose password is lost is unreachable until somebody
+// rotates it.
+func (m *Migrator) register(ctx context.Context, directory string) error {
+	if !m.opts.Credentials {
+		return nil
+	}
+
+	// A resume never re-registers. Registration for an id the target already
+	// knows rotates its password, which would invalidate the credentials file
+	// the first attempt handed over - and the devices in it are the ones that
+	// were already working.
+	if m.opts.Resume != "" && m.journal.Has("registering") {
+		fmt.Fprintln(m.stderr,
+			"This run already registered its devices, so no credentials are issued again:")
+		fmt.Fprintln(m.stderr,
+			"  re-registering would rotate the passwords and invalidate the file from the first attempt.")
+		fmt.Fprintln(m.stderr,
+			"  To issue fresh credentials deliberately, use `c8y-devicemigration register` on its own.")
+		return nil
+	}
+
+	// Journalled before the call, not after: if the run dies between the POST
+	// and the note, a resume that re-registered would rotate passwords the
+	// operator may already hold.
+	if err := m.journal.Note("registering"); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(m.stderr, "Registering the devices in the target tenant")
+	registrar := registration.New(m.target, m.stderr, registration.Options{
+		InputDirectory: directory,
+		Marker:         markerFragment(m.markerRunID),
+		IdentityType:   m.opts.IdentityType,
+		Tenant:         m.targetSession.Tenant,
+	})
+
+	credentials, runErr := registrar.Run(ctx)
+	// Kept even when runErr is non-nil: a partial registration still created
+	// device users, and the credentials for those are in this response and
+	// nowhere else.
+	m.credentials = credentials
+	m.registeredCount = len(credentials)
+	if len(credentials) > 0 && m.opts.CredentialsFile != "" {
+		if err := m.writeCredentials(credentials); err != nil {
+			return err
+		}
+	}
+	if runErr != nil {
+		return runErr
+	}
+	return nil
+}
+
+// writeCredentials writes the file and reports where it is.
+//
+// 0600, and never to stdout: the file is a list of working device passwords, and
+// stdout lands in shell history, CI logs and anything the caller pipes into.
+func (m *Migrator) writeCredentials(credentials []registration.Credential) error {
+	file, err := os.OpenFile(m.opts.CredentialsFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("cannot write the credentials file: %w", err)
+	}
+	if err := registration.WriteCredentialsFile(file, credentials); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("cannot write the credentials file: %w", err)
+	}
+
+	m.credentialsWritten = true
+	fmt.Fprintf(m.stderr, "Credentials for %d %s written to %s\n",
+		len(credentials), plural(len(credentials), "device", "devices"), m.opts.CredentialsFile)
+	fmt.Fprintln(m.stderr,
+		"This is the only copy: the passwords are not recorded anywhere else, and re-issuing them rotates them.")
+	return nil
+}
+
+// markerFragment is the fragment name for a run id, or empty when unmarked.
+func markerFragment(runID string) string {
+	if runID == "" {
+		return ""
+	}
+	return importer.MarkerPrefix + runID
+}
+
 func (m *Migrator) importFrom(ctx context.Context, directory string, shape importer.Options) error {
 	shape.InputDirectory = directory
 	shape.MappingFile = m.opts.MappingFile
+	shape.IdentityType = m.opts.IdentityType
 	shape.RunID = m.markerRunID
 	shape.NoFlag = m.opts.NoFlag
 	// The two tenants were already established as different by the pre-flight,
@@ -306,6 +473,13 @@ func (m *Migrator) confirm() bool {
 		m.opts.RootID,
 		session.NormalisedHost(m.sourceSession.Host), m.sourceSession.Tenant,
 		session.NormalisedHost(m.targetSession.Host), m.targetSession.Tenant)
+
+	if m.opts.Credentials {
+		// Said before the confirmation, because it is the part that creates
+		// something outside the inventory: a user per device, in the target's
+		// user store, that the operator then has to distribute.
+		action += ", provisioning a device user for each device"
+	}
 
 	if confirm.Ask(m.stderr, m.stdin, action) == confirm.Yes {
 		return true
@@ -349,6 +523,16 @@ func (m *Migrator) onExit(runErr error) {
 		fmt.Fprintln(m.stderr, "Migration complete. Reverse it with:")
 		m.printRevertHint()
 		return
+	}
+
+	if m.credentialsWritten {
+		fmt.Fprintf(m.stderr,
+			"%d %s were registered before this failed, and their credentials are in %s.\n",
+			m.registeredCount, plural(m.registeredCount, "device", "devices"), m.opts.CredentialsFile)
+		fmt.Fprintln(m.stderr,
+			"Those device users exist in the target tenant whether or not the migration finished;")
+		fmt.Fprintln(m.stderr,
+			"a revert removes them along with the objects they own.")
 	}
 
 	if m.stagingDirectory != "" {

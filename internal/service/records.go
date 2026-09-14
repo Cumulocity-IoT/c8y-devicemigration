@@ -118,6 +118,9 @@ func (s *Service) Records(ctx context.Context) ([]*Job, error) {
 			continue
 		}
 		job.RecordID = object.ID()
+		// Not stored: whether credentials are still collectable is this
+		// process's memory, and it changes the moment somebody takes them.
+		job.CredentialsAvailable = s.credentials.held(job.ID)
 		jobs = append(jobs, job)
 	}
 	if err := iterator.Err(); err != nil {
@@ -163,6 +166,7 @@ func (s *Service) Record(ctx context.Context, jobID string) (*Job, error) {
 			continue
 		}
 		job.RecordID = object.ID()
+		job.CredentialsAvailable = s.credentials.held(job.ID)
 		return job, nil
 	}
 	if err := iterator.Err(); err != nil {

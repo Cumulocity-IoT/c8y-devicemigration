@@ -38,10 +38,12 @@ c8y-devicemigration migrate --rootId 12345 \
 ```
 
 It names both tenants and asks before creating anything; drop `--force` to keep
-the confirmation. `export`, `import` and `revert` are the same round trip as
-separate steps, and `preflight` checks a migration without running it. Every
-command and option is in **[docs/cli.md](docs/cli.md)**. The port is complete but
-has not yet been run against a live tenant.
+the confirmation. `export`, `register`, `import` and `revert` are the same round
+trip as separate steps, and `preflight` checks a migration without running it.
+Add `--credentials` to provision a device user per device so the fleet can
+reconnect — see [Device credentials](#device-credentials). Every command and
+option is in **[docs/cli.md](docs/cli.md)**. The port is complete but has not yet
+been run against a live tenant.
 
 The same commands are also packaged as a **go-c8y-cli extension** that runs as
 `c8y devicemigration …`, behaviour-identical to the binary, for anyone already
@@ -76,9 +78,12 @@ the UI are complete but have not yet been run against a live tenant.
 
 Why the command line and the microservice share one engine, and how the two
 command line builds are kept in step, is in
-**[docs/internals.md](docs/internals.md)**. For working *on* this repository
-with an autonomous coding agent, there is a network-restricted sandbox in
-**[docs/devcontainer.md](docs/devcontainer.md)**.
+**[docs/internals.md](docs/internals.md)**. What the platform was measured to
+actually do — including the several assumptions that turned out to be wrong, and
+what in this repository depends on each finding — is in
+**[docs/platform-behaviour.md](docs/platform-behaviour.md)**. For working *on*
+this repository with an autonomous coding agent, there is a network-restricted
+sandbox in **[docs/devcontainer.md](docs/devcontainer.md)**.
 
 ## What gets migrated
 
@@ -272,6 +277,56 @@ from here:
 Worth checking too: alarm mapping rules on the target can rewrite an incoming
 alarm's severity and text by type prefix, and one of the options is *Drop*.
 
+## Device credentials
+
+A migration is a copy, and a device's existing credentials belong to the source
+tenant — so without credentials of its own a migrated device is a twin nothing is
+connected to. `migrate --credentials` provisions one device user per device and
+writes the passwords to a file:
+
+```sh
+c8y-devicemigration migrate --rootId 12345 \
+    --sourceSession source.json --targetSession target.json \
+    --credentials --credentialsFile ./credentials.csv
+```
+
+The devices are registered in the target **before** the hierarchy is imported,
+because bulk registration creates each managed object owned by the device user it
+creates alongside it, and the import then fills that object in. Registering after
+an import only rotates a password and leaves the object alone, so the device would
+never own its own twin. `export`, `register` and `import` compose as three steps
+for anyone staging a migration by hand.
+
+The credentials file is the **only** copy — the passwords are not recorded in the
+target tenant or anywhere else, and re-issuing them rotates them rather than
+retrieving them. Getting it onto the devices is the operator's own channel.
+`revert` deletes the device users along with the objects.
+
+A device can only write to its own managed object if it **owns** it, so a
+migration whose credentials arrive by some other route — devices registered by
+hand later, or a certificate fleet that auto-registers — should pass
+`--stampDeviceOwner`, which names each device as the owner of its own object up
+front. Not needed with `--credentials`, where registration already does it.
+
+Devices with no external identity, groups, and devices with several identities
+and no `c8y_Serial` are reported and skipped rather than guessed at. The details,
+including what happens on a resume, are in
+**[docs/cli.md](docs/cli.md#device-credentials)**; the microservice offers the
+same thing with a one-time download, in
+**[docs/microservice.md](docs/microservice.md#device-credentials)**.
+
+Certificate fleets are a different matter: the credential is the chain and the
+devices keep it, so the migration moves the **trust anchor** instead of handing
+out a credential. Migrate one with `certificateFleet` — which issues nothing but
+makes each object owned by the device its certificate will authenticate as, or
+the fleet arrives unable to write its own twins — and then move the anchor from
+that migration in the list. See
+**[docs/microservice.md](docs/microservice.md#moving-a-trust-anchor-for-a-certificate-fleet)**.
+
+The user interface asks all of this as one question — *how will the migrated
+devices authenticate?* — with those three answers and "nothing" beside them; see
+**[docs/ui.md](docs/ui.md)**.
+
 ## Limitations
 
 Managed objects, their parent/child relationships, their external identities
@@ -283,8 +338,12 @@ particular the following are **not** covered:
 - anything offloaded to the data lake
 - audit logs
 - binaries attached to managed objects (event attachments *are* migrated)
-- device credentials, so migrated devices do not reconnect on their own
 - applications, tenant options and user or role assignments
+
+Device credentials **are** covered: see [Device credentials](#device-credentials)
+for a basic-authentication fleet, and
+[moving a trust anchor](docs/microservice.md#moving-a-trust-anchor-for-a-certificate-fleet)
+for a certificate fleet, which keeps its own chain.
 
 There is no per-record ID mapping for data. On tenants with enhanced time series
 enabled there is no stable per-measurement identity to map, so traceability, if

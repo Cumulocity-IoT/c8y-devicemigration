@@ -10,15 +10,17 @@ dependency on the `c8y` binary.
 ## The extension and the standalone binary
 
 The two are kept behaviour-identical on purpose — a differential test diffs their
-output on every build — so which you use is a question of how you work rather than
-what you get:
+output on every build — so which you use is mostly a question of how you work
+rather than what you get. Mostly: the Go binary has grown two things the bash
+commands do not have, and `preflight` and device credentials are both of them.
 
 | | this extension | [standalone binary](cli.md) |
 | --- | --- | --- |
 | Install | `c8y extension install …` | `make install` |
 | Needs | the `c8y` binary | nothing at runtime |
 | Talks to Cumulocity | through `c8y` | through the REST API directly |
-| Commands | `export` `import` `revert` `migrate` | the same, plus `preflight` |
+| Commands | `export` `import` `revert` `migrate` | the same, plus `preflight` and `register` |
+| Device credentials | not provisioned; `revert` still removes the device users a Go migration created | `migrate --credentials`, or `register` as a step |
 | Sessions | `--session`, or the active one | the same |
 | Shell completion | c8y's | its own, including flag values |
 | Status | the supported one | complete, but has never run against a live tenant |

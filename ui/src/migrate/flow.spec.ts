@@ -32,12 +32,16 @@ function stub(overrides: Partial<MigrationApi> = {}): MigrationApi {
     migration: nothing as never,
     startMigration: async () => ({ id: 'job-1', kind: 'MIGRATION', status: 'QUEUED' }) as Job,
     cancelMigration: async () => undefined,
+    migrationCredentials: nothing as never,
     reverts: async () => [],
     revert: nothing as never,
     startRevert: nothing as never,
     establishRemoteTarget: async () => ({ id: 'rt-1', host: 'h', tenant: 't-remote' }),
     remoteTargets: async () => [],
     discardRemoteTarget: async () => undefined,
+    trustedCertificates: nothing as never,
+    cutOverCertificate: nothing as never,
+    countWithFragments: nothing as never,
     ...overrides
   };
 }
@@ -584,5 +588,86 @@ describe('a remote target', () => {
     expect(flow.remoteTarget).toBeUndefined();
     expect(flow.request().remoteTargetId).toBeUndefined();
     expect(flow.request().targetTenant).toBe('t-b');
+  });
+});
+
+describe('how the migrated devices will authenticate', () => {
+  // One question with one answer, so the request carries at most one flag. The
+  // service refuses any pair of them, and a screen that could produce one would
+  // be offering something that is rejected on submit.
+  it('puts exactly one flag on the request, or none', async () => {
+    const expected: Record<string, string | undefined> = {
+      none: undefined,
+      file: 'provisionCredentials',
+      self: 'deviceSelfCredentials',
+      certificate: 'certificateFleet'
+    };
+
+    for (const [choice, flag] of Object.entries(expected)) {
+      const flow = await readyFlow();
+      flow.chooseCredentials(choice as 'none' | 'file' | 'self' | 'certificate');
+
+      const request = flow.request() as Record<string, unknown>;
+      const set = Object.keys(expected)
+        .map(key => expected[key])
+        .filter((name): name is string => !!name)
+        .filter(name => request[name] === true);
+
+      expect(set).toEqual(flag ? [flag] : []);
+    }
+  });
+
+  it('asks for nothing by default', async () => {
+    const flow = await readyFlow();
+
+    expect(flow.choices.credentials).toBe('none');
+    expect(flow.request().provisionCredentials).toBeUndefined();
+    expect(flow.request().deviceSelfCredentials).toBeUndefined();
+    expect(flow.request().certificateFleet).toBeUndefined();
+  });
+
+  // Keeping the estimate is the point of not routing this through changeScope:
+  // the count it needs is already in hand whatever the answer, because this
+  // changes what is created alongside the migration rather than what moves.
+  it('does not discard the estimate', async () => {
+    const flow = await readyFlow();
+    await flow.refreshEstimate();
+    expect(flow.estimate).toBeDefined();
+
+    flow.chooseCredentials('self');
+
+    expect(flow.estimate).toBeDefined();
+  });
+
+  // A remote target is reached with a device access token, which cannot register
+  // a device user. Both issuing answers are impossible there; the certificate
+  // one is not, because it registers nothing.
+  it('withdraws both issuing answers for a remote target, and keeps the certificate one', async () => {
+    const remote = stub({
+      establishRemoteTarget: async () => ({ id: 'rt-9', host: 'h', tenant: 't9' })
+    });
+
+    for (const [choice, expected] of [
+      ['file', 'none'],
+      ['self', 'none'],
+      ['certificate', 'certificate']
+    ] as const) {
+      const flow = new MigrationFlow(remote);
+      await flow.loadTenants();
+      flow.chooseSource('t-a');
+      flow.chooseRoot({ id: '1', name: 'Plant Berlin' });
+      flow.chooseCredentials(choice);
+
+      await flow.establishRemoteTarget('h', 't9');
+
+      expect(flow.canIssueCredentials).toBe(false);
+      expect(flow.choices.credentials).toBe(expected);
+    }
+  });
+
+  it('offers everything again for a subscribed target', async () => {
+    const flow = await readyFlow();
+
+    expect(flow.canIssueCredentials).toBe(true);
   });
 });
