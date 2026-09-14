@@ -204,10 +204,6 @@ func recordTime(t time.Time) string {
 }
 
 // OfKind is the records of one kind, newest first.
-//
-// A record written before jobs had kinds is a migration: it is the only thing
-// that existed, and treating it as one keeps an older tenant's history readable
-// rather than hiding it.
 func (s *Service) OfKind(ctx context.Context, kind JobKind) ([]*Job, error) {
 	jobs, err := s.Records(ctx)
 	if err != nil {
@@ -216,15 +212,99 @@ func (s *Service) OfKind(ctx context.Context, kind JobKind) ([]*Job, error) {
 
 	var wanted []*Job
 	for _, job := range jobs {
-		actual := job.Kind
-		if actual == "" {
-			actual = KindMigration
-		}
-		if actual == kind {
+		if jobKind(job) == kind {
 			wanted = append(wanted, job)
 		}
 	}
 	return wanted, nil
+}
+
+// jobKind is what a job is, reading a record written before jobs had kinds as a
+// migration: it is the only kind that existed then, and treating it as one keeps
+// an older tenant's history readable rather than hiding it.
+func jobKind(job *Job) JobKind {
+	if job.Kind == "" {
+		return KindMigration
+	}
+	return job.Kind
+}
+
+// DeleteJob removes a job's record, and with it the records of the undos of
+// that job. It reports which jobs it removed.
+//
+// A record is this service's account of what a run did, and nothing else: it
+// lives in the owner tenant, and deleting one touches neither tenant a migration
+// ran between. Whatever a migration created stays where it is, still carrying
+// the run marker - which after this is the only thing left that can find those
+// objects again. That is why the screen offering this says so before it happens,
+// and why the same delete is not offered for a run that is still going.
+//
+// The undos go with the migration because an undo is not a thing of its own: a
+// revert record names the migration it undid by run id and nothing else, so one
+// left behind by a deleted migration is a row that can say only "undo of
+// 20260101T...". Several is normal - a first attempt that failed and a second
+// that finished - and all of them belong to the run.
+//
+// Nothing is deleted while any of it is unfinished. The whole set is checked
+// first, so a live undo refuses the delete rather than leaving its migration
+// gone and itself orphaned, and a running job cannot carry on writing a record
+// this has already removed.
+func (s *Service) DeleteJob(ctx context.Context, jobID string) ([]string, error) {
+	job, err := s.Record(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	doomed := []*Job{job}
+	if jobKind(job) == KindMigration && job.RunID != "" {
+		undos, err := s.OfKind(ctx, KindRevert)
+		if err != nil {
+			return nil, err
+		}
+		for _, undo := range undos {
+			if undo.Revert != nil && undo.Revert.RunID == job.RunID {
+				doomed = append(doomed, undo)
+			}
+		}
+	}
+
+	for _, victim := range doomed {
+		if !victim.Finished() {
+			what := "this job"
+			if victim.ID != jobID {
+				what = fmt.Sprintf("an undo of it (%s)", victim.ID)
+			}
+			return nil, &ConflictError{Reason: fmt.Sprintf(
+				"%s is %s, so its record is still being written: cancel it and let it settle first",
+				what, victim.Status)}
+		}
+	}
+
+	owner, err := s.tenant(s.ownerTenant)
+	if err != nil {
+		return nil, err
+	}
+
+	// The undos first, so a failure part way through never leaves an undo whose
+	// migration is gone. The other order would produce exactly the orphan this
+	// cascade exists to prevent.
+	var deleted []string
+	for i := len(doomed) - 1; i >= 0; i-- {
+		victim := doomed[i]
+		if victim.RecordID == "" {
+			continue
+		}
+		result := owner.client.ManagedObjects.Delete(ctx, victim.RecordID, managedObjectDeleteOptions)
+		if result.Err != nil {
+			return deleted, fmt.Errorf("could not delete the record of job %s: %w",
+				victim.ID, result.Err)
+		}
+		deleted = append(deleted, victim.ID)
+		recordsDeleted.Inc()
+	}
+
+	slog.Info("deleted job records on request", "job", jobID, "count", len(deleted))
+	return deleted, nil
 }
 
 // SettleStale closes the records of jobs that claim to be running when nothing

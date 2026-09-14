@@ -80,6 +80,8 @@ func (s *Service) Routes() []Route {
 			handler: s.handleCancelMigration},
 		{Method: http.MethodGet, Path: "/migrations/{id}/credentials",
 			handler: s.handleGetCredentials},
+		// Removes this service's record of a run. Not the run: see DeleteJob.
+		{Method: http.MethodDelete, Path: "/migrations/{id}", handler: s.handleDeleteJob},
 
 		// The one endpoint a caller from outside the owner tenant may reach: a
 		// migrated device asking where to reconnect and who it now is. The whole
@@ -98,6 +100,7 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/reverts", handler: s.handleListReverts},
 		{Method: http.MethodGet, Path: "/reverts/{id}", handler: s.handleGetJob},
 		{Method: http.MethodPost, Path: "/reverts/{id}/cancel", handler: s.handleCancelJob},
+		{Method: http.MethodDelete, Path: "/reverts/{id}", handler: s.handleDeleteJob},
 
 		// The Spring Boot actuator shape, which is what the platform's own
 		// tooling talks to.
@@ -343,6 +346,39 @@ func (s *Service) handleCancelMigration(w http.ResponseWriter, r *http.Request) 
 		"id":      r.PathValue("id"),
 		"message": "cancelling; the job record will say what reached the target tenant",
 	})
+}
+
+// DeletionResponse names the jobs whose records were removed.
+//
+// A list rather than a count, and the same shape whichever kind was asked for:
+// deleting a migration takes its undos with it, and a caller that has just been
+// told "3" has to go and read the listing to learn which three.
+type DeletionResponse struct {
+	Deleted []string `json:"deleted"`
+}
+
+// handleDeleteJob forgets a job, and the undos that belong to it.
+//
+// One handler behind both /migrations/{id} and /reverts/{id}, because a record
+// is a record: the kind decides whether there are undos to take along, and the
+// record itself says which kind it is. Registered under both paths so that the
+// delete sits where the thing being deleted is read.
+func (s *Service) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.Authorize(r.Context(), r); err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	deleted, err := s.DeleteJob(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	// 200 with what went, not 204: the cascade means the caller asked about one
+	// job and may have removed three, and a screen that reloads afterwards
+	// should be able to say so.
+	writeJSON(w, r, http.StatusOK, DeletionResponse{Deleted: deleted})
 }
 
 // TenantsResponse says which tenants this microservice can act on.

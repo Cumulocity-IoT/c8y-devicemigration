@@ -97,9 +97,31 @@ The table is **the platform's own data grid**, given rows rather than a
 `serverSideDataCallback` — which is what makes it sort, page and search through
 them itself, and brings its own refresh button and column chooser. Sorting
 defaults to **Timestamp, newest first**, which is the useful order for a list of
-things that happened. Cancel, Revert, Migration log, Download device credentials
-and Move trust anchor are the grid's **row actions**, so each appears only where
-it applies and there are no button columns to keep aligned.
+things that happened.
+
+**The actions are the one part of the grid this screen does not use.** Cancel,
+Revert, Migration log and Remove migration record were its **row actions** to
+begin with, which is the right thing to reach for and was fine while there were
+two of them: the grid renders two as icons in the row, and three or more as one
+icon plus a `⋮` menu holding the rest. That threshold is written into its template —
+`| slice: 0 : (length > 2 ? 1 : 2)` — and there is no input for it. So the third
+action made the *affordance itself* depend on what had happened to a migration:
+a run nobody had undone wore a menu, the reverted row under it wore two buttons,
+and *Remove migration record* was in a different place on adjacent rows.
+
+There are now six of them — Cancel, Download device credentials, Move trust
+anchor, Revert, Migration log and Remove migration record — and no row offers all
+six, so under the grid's own rule the layout would differ on almost every line.
+
+The last column is therefore ours: **one `⋮` menu, on every row, holding whatever
+that row offers** — the grid's own markup, classes and placement, rendered by
+[row-actions.component.ts](../ui/src/history/row-actions.component.ts) for all of
+them rather than for the crowded ones. What goes in it is
+[`actionsFor`](../ui/src/history/rows.ts), a tested function, in a fixed order:
+what the run is still doing, then what can be done to what it created, then
+reading about it, then forgetting it. The column is named `rowActions` and not
+`actions`, because the grid switches on a column's name and has a branch of its
+own for that one.
 
 **Pagination is the grid's, not the service's**, and that distinction matters:
 `GET /migrations` and `GET /reverts` have no paging parameters and return every
@@ -284,9 +306,9 @@ would work — the command line against that tenant, or deleting the marked obje
 in the target itself. This is a separate `revertExpired` rule rather than a branch
 of `revertable`, because they are different sentences: not-revertable covers runs
 that were never undoable (a revert, an unmarked run, one already undone), while
-this one *was*, until a deadline passed. It is a second `ActionControl` wearing
-`iconClasses: 'text-muted'`, because the grid has no disabled action — `showIf` is
-all `ActionControl` offers.
+this one *was*, until a deadline passed. It is a menu entry of its own wearing a
+muted icon rather than a disabled *Revert*, because an entry that only explains
+should not read as an offer.
 
 **Move trust anchor is the second half of a certificate-fleet migration**, and it
 is offered from the row rather than from a screen of its own. It appears for a
@@ -313,11 +335,9 @@ accepted the certificate while dropping that flag would refuse every arriving
 device in silence.
 
 **An undo cannot itself be undone, and the expansion says so** rather than
-leaving it to the absence of an action. It has to be said in the row's content:
-`ActionControl` exposes `showIf` and no disabled state, so a greyed-out *Revert*
-carrying the reason in a tooltip cannot be built without abandoning the grid's
-row actions for a bespoke button column — which is what this design deliberately
-moved away from.
+leaving it to the absence of a menu entry. A row's menu says what can be done,
+not what cannot: the reasons belong in the row's content, where there is room for
+a sentence.
 
 Above the list is an **introduction that stays there**: what this moves, and the
 two facts that reassure a first-time user — nothing is read until a migration is
@@ -337,6 +357,36 @@ three separate things make it impossible: a revert creates nothing, so there is
 nothing to undo about one; a run started with `noFlag` marked nothing, so only its
 mapping file could find those objects and that file did not outlive the container;
 and a run still going has not finished creating what an undo would delete.
+
+**A row can be removed from the list, which is not the same as undoing it.**
+*Remove migration record* deletes the service's record of a run —
+`DELETE /migrations/{id}` — and nothing else: both tenants are untouched, and
+whatever the migration created stays where it is. Two destructive actions now sit
+in one menu and they destroy opposite things, so the confirmation leads with the
+difference rather than with "this cannot be undone", which is true of either.
+
+**Deleting a migration deletes the undos of it.** The service does that, and it
+has to: a revert record names its migration by run id and nothing else, so one
+left behind is a row that can say only *undo of 20260101T…*. The dialogue says
+how many are going before it happens, from
+[`undosDeleted`](../ui/src/history/rows.ts). An undo listed on its own — one whose
+migration has aged out — deletes only itself, through `DELETE /reverts/{id}`; the
+row knows which it is, and the confirmation is worded accordingly.
+
+**The warning that matters is about a migration nobody has undone.** Its record is
+what *Revert* reads, so deleting it is the moment undoing stops being something
+this screen can do: the objects keep their run marker and are still findable, by
+somebody who kept the run id, from the command line. That sentence is
+[`deleteWarnings`](../ui/src/history/rows.ts) and it appears only on the rows it
+is true of — a migration already reverted has nothing left to strand, and says
+nothing.
+
+**A run that is still going cannot be removed**, its own or one of its undos:
+the job is still writing the record this would delete. The action is hidden by
+[`deletable`](../ui/src/history/rows.ts) and refused by the service with a 409 for
+the same reason, so a job that starts between the menu opening and the button
+being pressed leaves the dialogue open carrying the service's own words instead of
+half a deletion.
 
 **The engine's own log is offered per row**, on the rows that have any, as
 *Migration log* — which is what it is; *Output* named neither whose nor of what.

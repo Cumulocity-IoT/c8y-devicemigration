@@ -44,4 +44,9 @@ var (
 		Name: "devicemigration_records_pruned_total",
 		Help: "Job records deleted because they were older than the retention period.",
 	})
+
+	recordsDeleted = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "devicemigration_records_deleted_total",
+		Help: "Job records deleted because somebody asked for them to be.",
+	})
 )

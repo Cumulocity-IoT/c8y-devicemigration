@@ -50,8 +50,17 @@ first, because the useful question on opening this is what happened last time.
   what window, whether the target was reached with a certificate — and, when there
   is one, the undo: its outcome, when it ran, who ran it, its own run id and its own
   log.
-- **Migration log** per row: the engine's own output for that run, which is the way
-  to diagnose a failure.
+- **One menu per row**, in the same place on every one of them, holding whatever
+  that row offers: *Cancel* while a migration runs, *Revert*, *Migration log* and
+  *Remove migration record*.
+- **Migration log**: the engine's own output for that run, which is the way to
+  diagnose a failure.
+- **Remove migration record** per row, to tidy up a history that has served its
+  purpose. It deletes the record of the run and nothing else — both tenants are
+  untouched — and it takes the undos of that migration with it, because an undo
+  names its migration by run id and nothing else. It is confirmed first, and the
+  confirmation says which of those two things is about to happen. Records can also
+  expire on their own: see *Housekeeping*.
 - **Live progress.** The list re-reads itself every 30 seconds, and every second
   while something is running, with a progress bar counting devices as they are done.
   Closing the dialogue or reloading the page loses nothing, and a migration started
@@ -104,6 +113,21 @@ everything carrying that marker in the target tenant and nothing else.
   attempt left.
 - **An undo cannot itself be undone**, and the row says so rather than leaving it to
   a missing menu item.
+
+Undoing is not the same as **Remove migration record**, which deletes the record
+of a run and leaves what it created in place. Removing the record of a migration
+nobody has undone is the point at which this screen can no longer undo it — the
+objects keep their run marker, so they are still findable from the command line by
+somebody who kept the run id, and the confirmation says so before it happens.
+
+## Housekeeping
+
+Records do not have to be removed by hand. The microservice keeps a finished job's
+record for as long as its `records.retention.days` setting says, and **zero — the
+default — keeps them forever**, because the record is the only account of what was
+done to a customer's tenant. An operator sets it in *Administration → Settings* on
+the tenant the service runs on; expired records are swept away hourly. Pruning goes
+by age alone, so a migration and a much later undo of it expire separately.
 
 ## Migrating somewhere this instance is not subscribed
 

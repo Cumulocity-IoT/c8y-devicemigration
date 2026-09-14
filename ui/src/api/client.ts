@@ -32,6 +32,7 @@ export type TrustedCertificateView = components['schemas']['TrustedCertificateVi
 export type TrustedCertificatesResponse = components['schemas']['TrustedCertificatesResponse'];
 export type TrustAnchorCutoverRequest = components['schemas']['TrustAnchorCutoverRequest'];
 export type TrustAnchorCutoverResponse = components['schemas']['TrustAnchorCutoverResponse'];
+export type DeletionResponse = components['schemas']['DeletionResponse'];
 
 /** The path the platform exposes this microservice at. */
 export const BASE = '/service/devicemigration';
@@ -87,6 +88,14 @@ export interface MigrationApi {
   migration(id: string): Promise<Job>;
   startMigration(request: MigrationRequest): Promise<Job>;
   cancelMigration(id: string): Promise<void>;
+  /**
+   * Forgets a migration, and the undos of it, and says which went.
+   *
+   * The record only: nothing the migration created is deleted, which is the
+   * difference between this and startRevert and the thing the confirmation on
+   * the way here has to make plain.
+   */
+  deleteMigration(id: string): Promise<string[]>;
 
   /**
    * Collects the device credentials a migration issued - once.
@@ -101,6 +110,8 @@ export interface MigrationApi {
   reverts(): Promise<Job[]>;
   revert(id: string): Promise<Job>;
   startRevert(request: RevertRequest): Promise<Job>;
+  /** Forgets one undo. Used for the ones whose migration is no longer listed. */
+  deleteRevert(id: string): Promise<string[]>;
 
   establishRemoteTarget(request: RemoteTargetRequest): Promise<RemoteTargetEstablished>;
   remoteTargets(): Promise<RemoteTargetView[]>;
@@ -187,10 +198,14 @@ export function createApi(fetchLike: FetchLike): MigrationApi {
     },
     migrationCredentials: id =>
       readText(fetchLike, `/migrations/${encodeURIComponent(id)}/credentials`),
+    deleteMigration: async id =>
+      (await remove<DeletionResponse>(`/migrations/${encodeURIComponent(id)}`)).deleted ?? [],
 
     reverts: async () => (await read<{ reverts?: Job[] }>('/reverts')).reverts ?? [],
     revert: id => read<Job>(`/reverts/${encodeURIComponent(id)}`),
     startRevert: request_ => write<Job>('/reverts', request_),
+    deleteRevert: async id =>
+      (await remove<DeletionResponse>(`/reverts/${encodeURIComponent(id)}`)).deleted ?? [],
 
     establishRemoteTarget: request_ =>
       write<RemoteTargetEstablished>('/remote-targets', request_),

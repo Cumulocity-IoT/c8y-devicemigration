@@ -583,6 +583,41 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
 
+    delete:
+      tags: [migrations]
+      summary: Forget a migration, and the undos of it
+      description: |
+        Deletes this service's **record** of a migration, and the records of
+        every revert of that run. It deletes nothing in either tenant: whatever
+        the migration created stays where it is, still carrying its run marker,
+        which afterwards is the only way left to find those objects - so undoing
+        the migration from this service is no longer possible once its record is
+        gone.
+
+        The undos go with it because a revert record names its migration by run
+        id and nothing else: left behind, it is a row that can say only *undo of
+        20260101T…*. The response lists every job that was removed.
+
+        A job that has not finished is a **409**: its record is still being
+        written. Cancel it, let it settle, and ask again.
+
+        The same thing happens on a schedule when `records.retention.days` is
+        set - see the settings - which prunes finished records by age.
+      operationId: deleteMigration
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The records that were deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionResponse"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+
   /migrations/{id}/cancel:
     post:
       tags: [migrations]
@@ -909,6 +944,32 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+
+    delete:
+      tags: [migrations]
+      summary: Forget a revert
+      description: |
+        Deletes this service's record of one undo and nothing else. Deleting the
+        migration it belongs to removes it too, which is the usual way this
+        happens; this is for an undo whose migration is no longer on record - a
+        revert run from the command line against an aged-out run id.
+
+        Like deleting a migration, this removes bookkeeping only, and a job that
+        has not finished is a **409**.
+      operationId: deleteRevert
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The records that were deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionResponse"
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
 
   /reverts/{id}/cancel:
     post:
@@ -1725,6 +1786,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Job"
+
+    DeletionResponse:
+      type: object
+      properties:
+        deleted:
+          type: array
+          description: |
+            The ids of the jobs whose records were removed. More than one when a
+            migration was deleted together with the undos of it.
+          items:
+            type: string
 
     Job:
       type: object

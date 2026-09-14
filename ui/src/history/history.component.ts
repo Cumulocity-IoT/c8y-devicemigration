@@ -1,7 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import {
-  type ActionControl,
   BottomDrawerService,
   C8yTranslatePipe,
   type Column,
@@ -19,6 +18,8 @@ import { MigrateComponent } from '../migrate/migrate.component';
 import { kindLabel } from '../migrate/labels';
 import { byId } from '../tenants';
 import { saveTextFile } from './download';
+import { DeleteConfirmComponent } from './delete-confirm.component';
+import { RowActionsComponent } from './row-actions.component';
 import { OutputComponent } from './output.component';
 import { CollectionProgressComponent } from './collection-progress.component';
 import { CutoverComponent } from './cutover.component';
@@ -26,6 +27,8 @@ import { RevertConfirmComponent } from './revert-confirm.component';
 import { RevertExpiredComponent } from './revert-expired.component';
 import { RegisterCertificateComponent } from '../trust/register-certificate.component';
 import {
+  actionsFor,
+  deleteWarnings,
   explain,
   hasDetail,
   type Failure,
@@ -38,8 +41,10 @@ import {
   serviceAbsent,
   statusTag,
   tagForTone,
+  undosDeleted,
   type GridRow,
   type Row,
+  type RowActionKind,
   type ScopeRow,
   type Undo,
   type UndoRow
@@ -206,77 +211,99 @@ export class HistoryComponent implements OnInit, OnDestroy {
       gridTrackSize: 'minmax(80px, 0.5fr)'
     },
     text('by', gettext('User')),
-    text('runId', gettext('Run id'))
+    text('runId', gettext('Run id')),
+    {
+      // Ours rather than the grid's own row actions, and the reason is in
+      // row-actions.component.ts: the grid renders two actions as icons and
+      // three as an icon plus a menu, so which affordance a row wore depended on
+      // what had happened to that migration. This column is one menu, on every
+      // row, always in the same place.
+      // Not called "actions": the grid's template switches on a column's name
+      // and has a branch of its own for that one, which would render its row
+      // actions - of which there are none - instead of this renderer.
+      name: 'rowActions',
+      header: gettext('Actions'),
+      path: 'id',
+      dataType: ColumnDataType.Icon,
+      sortable: false,
+      filterable: false,
+      resizable: false,
+      // Stays on the right, where the grid's own actions were and where every
+      // other Cumulocity list keeps them.
+      positionFixed: true,
+      gridTrackSize: 'max-content',
+      cellRendererComponent: RowActionsComponent
+    }
   ];
 
   /**
-   * What can be done to a row.
+   * How each entry of that menu reads, and what it does.
    *
-   * The grid's own row actions, so there are no button columns to keep aligned,
-   * and each one appears only where it applies - which is the whole of the rule
-   * about what can be undone.
+   * The words and the icon here; which of them a given row offers is
+   * [`actionsFor`](rows.ts). Splitting it that way is what lets the rule be
+   * tested without a translator or a browser, and it is the same split the
+   * status column already uses.
    */
-  readonly actions: ActionControl[] = [
-    {
-      type: 'CANCEL_JOB',
+  private readonly vocabulary: Record<
+    RowActionKind,
+    { text: string; icon: string; iconClasses?: string; run: (row: GridRow) => void }
+  > = {
+    cancel: {
       text: gettext('Cancel'),
       icon: 'ban',
-      showIf: (row: GridRow) => row.cancellable,
-      callback: (row: GridRow) => void this.cancel(row.job)
+      run: row => void this.cancel(row.job)
     },
-    {
-      // Offered only while there is something to collect. The service hands the
-      // file over once and forgets it, so this disappears the moment it is
-      // downloaded - which is also the honest thing to show, because asking
-      // again cannot work.
-      type: 'DOWNLOAD_CREDENTIALS',
+    // Offered only while there is something to collect. The service hands the
+    // file over once and forgets it, so this disappears the moment it is
+    // downloaded - which is also the honest thing to show, because asking again
+    // cannot work.
+    credentials: {
       text: gettext('Download device credentials'),
       icon: 'download',
-      showIf: (row: GridRow) => row.credentialsCollectable,
-      callback: (row: GridRow) => void this.downloadCredentials(row.job)
+      run: row => void this.downloadCredentials(row.job)
     },
-    {
-      // The other half of a certificate-fleet migration. Offered for as long as
-      // the migration stands, not only once: the cutover leaves no record - it
-      // creates no job, being two calls rather than a run - so nothing here can
-      // say it has already happened. The dialogue answers that by listing the
-      // source's truststore live, where a certificate already moved is simply no
-      // longer present.
-      type: 'MOVE_TRUST_ANCHOR',
+    // The other half of a certificate-fleet migration. Offered for as long as
+    // the migration stands, not only once: the cutover leaves no record - it
+    // creates no job, being two calls rather than a run - so nothing here can
+    // say it has already happened. The dialogue answers that by listing the
+    // source's truststore live, where a certificate already moved is simply no
+    // longer present.
+    trustAnchor: {
       text: gettext('Move trust anchor'),
       icon: 'certificate',
-      showIf: (row: GridRow) => row.trustAnchorMovable,
-      callback: (row: GridRow) => this.confirmCutover(row)
+      run: row => this.confirmCutover(row)
     },
-    {
-      type: 'REVERT_JOB',
+    revert: {
       text: gettext('Revert'),
       icon: 'undo',
-      showIf: (row: GridRow) => row.revertable,
-      callback: (row: GridRow) => this.confirmRevert(row)
+      run: row => this.confirmRevert(row)
     },
-    {
-      // Not a disabled Revert - the grid has no such thing, ActionControl offers
-      // showIf and nothing else - so it is a second action wearing a muted icon
-      // and saying what it is. Clicking it explains, which is the one thing left
-      // that it can usefully do.
-      type: 'REVERT_EXPIRED',
+    // Not a disabled Revert: this one only explains why undoing is no longer
+    // possible, which is the one useful thing left to do about it. Muted, so it
+    // does not read as an offer.
+    revertExpired: {
       text: gettext('Undo no longer possible'),
       icon: 'undo',
       iconClasses: 'text-muted',
-      showIf: (row: GridRow) => row.revertExpired,
-      callback: (row: GridRow) => this.explainExpiredRevert(row)
+      run: row => this.explainExpiredRevert(row)
     },
-    {
-      type: 'SHOW_OUTPUT',
-      // What it actually is: the engine's own log for this run. "Output" said
-      // nothing about whose output or of what.
+    // What it actually is: the engine's own log for this run. "Output" said
+    // nothing about whose output or of what.
+    log: {
       text: gettext('Migration log'),
       icon: 'file-text-o',
-      showIf: (row: GridRow) => row.hasOutput,
-      callback: (row: GridRow) => this.showOutput(row.job)
+      run: row => this.showOutput(row.job)
+    },
+    // Forgetting a run, which is not undoing one: this removes the record and
+    // leaves both tenants untouched. Last in the menu and furthest from Revert,
+    // because the two are destructive in different directions and the click that
+    // hits the wrong one is the click that costs the most.
+    delete: {
+      text: gettext('Remove migration record'),
+      icon: 'delete',
+      run: row => this.confirmDelete(row)
     }
-  ];
+  };
 
   private polling?: ReturnType<typeof setTimeout>;
 
@@ -429,6 +456,24 @@ export class HistoryComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Asks before forgetting a run, and says what forgetting means.
+   *
+   * A separate dialogue from the undo's rather than a shared "are you sure":
+   * they destroy different things, and the only sentence worth putting in front
+   * of somebody here is which of the two this is.
+   */
+  confirmDelete(row: GridRow): void {
+    const dialog = this.modals.show(DeleteConfirmComponent, {
+      class: 'modal-md',
+      initialState: { row }
+    });
+
+    (dialog.content as DeleteConfirmComponent | undefined)?.removed.subscribe(() => {
+      void this.load();
+    });
+  }
+
   async cancel(job: Job): Promise<void> {
     if (!job.id) {
       return;
@@ -475,7 +520,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
    */
   private forGrid(row: Row): GridRow {
     const progress = row.progress;
-    return {
+    const grid: GridRow = {
       job: row.job,
       id: row.job.id ?? '',
       // Status, and what qualifies it: how far a running job has got, and what
@@ -508,16 +553,34 @@ export class HistoryComponent implements OnInit, OnDestroy {
       took: row.took ? this.say(row.took) : '',
       by: row.job.requestedBy ?? '',
       runId: row.job.runId ?? '',
-      revertable: row.revertable,
-      revertExpired: row.revertExpired,
-      cancellable: row.cancellable,
-      credentialsCollectable: row.credentialsCollectable,
-      trustAnchorMovable: row.trustAnchorMovable,
-      hasOutput: hasDetail(row),
+      isRevert: row.job.kind === 'REVERT',
       scope: this.forScope(row.job),
       revertWarnings: revertWarnings(row).map(warning => this.say(warning)),
-      undos: row.undos.map(undo => this.forPanel(undo))
+      deleteWarnings: deleteWarnings(row).map(warning => this.say(warning)),
+      undosDeleted: this.say(undosDeleted(row) ?? ''),
+      undos: row.undos.map(undo => this.forPanel(undo)),
+      // Filled in below, because both of them need the row they belong to.
+      actions: [],
+      perform: () => undefined
     };
+
+    // The menu, in words, and the one callback that runs any of it. Functions
+    // are invisible to keepingIdentity's comparison, which stringifies a row -
+    // so a row that reuses its previous object keeps that object's callback,
+    // closed over a row with identical content. The entries themselves are
+    // plain text and do take part in the comparison, which is right: a row whose
+    // offers changed has changed.
+    grid.actions = actionsFor(row).map(kind => {
+      const { text, icon, iconClasses } = this.vocabulary[kind];
+      // The delete says what it removes, and on an undo listed of its own what
+      // it removes is that undo's record - the migration's is not this row's to
+      // speak for, and may not be on record at all.
+      const named = kind === 'delete' && grid.isRevert ? gettext('Remove undo record') : text;
+      return { kind, text: this.say(named), icon, iconClasses };
+    });
+    grid.perform = kind => this.vocabulary[kind].run(grid);
+
+    return grid;
   }
 
   /**

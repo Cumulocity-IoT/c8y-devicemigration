@@ -122,10 +122,12 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /migrations` | every job this service has run, newest first |
 | `GET /migrations/{id}` | one job, including the tail of its output |
 | `POST /migrations/{id}/cancel` | asks a running job to stop |
+| `DELETE /migrations/{id}` | forgets a migration, and the undos of it. The **record** only: nothing in either tenant is touched |
 | `POST /reverts` | undoes what a migration created; answers **202** with a job id |
 | `GET /reverts` | every revert, newest first |
 | `GET /reverts/{id}` | one revert |
 | `POST /reverts/{id}/cancel` | asks a running revert to stop |
+| `DELETE /reverts/{id}` | forgets one undo, for the ones whose migration is no longer on record |
 | `GET /loggers`, `GET`/`POST /loggers/{name}` | the log level, changeable while the service runs |
 | `GET /tenants/{tenant}/inventory` | find something to migrate, by name or only roots |
 | `GET /tenants/{tenant}/inventory/{id}` | one object and its child counts |
@@ -661,6 +663,7 @@ microservice log view.
 | `devicemigration_job_running` | 1 while one runs, and one runs at a time |
 | `devicemigration_subscribed_tenants` | how many tenants this service can act on |
 | `devicemigration_records_pruned_total` | job records deleted for being older than the retention period |
+| `devicemigration_records_deleted_total` | job records deleted because somebody asked, from the list or the API |
 
 The log level can be changed without redeploying, which otherwise means losing
 whatever was running:
@@ -695,6 +698,13 @@ c8y tenants options update --category devicemigration \
 Pruning only ever removes records of jobs that **finished**, and only when a
 retention period is configured. A value that cannot be read as a number is
 ignored with a warning rather than treated as zero-something.
+
+Pruning is **by age and nothing else**, so it treats a migration and the undos of
+it as separate records: each goes when its own end time is old enough, which for
+an undo run months after its migration means the migration goes first. That is
+the difference between it and `DELETE /migrations/{id}`, which is somebody asking
+about one run and therefore takes the whole story. Both remove bookkeeping only —
+neither touches what a migration created.
 
 ### The default window differs from the command line, deliberately
 

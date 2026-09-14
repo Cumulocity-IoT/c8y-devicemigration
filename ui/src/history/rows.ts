@@ -65,6 +65,9 @@ export interface Row {
    * listing the source's truststore live.
    */
   trustAnchorMovable: boolean;
+
+  /** Whether this row's records can be forgotten. See `deletable`. */
+  deletable: boolean;
 }
 
 /** One undo of one migration, as its expansion needs it. */
@@ -189,6 +192,7 @@ export function rows(
           job.kind === "MIGRATION" &&
           job.status === "SUCCEEDED" &&
           !!job.request?.certificateFleet,
+        deletable: deletable(job, undos),
       };
     });
 }
@@ -458,6 +462,130 @@ export function revertWarnings(row: Row): string[] {
 }
 
 /**
+ * Whether a row's records can be forgotten.
+ *
+ * Deleting a row removes this service's account of what happened - the
+ * migration's record and, with it, the records of every undo of it. It removes
+ * nothing from either tenant, which is the whole difference between this and
+ * *Revert* and the thing the confirmation has to say first.
+ *
+ * The only bar is a job that has not finished, its own or one of its undos: a
+ * running job is still writing the record this would delete, and the service
+ * refuses it for the same reason. Cancel it, let it settle, then forget it.
+ */
+export function deletable(job: Job, undos: Undo[]): boolean {
+  return !isRunning(job) && !undos.some((undo) => isRunning(undo.job));
+}
+
+/**
+ * What is lost by forgetting a run, beyond the row itself.
+ *
+ * A record is not only bookkeeping while the objects it describes are still in
+ * the target tenant: it is what the *Revert* action reads, so deleting the
+ * record of a migration nobody has undone is the moment undoing it stops being
+ * something this screen can do. The objects keep their run marker, so they are
+ * still findable - by somebody who kept the run id, with the command line - and
+ * that is exactly the difference worth stating rather than implying.
+ */
+export function deleteWarnings(row: Row): string[] {
+  const warnings: string[] = [];
+
+  if (row.revertable) {
+    warnings.push(
+      gettext(
+        "This migration has not been undone, and undoing it needs its record. Once the record is gone, what it created stays in the target tenant and this screen can no longer remove it - only the command line can, and only for somebody who has kept the run id.",
+      ),
+    );
+  }
+  if (row.revertExpired) {
+    warnings.push(
+      gettext(
+        "What this migration created is still in the target tenant. Its certificate has expired, so this service can no longer undo it either way, but deleting the record also removes the run id that would find those objects.",
+      ),
+    );
+  }
+  return warnings;
+}
+
+/**
+ * The undos that go with a migration, said in one sentence.
+ *
+ * Two sentences rather than a count and a noun stuck together: a translator has
+ * to be able to move the number, and "1 undos" is the kind of thing that happens
+ * when nobody writes both.
+ */
+export function undosDeleted(row: Row): Message | undefined {
+  switch (row.undos.length) {
+    case 0:
+      return undefined;
+    case 1:
+      return message("The undo of this migration is deleted with it.");
+    default:
+      return message(
+        "The {{ count }} undos of this migration are deleted with it.",
+        { count: row.undos.length },
+      );
+  }
+}
+
+/** One thing a row offers, named by what it does. */
+export type RowActionKind =
+  | "cancel"
+  | "credentials"
+  | "trustAnchor"
+  | "revert"
+  | "revertExpired"
+  | "log"
+  | "delete";
+
+/**
+ * What a row offers, in the order it offers it.
+ *
+ * One list, decided in one place, because the presentation depends on the
+ * length: the platform's grid shows two actions as icons and three as an icon
+ * and a menu, so a row's affordance changed with what happened to it - a
+ * migration nobody had undone wore a menu, and the one beside it wore two
+ * buttons. This screen renders the same menu on every row instead (see
+ * row-actions.component.ts), which only works if something decides the contents
+ * per row, and that is this.
+ *
+ * The order is deliberate: what the run is still doing, then what finishing the
+ * move still needs, then what can be done to what it created, then reading about
+ * it, then forgetting it. Destroying the record is last and furthest from
+ * *Revert*, because the two destroy opposite things.
+ *
+ * Credentials and the trust anchor sit near the top because both are unfinished
+ * business rather than something to do to a finished run: a credentials file
+ * nobody collects leaves a fleet registered with passwords no one has, and a
+ * certificate fleet whose anchor has not moved has not moved at all.
+ */
+export function actionsFor(row: Row): RowActionKind[] {
+  const actions: RowActionKind[] = [];
+
+  if (row.cancellable) {
+    actions.push("cancel");
+  }
+  if (row.credentialsCollectable) {
+    actions.push("credentials");
+  }
+  if (row.trustAnchorMovable) {
+    actions.push("trustAnchor");
+  }
+  if (row.revertable) {
+    actions.push("revert");
+  } else if (row.revertExpired) {
+    actions.push("revertExpired");
+  }
+  if (hasDetail(row)) {
+    actions.push("log");
+  }
+  if (row.deletable) {
+    actions.push("delete");
+  }
+  return actions;
+}
+
+/**
  * Whether a row has anything to show beyond its own summary.
  *
  * The engine's output is the only account of what a run actually did, and it is
@@ -584,16 +712,19 @@ export interface GridRow {
   by: string;
   runId: string;
 
-  /** Read by the actions' showIf, which the grid calls with the row. */
-  revertable: boolean;
-  /** Was undoable, until the remote target's certificate expired. */
-  revertExpired: boolean;
-  cancellable: boolean;
-  /** Whether the device credentials are still there to collect - once. */
-  credentialsCollectable: boolean;
-  /** Whether the trust-anchor move is offered. Read by the action's showIf. */
-  trustAnchorMovable: boolean;
-  hasOutput: boolean;
+  /**
+   * What this row offers, already in words, and how to do it.
+   *
+   * The same menu is rendered on every row, so the contents are the row's own
+   * business rather than a set of `showIf`s the grid resolves per action - which
+   * is what made the affordance itself depend on how many of them applied.
+   */
+  actions: GridAction[];
+  /** Runs one of them. The component holds the dialogues; the row holds this. */
+  perform: (kind: RowActionKind) => void;
+
+  /** Whether this row is an undo of its own, which deletes only itself. */
+  isRevert: boolean;
 
   /** What the migration included, for the expansion to show. */
   scope: ScopeRow;
@@ -601,8 +732,23 @@ export interface GridRow {
   /** What the confirmation says before undoing this, from `revertWarnings`. */
   revertWarnings: string[];
 
+  /** What the confirmation says before forgetting this, from `deleteWarnings`. */
+  deleteWarnings: string[];
+  /** How the same confirmation names the undos going with it. Empty if none. */
+  undosDeleted: string;
+
   /** The undos, finished for the expansion to show. Empty if never undone. */
   undos: UndoRow[];
+}
+
+/** One entry of a row's menu, finished for the template to render. */
+export interface GridAction {
+  kind: RowActionKind;
+  /** The entry's own words, translated. */
+  text: string;
+  icon: string;
+  /** `text-muted` for the one that only explains why it cannot be done. */
+  iconClasses?: string;
 }
 
 /** What a migration moved, in words, for its expansion. */
