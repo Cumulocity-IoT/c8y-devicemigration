@@ -317,8 +317,15 @@ same thing with a one-time download, in
 
 Certificate fleets are a different matter: the credential is the chain and the
 devices keep it, so the migration moves the **trust anchor** instead of handing
-out a credential — see
+out a credential. Migrate one with `certificateFleet` — which issues nothing but
+makes each object owned by the device its certificate will authenticate as, or
+the fleet arrives unable to write its own twins — and then move the anchor from
+that migration in the list. See
 **[docs/microservice.md](docs/microservice.md#moving-a-trust-anchor-for-a-certificate-fleet)**.
+
+The user interface asks all of this as one question — *how will the migrated
+devices authenticate?* — with those three answers and "nothing" beside them; see
+**[docs/ui.md](docs/ui.md)**.
 
 ## Limitations
 

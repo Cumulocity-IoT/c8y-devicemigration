@@ -69,7 +69,7 @@ import { explain, type Failure, type GridRow } from './rows';
           </dd>
 
           <dt>{{ 'Run marker' | translate }}</dt>
-          <dd><code>c8y_DeviceMigration_{{ row.scope.runId }}</code></dd>
+          <dd><code>{{ row.scope.marker }}</code></dd>
         </dl>
 
         <p class="text-muted small">

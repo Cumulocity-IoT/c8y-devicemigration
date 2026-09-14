@@ -96,6 +96,23 @@ type MigrationRequest struct {
 	// property of every migration this service has ever run.
 	DeviceSelfCredentials bool `json:"deviceSelfCredentials,omitempty"`
 
+	// CertificateFleet says the migrated devices authenticate with X.509
+	// certificates, so there is no credential to issue at all.
+	//
+	// It still changes the migration, and that is why it exists: each object is
+	// created owned by the device user its certificate will authenticate as.
+	// Without it a certificate device arrives, auto-registers onto its migrated
+	// twin, and is silently read-only on it - ROLE_DEVICE carries writes only
+	// together with ownership. Nothing about that failure is visible until
+	// somebody notices a fleet that looks migrated and sends no data.
+	//
+	// Semantic rather than mechanical on purpose. The importer's flag is
+	// StampDeviceOwner and the command line exposes it directly, but a request
+	// field spelled that way would be a knob whose consequence only a reader of
+	// this file understands - and the record would then say an owner was stamped
+	// without saying why, which is what the trust-anchor offer keys on.
+	CertificateFleet bool `json:"certificateFleet,omitempty"`
+
 	// RemoteTargetID references a remote target established with
 	// POST /remote-targets, for a target this instance is not subscribed to. It
 	// is a handle, not a secret - the certificate behind it lives only in memory
@@ -292,16 +309,11 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 		return nil, err
 	}
 
-	// A remote target names its tenant on the record for the listing to show,
-	// taken from the established connection rather than trusted from the request.
-	// Resolved here but filled in only after the pre-flight: the pre-flight wants
-	// exactly one of a tenant or a remote id, so targetTenant must stay empty
-	// while it runs.
-	// Credentials and a remote target cannot go together. A remote target is
-	// reached with a device access token obtained from a certificate, whose
-	// effective roles are the device ones - it cannot bulk-register anything,
-	// and finding that out mid-run would leave a half-migrated hierarchy. See
-	// docs/platform-behaviour.md for what that token can and cannot do.
+	// How the migrated devices will authenticate is one question with one answer,
+	// and the three ways of answering it are mutually exclusive. Checked here
+	// rather than left to fail later: each of these would otherwise produce a
+	// migration that looks like it worked.
+
 	// Both arrange credentials, by opposite routes, and together they would
 	// fight: provisionCredentials registers every device up front and hands the
 	// operator a file, and a device then collecting its own would rotate the
@@ -314,13 +326,50 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 			"already in that file"}
 	}
 
-	if request.ProvisionCredentials && request.RemoteTargetID != "" {
-		return nil, &BadRequestError{Reason: "provisionCredentials cannot be used with a remote " +
-			"target: a remote target is reached with a device access token, which has no " +
-			"permission to register devices. Migrate without credentials and provision them " +
-			"from the target tenant, or subscribe the target to this service"}
+	// A certificate fleet keeps the chain it already has. Asking for a password
+	// alongside is a contradiction rather than a preference, and acting on both
+	// would leave every device holding two ways to authenticate where one was
+	// wanted.
+	if request.CertificateFleet && (request.ProvisionCredentials || request.DeviceSelfCredentials) {
+		return nil, &BadRequestError{Reason: "certificateFleet cannot be combined with " +
+			"provisionCredentials or deviceSelfCredentials: a certificate fleet authenticates " +
+			"with the chain it already has and has no password to issue. Choose one way for " +
+			"the migrated devices to authenticate"}
 	}
 
+	// Neither credential route can reach a remote target, and for one reason: a
+	// remote target is reached with a device access token obtained from a
+	// certificate, whose effective roles are the device ones. It cannot
+	// bulk-register anything, which is exactly what both routes need to create a
+	// device user. See docs/platform-behaviour.md for what that token can do.
+	//
+	// certificateFleet is deliberately *not* refused here. It creates no user -
+	// only an owner on objects that same token creates and therefore already
+	// owns - so it is the one answer that works across instances. It needs no
+	// cutover there either, because one certificate can be trusted in two
+	// instances at once.
+	if request.RemoteTargetID != "" {
+		switch {
+		case request.ProvisionCredentials:
+			return nil, &BadRequestError{Reason: "provisionCredentials cannot be used with a remote " +
+				"target: a remote target is reached with a device access token, which has no " +
+				"permission to register devices. Migrate without credentials and provision them " +
+				"from the target tenant, or subscribe the target to this service"}
+		case request.DeviceSelfCredentials:
+			return nil, &BadRequestError{Reason: "deviceSelfCredentials cannot be used with a remote " +
+				"target: issuing a device its credential means registering a device user in the " +
+				"target, and a remote target is reached with a device access token that has no " +
+				"permission to do so. This service also holds no client for an unsubscribed " +
+				"tenant, so a device asking would be told there is nothing to collect. Migrate " +
+				"with certificateFleet, or subscribe the target to this service"}
+		}
+	}
+
+	// A remote target names its tenant on the record for the listing to show,
+	// taken from the established connection rather than trusted from the request.
+	// Resolved here but filled in only after the pre-flight: the pre-flight wants
+	// exactly one of a tenant or a remote id, so targetTenant must stay empty
+	// while it runs.
 	var remoteTenant string
 	if request.RemoteTargetID != "" {
 		rt, ok := s.remoteTargets.get(request.RemoteTargetID)
@@ -666,10 +715,14 @@ func (s *Service) resolveOptions(request MigrationRequest, mappingFile string) (
 
 		Credentials: request.ProvisionCredentials,
 
-		// The objects have to belong to the device users that do not exist yet,
-		// or a device collecting its credential later arrives unable to write
-		// its own twin.
-		StampDeviceOwner: request.DeviceSelfCredentials,
+		// The objects have to belong to device users that do not exist yet, or a
+		// device arriving later is read-only on its own twin. Both remaining
+		// answers to "how will these devices authenticate" need it, for the same
+		// reason and at different moments: a device that collects a credential
+		// arrives once it has one, and a certificate device arrives as soon as
+		// its tenant trusts the chain. Neither can be fixed afterwards without a
+		// pass over every device.
+		StampDeviceOwner: request.DeviceSelfCredentials || request.CertificateFleet,
 		// No CredentialsFile: the service holds them in memory and hands them
 		// over once, rather than writing a list of device passwords into a
 		// container's filesystem where a crash dump or a stray volume would

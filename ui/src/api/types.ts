@@ -988,10 +988,39 @@ export interface components {
              *
              *     Cannot be combined with `provisionCredentials`: that issues every
              *     credential up front and hands you a file, and a device collecting its
-             *     own afterwards would rotate the password already in it.
+             *     own afterwards would rotate the password already in it. Nor with
+             *     `remoteTargetId`: issuing a credential means registering a device user
+             *     in the target, and a remote target is reached with a device access
+             *     token that cannot do so.
              * @default false
              */
             deviceSelfCredentials?: boolean;
+            /**
+             * @description Say that the migrated devices authenticate with **X.509 certificates**,
+             *     so there is no credential to issue at all.
+             *
+             *     It still changes the migration, which is why it exists: each object is
+             *     created **owned by the device user its certificate will authenticate
+             *     as**. Without it a certificate device arrives, auto-registers onto its
+             *     migrated twin, and is silently **read-only** on it — `ROLE_DEVICE`
+             *     carries writes only together with ownership. Nothing about that failure
+             *     is visible until somebody notices a fleet that looks migrated and sends
+             *     no data.
+             *
+             *     Migrating the objects is only half of such a move. The other half is
+             *     making the target tenant trust the fleet's CA — `POST
+             *     /certificate-cutovers` within one instance, or registering the CA on
+             *     the other instance by hand across two. Until then the devices stay
+             *     where they are.
+             *
+             *     Cannot be combined with `provisionCredentials` or
+             *     `deviceSelfCredentials`: a certificate fleet keeps the chain it already
+             *     has and has no password to issue. **Can** be combined with
+             *     `remoteTargetId`, unlike either of those — it creates no user, only an
+             *     owner on objects that token already owns.
+             * @default false
+             */
+            certificateFleet?: boolean;
             /**
              * @description Leave created objects unmarked. The marker fragment is what makes a
              *     run findable by its run id, so without it the job's mapping is the

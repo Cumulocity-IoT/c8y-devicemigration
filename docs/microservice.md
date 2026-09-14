@@ -264,6 +264,13 @@ Three properties worth knowing before using it:
   first hands you a file of every password; the second lets devices collect their
   own. A device collecting one afterwards would rotate the password already in
   your file.
+- **`deviceSelfCredentials` and `remoteTargetId` are refused together**, for the
+  same reason `provisionCredentials` always was: issuing a device its credential
+  means registering a device user in the target, and a remote target is reached
+  with a device access token that has no permission to do so. This service also
+  holds no client for an unsubscribed tenant, so a device asking would be told
+  there is nothing to collect. Migrate such a fleet with `certificateFleet`
+  instead, or subscribe the target.
 
 Asking for it also makes each migrated object **owned by the device user it will
 authenticate as** — a user that does not exist yet, which the platform accepts and
@@ -282,7 +289,20 @@ often.
 
 For a certificate fleet the credential is the chain and it never changes: the
 device keeps its key and its certificate, and migrating it means making the
-**target** tenant trust that chain instead. Two endpoints:
+**target** tenant trust that chain instead.
+
+**Migrate such a fleet with `certificateFleet: true`.** It issues nothing — there
+is nothing to issue — but it is not cosmetic: it makes each migrated object
+**owned by the device user its certificate will authenticate as**. Without it a
+certificate device arrives, auto-registers onto its migrated twin, and is silently
+read-only on it, because `ROLE_DEVICE` carries writes only together with
+ownership. Nothing about that failure is visible until somebody notices a fleet
+that looks migrated and sends no data. It cannot be combined with either
+credential option, and unlike them it **can** be combined with `remoteTargetId`:
+it creates no user, only an owner on objects the remote target's own token
+already owns.
+
+Then two endpoints move the anchor:
 
 ```sh
 # what can be moved out of a tenant, and what cannot
@@ -349,6 +369,12 @@ Reading a truststore needs `ROLE_TENANT_MANAGEMENT_READ`, which this service
 already had. Writing one needs `ROLE_TENANT_MANAGEMENT_ADMIN`, which the manifest
 gained for this — so an upgrade asks each subscribed tenant's administrator to
 approve it.
+
+**The cutover leaves no record.** It creates no job, being two calls rather than a
+run, so nothing afterwards reports that it happened. The listing above is the
+answer instead: a certificate that has already moved is simply no longer in the
+source tenant. That is also why [the UI](ui.md) offers the move for as long as the
+migration stands rather than hiding it once used — it has nothing to hide it on.
 
 ### Undoing a migration
 

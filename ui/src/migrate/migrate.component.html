@@ -253,35 +253,119 @@
           </c8y-form-group>
 
           <!--
-            Credentials. Hidden rather than disabled for a remote target: that
-            target is reached with a device access token, which cannot register
-            devices at all, so there is nothing to explain about a box that could
-            never be ticked.
+            One question with four answers, because they are mutually exclusive
+            and the service refuses any pair of them. Radios rather than a
+            checkbox per option for exactly that reason: a set of checkboxes
+            invites a combination that would be rejected on submit.
 
-            The warning is not decoration. The file is handed over once, and if
-            nobody takes it the devices are registered with passwords no one has.
+            Two answers are hidden rather than disabled for a remote target. Such
+            a target is reached with a device access token whose roles are the
+            device ones; bulk registration needs ROLE_DEVICE_CONTROL_ADMIN and
+            the token does not hold it, so neither issuing answer is possible
+            there. A certificate fleet stays, because it registers nothing - it
+            only names an owner on objects that same token already owns.
           -->
-          @if (v.canProvisionCredentials) {
-            <c8y-form-group>
-              <label>{{ 'Device credentials' | translate }}</label>
-              <label class="c8y-checkbox">
+          <c8y-form-group>
+            <label>{{ 'How will the migrated devices authenticate?' | translate }}</label>
+
+            <label class="c8y-radio">
+              <input
+                type="radio"
+                name="credentials"
+                value="none"
+                [ngModel]="v.choices.credentials"
+                (ngModelChange)="chooseCredentials($event)"
+                [ngModelOptions]="{ standalone: true }"
+              />
+              <span></span>
+              <span>{{ 'Nothing is arranged for them' | translate }}</span>
+            </label>
+
+            @if (v.canIssueCredentials) {
+              <label class="c8y-radio">
                 <input
-                  type="checkbox"
-                  [ngModel]="v.choices.provisionCredentials"
+                  type="radio"
+                  name="credentials"
+                  value="file"
+                  [ngModel]="v.choices.credentials"
                   (ngModelChange)="chooseCredentials($event)"
                   [ngModelOptions]="{ standalone: true }"
                 />
                 <span></span>
-                <span>{{ 'Provision a device user for each device' | translate }}</span>
+                <span>{{ 'A device user for each device, downloaded once' | translate }}</span>
               </label>
-              <p class="help-block m-0">
+
+              <label class="c8y-radio">
+                <input
+                  type="radio"
+                  name="credentials"
+                  value="self"
+                  [ngModel]="v.choices.credentials"
+                  (ngModelChange)="chooseCredentials($event)"
+                  [ngModelOptions]="{ standalone: true }"
+                />
+                <span></span>
+                <span>{{ 'Each device collects its own' | translate }}</span>
+              </label>
+            }
+
+            <label class="c8y-radio">
+              <input
+                type="radio"
+                name="credentials"
+                value="certificate"
+                [ngModel]="v.choices.credentials"
+                (ngModelChange)="chooseCredentials($event)"
+                [ngModelOptions]="{ standalone: true }"
+              />
+              <span></span>
+              <span>{{ 'They keep their own certificates' | translate }}</span>
+            </label>
+
+            <!--
+              One help line per answer, and each says the thing that is easy to
+              get wrong rather than restating the label: what is handed over and
+              once, who has to ask, and that a certificate fleet is only half
+              migrated until its trust anchor moves.
+            -->
+            <p class="help-block m-0">
+              @switch (v.choices.credentials) {
+                @case ('file') {
+                  {{
+                    'A device user is created for each device and the passwords can be downloaded once, from this migration in the list. Getting them onto the devices is your own channel.'
+                      | translate
+                  }}
+                }
+                @case ('self') {
+                  {{
+                    'No file and nothing to distribute: each device asks for its own credential, authenticating with the one it already has in the source tenant. It is issued once per device.'
+                      | translate
+                  }}
+                }
+                @case ('certificate') {
+                  {{
+                    'Nothing is issued - the devices keep the key and certificate they already have. They stay where they are until the target tenant trusts their CA, which you can do from this migration once it has finished.'
+                      | translate
+                  }}
+                }
+                @default {
+                  {{
+                    'The copies are created but no device can connect as itself. Right for a rehearsal or a staging tenant, and for a hierarchy with no devices under it.'
+                      | translate
+                  }}
+                }
+              }
+            </p>
+
+            @if (!v.canIssueCredentials) {
+              <p class="help-block m-0 text-muted">
                 {{
-                  'Migrated devices cannot reconnect without credentials of their own. The passwords can be downloaded once, from this migration in the device migration list, and getting them onto the devices is your own channel.'
+                  'A remote target is reached with a device access token, which has no permission to register device users, so no credential can be issued into it from here.'
                     | translate
                 }}
               </p>
-            </c8y-form-group>
-          }
+            }
+          </c8y-form-group>
 
           <!--
             One field, two ways to fill it in: type the syntax the engine takes,
@@ -400,29 +484,50 @@
               <td class="text-muted">{{ 'no limit' | translate }}</td>
             </tr>
             <!--
-              Only when credentials were asked for. The count is in the estimate
-              either way, but a row saying how many device users would be created
-              in a migration that is not creating any would be noise.
+              Only when an answer other than "nothing" was given. The count is in
+              the estimate either way, but a row about device users in a migration
+              creating none would be noise.
 
-              The note is what makes the number honest: it is fewer than the
-              object count for reasons the operator can do something about - a
-              device with no external identity, or with several and no c8y_Serial,
-              gets no credential and cannot reconnect on its own.
+              The same number means three things, so the label follows the answer:
+              users created, devices able to collect, devices that will own their
+              twins. The note is what makes it honest - it is fewer than the object
+              count for reasons the operator can act on, and for a certificate
+              fleet those devices arrive read-only rather than merely without a
+              password.
             -->
-            @if (v.choices.provisionCredentials) {
+            @if (v.choices.credentials !== 'none') {
               <tr>
-                <td>{{ 'Device credentials' | translate }}</td>
+                <td>
+                  @switch (v.choices.credentials) {
+                    @case ('file') {
+                      {{ 'Device users created' | translate }}
+                    }
+                    @case ('self') {
+                      {{ 'Devices able to collect' | translate }}
+                    }
+                    @default {
+                      {{ 'Devices owning their twins' | translate }}
+                    }
+                  }
+                </td>
                 <td class="text-right">
                   <strong>{{ v.estimate ? (v.estimate.credentials | number) : '—' }}</strong>
                 </td>
                 <td class="text-muted">
                   @if (v.estimate && v.estimate.credentials !== v.estimate.objects) {
-                    {{
-                      'of {{ objects }} objects; the rest are groups or have no usable external identity'
-                        | translate: { objects: v.estimate.objects | number }
-                    }}
+                    @if (v.choices.credentials === 'certificate') {
+                      {{
+                        'of {{ objects }} objects; the rest are groups or have no usable external identity and would arrive unable to write their own twin'
+                          | translate: { objects: v.estimate.objects | number }
+                      }}
+                    } @else {
+                      {{
+                        'of {{ objects }} objects; the rest are groups or have no usable external identity'
+                          | translate: { objects: v.estimate.objects | number }
+                      }}
+                    }
                   } @else {
-                    {{ 'one device user per device' | translate }}
+                    {{ 'one per device' | translate }}
                   }
                 </td>
               </tr>
