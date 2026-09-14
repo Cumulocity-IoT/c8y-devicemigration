@@ -2,6 +2,7 @@ import { NgModule } from '@angular/core';
 import { CoreModule, gettext, hookNavigator, hookRoute, NavigatorNode } from '@c8y/ngx-components';
 
 import { HistoryComponent } from './history/history.component';
+import { DeviceMigrationNavigatorIconComponent } from './icon/navigator-icon.component';
 import { RegisterCertificateComponent } from './trust/register-certificate.component';
 
 /**
@@ -25,10 +26,16 @@ import { RegisterCertificateComponent } from './trust/register-certificate.compo
       new NavigatorNode({
         // The shell translates a navigator label; this is the marker for it.
         label: gettext('Device migration'),
-        // The same icon wherever this feature appears - here and the list's
-        // empty state. One picture for one thing: two icons for the same
-        // feature reads as two features.
-        icon: 'in-transit',
+        // The same icon wherever this feature appears - here, the list's
+        // introduction and its empty state. One picture for one thing: two
+        // icons for the same feature reads as two features.
+        //
+        // A component rather than `icon`, which takes a name from the platform's
+        // own set and cannot render this one. It is named `c8y-navigator-icon`
+        // on purpose: the navigator lays a node's icon out with a type selector,
+        // so the host's tag name is what the spacing hangs on - see the
+        // component.
+        iconComponent: DeviceMigrationNavigatorIconComponent,
         path: '/device-migration',
         priority: 100,
         // Hidden from anybody who could not use it anyway: the microservice

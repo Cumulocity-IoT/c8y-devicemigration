@@ -57,7 +57,9 @@
         }}
       </p>
     </div>
-    <i class="device-migration-emblem text-muted hidden-xs hidden-sm" c8yIcon="in-transit"></i>
+    <c8y-device-migration-icon
+      class="device-migration-emblem text-muted hidden-xs hidden-sm"
+    ></c8y-device-migration-icon>
   </div>
 
   @if (problem(); as failure) {
@@ -87,11 +89,23 @@
     expandableRows="SYNC"
     (onReload)="load()"
   >
-    <c8y-ui-empty-state
-      [icon]="'in-transit'"
-      [title]="'Nothing has been migrated yet' | translate"
-      [subtitle]="'Whatever is migrated appears here, with the run id that can undo it.' | translate"
-    ></c8y-ui-empty-state>
+    <!--
+      The platform's c8y-ui-empty-state renders `<i [c8yIcon]="icon">`
+      unconditionally and takes an icon *name*, so this icon cannot go through
+      it - and its content slot sits in the text block, below the title, which is
+      not where an icon belongs. `.c8y-empty-state` is a plain class in
+      @c8y/style, so the layout is the platform's either way and only the icon
+      differs.
+    -->
+    <div class="c8y-empty-state">
+      <c8y-device-migration-icon class="empty-state-emblem"></c8y-device-migration-icon>
+      <div>
+        <h3 class="text-medium">{{ 'Nothing has been migrated yet' | translate }}</h3>
+        <p class="p-b-16">
+          {{ 'Whatever is migrated appears here, with the run id that can undo it.' | translate }}
+        </p>
+      </div>
+    </div>
 
     <!--
       A migration and the undo that cancelled it are one story, so they are one

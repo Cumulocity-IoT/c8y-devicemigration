@@ -345,6 +345,46 @@ started, and nothing is ever deleted from the tenant the devices came from. It i
 not behind a help link because a migration is rare enough that almost everybody
 doing one is doing it for the first time.
 
+**One icon, in all four places the feature appears**: the navigator entry, that
+introduction, the empty state, and the microservice's own entry in Administration
+and the API documentation. Two icons for one feature reads as two features.
+
+Three of the four are
+[`DeviceMigrationIconComponent`](../ui/src/icon/device-migration-icon.component.ts),
+which draws the artwork inline. The navigator reaches it through a wrapper named
+`c8y-navigator-icon`, and that name is the whole point of the wrapper: a node's
+icon is laid out by a **type** selector — `c8y-navigator-icon { padding: 0 0 0
+16px; margin-right: 16px; flex-grow: 0; }` — and Angular names a dynamically
+created host after its component's selector, so an icon component called anything
+else matches none of it and the entry sits flush against the rail with its label
+crowding it. That is not a preference — a `dlt-c8y-icon-*`
+class renders its SVG as a **CSS mask**, colouring `::before` from `dlt/<name>.svg`
+and `::after` from `dlt-filled/<name>.svg` out of theme variables, and a mask
+keeps only the alpha. A two-colour icon therefore cannot travel as one file
+through that mechanism, which is why this one is two layers and why the plugin
+draws them rather than masking them. The dark layer is `currentColor`, so
+`text-muted` mutes it exactly as it mutes a real duocolor icon.
+
+The empty state is the awkward one. `c8y-ui-empty-state` renders
+`<i [c8yIcon]="icon">` unconditionally, takes an icon **name** and nothing else,
+and puts its content slot in the text block below the title — so the icon cannot
+be replaced through it. `.c8y-empty-state` is a plain class in `@c8y/style`,
+so the markup is reproduced with this icon in place of a named one and the layout
+stays the platform's. The two sizing rules that had to come with it are the
+platform's own values, copied because its selectors match its icon classes and a
+custom element carries neither.
+
+The fourth is the microservice manifest, whose `icon.class` is a CSS class applied
+verbatim and cannot reference a file at all. It reads `c8y-icon-device-migration`,
+which has to exist platform-side; until it does, that one entry shows nothing while
+the three the plugin draws are already right.
+
+When that class ships, the three could go through the platform instead:
+`c8yIcon="c8y-device-migration"` resolves to it, because `IconDirective` rewrites a
+leading `c8y-` to `c8y-icon-`. That is the version to prefer once it is possible —
+a real icon brings the theming and dark-mode handling that hand-drawn paths have to
+reproduce.
+
 **The prerequisites are in the dialogue, not the introduction.** What has to be
 true before a migration can run — the source subscribed, the target subscribed or
 trusted with a certificate — is stated at the top of **New migration** instead,

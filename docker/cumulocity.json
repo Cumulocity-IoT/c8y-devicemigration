@@ -3,10 +3,10 @@
   "name": "devicemigration",
   "version": "@VERSION@",
   "provider": {
-    "name": "Cumulocity IoT"
+    "name": "Cumulocity"
   },
   "icon": {
-    "class": "dlt-c8y-icon-in-transit"
+    "class": "c8y-icon-device-migration"
   },
   "isolation": "MULTI_TENANT",
   "openApiSpec": "api-json",
