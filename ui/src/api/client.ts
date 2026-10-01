@@ -105,6 +105,12 @@ export interface MigrationApi {
    * `gone` if there is nothing to collect: already taken, lost to a restart of
    * the service, or never issued. There is no way to ask twice, so a caller that
    * drops the result has lost it.
+   *
+   * Throws `forbidden` for a migration somebody else started: the file is handed
+   * over once, so collecting another operator's would leave them without it. The
+   * action is not offered in that case either - the service reports
+   * `credentialsAvailable` as false to anyone who could only be refused - so this
+   * is the backstop rather than the thing a screen relies on.
    */
   migrationCredentials(id: string): Promise<string>;
 
@@ -198,7 +204,10 @@ export function createApi(fetchLike: FetchLike): MigrationApi {
       await write<unknown>(`/migrations/${encodeURIComponent(id)}/cancel`);
     },
     migrationCredentials: id =>
-      readText(fetchLike, `/migrations/${encodeURIComponent(id)}/credentials`),
+      // POST, because collecting destroys what it serves. The platform's own
+      // FetchClient is what carries the X-XSRF-TOKEN a write needs from a
+      // browser session.
+      readText(fetchLike, 'POST', `/migrations/${encodeURIComponent(id)}/credentials`),
     deleteMigration: async id =>
       (await remove<DeletionResponse>(`/migrations/${encodeURIComponent(id)}`)).deleted ?? [],
 
@@ -284,17 +293,25 @@ async function request<T>(
 }
 
 /**
- * A GET whose body is a file rather than JSON.
+ * A call whose body is a file rather than JSON.
  *
  * Separate from request() because that one asks for and parses JSON, and the
  * credentials endpoint answers text/csv. The refusal path is shared, so a 410
  * still arrives as an ApiError with the service's own explanation.
+ *
+ * The method is a parameter rather than GET, because the one caller is a POST:
+ * collecting credentials hands them over once and destroys them, so it changes
+ * state however much a file download looks like a read.
  */
-async function readText(fetchLike: FetchLike, path: string): Promise<string> {
+async function readText(
+  fetchLike: FetchLike,
+  method: 'GET' | 'POST',
+  path: string
+): Promise<string> {
   let response: Response;
   try {
     response = await fetchLike(BASE + path, {
-      method: 'GET',
+      method,
       headers: { Accept: 'text/csv' }
     });
   } catch (cause) {

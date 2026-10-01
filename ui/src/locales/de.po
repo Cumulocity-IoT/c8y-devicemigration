@@ -535,9 +535,6 @@ msgstr "Das Zertifikat wird aus dem Quellmandanten entfernt, bevor es im Zielman
 msgid "The certificate has moved."
 msgstr "Das Zertifikat wurde verschoben."
 
-msgid "The target reports auto-registration as disabled for this certificate, so devices arriving with it will be refused. Enable it in the target tenant before the devices reconnect."
-msgstr "Das Ziel meldet die automatische Registrierung für dieses Zertifikat als deaktiviert, sodass damit ankommende Geräte abgewiesen werden. Aktivieren Sie sie im Zielmandanten, bevor sich die Geräte neu verbinden."
-
 msgid "These devices authenticate with certificates. If their trust anchor has already been moved they are connecting to the target now, and deleting their migrated objects will not send them back - they will register fresh, empty ones instead. Move the trust anchor back to the source tenant first."
 msgstr "Diese Geräte authentifizieren sich mit Zertifikaten. Wurde ihr Vertrauensanker bereits verschoben, verbinden sie sich jetzt mit dem Ziel; das Löschen ihrer migrierten Objekte schickt sie nicht zurück, sondern sie registrieren stattdessen neue, leere. Verschieben Sie den Vertrauensanker zuerst zurück in den Quellmandanten."
 
@@ -632,3 +629,21 @@ msgstr "Der Zielmandant führt diese Geräte bereits unter derselben externen Id
 
 msgid "Choose another way for the devices to authenticate, or resolve the duplicate identities in the two tenants first."
 msgstr "Wählen Sie eine andere Art, wie sich die Geräte anmelden, oder klären Sie zuerst die doppelten Identitäten in beiden Mandanten."
+
+msgid "Register devices presenting this certificate automatically"
+msgstr "Geräte mit diesem Zertifikat automatisch registrieren"
+
+msgid "This is off in the source tenant. Turning it on lets any device with a certificate from this authority register itself in the target, including devices no migration covered."
+msgstr "Im Quellmandanten ist dies ausgeschaltet. Wird es eingeschaltet, kann sich jedes Gerät mit einem Zertifikat dieser Zertifizierungsstelle im Zielmandanten selbst registrieren — auch Geräte, die keine Migration erfasst hat."
+
+msgid "A device arriving with no device user of its own in the target will be refused. Devices a migration already created one for are unaffected."
+msgstr "Ein Gerät, das im Zielmandanten keinen eigenen Gerätebenutzer hat, wird abgewiesen. Geräte, für die eine Migration bereits einen angelegt hat, sind nicht betroffen."
+
+msgid "This is how the source tenant has it. Any device with a certificate from this authority can register itself in the target."
+msgstr "So ist es im Quellmandanten eingestellt. Jedes Gerät mit einem Zertifikat dieser Zertifizierungsstelle kann sich im Zielmandanten selbst registrieren."
+
+msgid "The target reports auto-registration differently from what was asked for, so which devices this certificate admits is not what you chose. Check it in the target tenant before the devices reconnect."
+msgstr "Der Zielmandant meldet die automatische Registrierung anders als angefordert; welche Geräte dieses Zertifikat zulässt, entspricht damit nicht Ihrer Wahl. Prüfen Sie dies im Zielmandanten, bevor die Geräte sich wieder verbinden."
+
+msgid "Auto-registration is off for this certificate, as you chose. A device arriving with no device user of its own in the target will be refused."
+msgstr "Die automatische Registrierung ist für dieses Zertifikat ausgeschaltet, wie von Ihnen gewählt. Ein Gerät, das im Zielmandanten keinen eigenen Gerätebenutzer hat, wird abgewiesen."

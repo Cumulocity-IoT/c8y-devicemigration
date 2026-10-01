@@ -81,8 +81,16 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/migrations/{id}", handler: s.handleGetMigration},
 		{Method: http.MethodPost, Path: "/migrations/{id}/cancel",
 			handler: s.handleCancelMigration},
-		{Method: http.MethodGet, Path: "/migrations/{id}/credentials",
-			handler: s.handleGetCredentials},
+		// POST, not GET, and the method is the security boundary rather than a
+		// matter of taste: this hands the credentials over *once* and destroys
+		// them as it serves them, so it changes state. A browser session's cookie
+		// travels with any request a page can be talked into making, and the
+		// cross-site check deliberately lets reads through - so as a GET, a page
+		// an operator visited while signed in could spend the one collection
+		// without ever reading the answer, and the only way back is to register
+		// the fleet again.
+		{Method: http.MethodPost, Path: "/migrations/{id}/credentials",
+			handler: s.handleCollectCredentials},
 		// Removes this service's record of a run. Not the run: see DeleteJob.
 		{Method: http.MethodDelete, Path: "/migrations/{id}", handler: s.handleDeleteJob},
 
@@ -191,7 +199,8 @@ type MigrationsResponse struct {
 }
 
 func (s *Service) handleListMigrations(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Authorize(r.Context(), r); err != nil {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -206,6 +215,7 @@ func (s *Service) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 	// container that no longer exists is settled here, so the screen showing it
 	// stops offering a Cancel that cannot work. See SettleStale.
 	s.SettleStale(r.Context(), jobs)
+	hideOthersCredentials(caller, jobs...)
 	writeJSON(w, r, http.StatusOK, MigrationsResponse{Migrations: jobs})
 }
 
@@ -263,7 +273,8 @@ func (s *Service) handleListReverts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Authorize(r.Context(), r); err != nil {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -271,6 +282,7 @@ func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
 	// Read from the running job when there is one, because its record is only
 	// as fresh as the last progress write, and from the tenant otherwise.
 	if running := s.Running(); running != nil && running.ID == r.PathValue("id") {
+		hideOthersCredentials(caller, running)
 		writeJSON(w, r, http.StatusOK, running)
 		return
 	}
@@ -280,18 +292,36 @@ func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	hideOthersCredentials(caller, job)
 	writeJSON(w, r, http.StatusOK, job)
 }
 
-// handleGetCredentials hands over the device credentials a migration issued,
-// exactly once.
+// hideOthersCredentials clears the collection offer on jobs this caller may not
+// collect.
+//
+// The flag drives a download action on a screen, so leaving it set for everybody
+// would put a button in front of readers who can only be refused by it - and
+// worse, would read as "somebody has not collected these yet" to a person who
+// cannot do anything about that. The same rule decides both, in collectableBy,
+// so the offer and the answer cannot disagree.
+func hideOthersCredentials(caller *Caller, jobs ...*Job) {
+	for _, job := range jobs {
+		if job != nil && collectableBy(job, caller) != nil {
+			job.CredentialsAvailable = false
+		}
+	}
+}
+
+// handleCollectCredentials hands over the device credentials a migration issued,
+// exactly once, and only to whoever started it.
 //
 // Served as text/csv rather than JSON, because what the caller wants is the file
 // - the same columns the command line writes - and a browser download is the
 // point. No-store, because a list of working device passwords must not sit in a
-// proxy or a browser cache after the one read that was allowed.
-func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Authorize(r.Context(), r); err != nil {
+// proxy or a browser cache after the one collection that was allowed.
+func (s *Service) handleCollectCredentials(w http.ResponseWriter, r *http.Request) {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -301,7 +331,12 @@ func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
 	// The job has to exist and belong to this tenant before its credentials are
 	// discussed, so an unknown id is a 404 rather than a Gone that hints at what
 	// might once have been there.
-	if _, err := s.Record(r.Context(), jobID); err != nil {
+	job, err := s.Record(r.Context(), jobID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if err := collectableBy(job, caller); err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -320,6 +355,38 @@ func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// collectableBy says whether this caller may collect this migration's
+// credentials, and why not when they may not.
+//
+// Holding ROLE_DEVICE_MIGRATION_ADMIN on the owner tenant is what lets somebody
+// *start* a migration; it is deliberately not enough to take the passwords of
+// one they did not. The list is handed over once, so a colleague collecting it
+// first is not a lesser version of reading it - it is the operator who asked for
+// it losing it, with no way to get it back that does not rotate the whole fleet.
+//
+// A record that does not say who started it is refused rather than opened up.
+// Nobody can prove they are the caller it does not name, and "the record has
+// forgotten" is not a reason to hand a fleet's passwords to the next person who
+// asks.
+func collectableBy(job *Job, caller *Caller) error {
+	if caller == nil {
+		return &ForbiddenError{Reason: "the credentials of a migration are handed only to " +
+			"the caller who started it, and this request has no caller"}
+	}
+	if job.RequestedBy == "" {
+		return &ForbiddenError{Reason: "this migration's record does not say who started it, " +
+			"so its credentials cannot be handed to anyone. Re-register the devices to issue " +
+			"new ones, which rotates their passwords"}
+	}
+	if job.RequestedBy != caller.Name() {
+		return &ForbiddenError{Reason: fmt.Sprintf(
+			"the credentials of a migration are handed only to the caller who started it, "+
+				"and this one was started by %s. They are handed over once, so taking them "+
+				"on somebody else's behalf would leave them without any", job.RequestedBy)}
+	}
+	return nil
 }
 
 // handleGetJob and handleCancelJob serve reverts. A job is a job once it exists,
@@ -650,6 +717,18 @@ type BadRequestError struct {
 
 func (e *BadRequestError) Error() string { return e.Reason }
 
+// RateLimitedError means the caller is asking faster than anything needs to.
+//
+// Its own type rather than QueueFullError, which also answers 429: that one says
+// this service is busy with somebody else's migration, and a device told that
+// would wait for a queue it is not in. This one says the caller itself is the
+// reason, and the answer would not have changed anyway.
+type RateLimitedError struct {
+	Reason string
+}
+
+func (e *RateLimitedError) Error() string { return e.Reason }
+
 // GoneError means the thing existed and deliberately does not any more.
 //
 // Distinct from NotFoundError, and the distinction is the whole point for
@@ -699,6 +778,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var conflict *ConflictError
 	var full *QueueFullError
 	var gone *GoneError
+	var limited *RateLimitedError
 
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
@@ -717,6 +797,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, kind = http.StatusConflict, "devicemigration/conflict"
 	case errors.As(err, &full):
 		status, kind = http.StatusTooManyRequests, "devicemigration/busy"
+	case errors.As(err, &limited):
+		status, kind = http.StatusTooManyRequests, "devicemigration/tooManyRequests"
 	}
 
 	if status == http.StatusInternalServerError {

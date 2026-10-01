@@ -495,11 +495,23 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
          * Collect the device credentials a migration issued, once
          * @description Returns the credentials file for a migration run with
          *     `provisionCredentials`, as `text/csv` with the columns `EXTERNAL_ID`,
          *     `TENANT`, `USERNAME`, `PASSWORD` - the same file the command line writes.
+         *
+         *     **A POST, because it changes state.** The passwords are destroyed as they
+         *     are served, so this is not a read however much it looks like a download.
+         *     A browser session must send `X-XSRF-TOKEN` with it, like any other write.
+         *
+         *     **Handed over only to the caller who started the migration.** Holding
+         *     `ROLE_DEVICE_MIGRATION_ADMIN` is what lets somebody start one; it is
+         *     deliberately not enough to take the passwords of one they did not.
+         *     Anybody else gets a **403**, and `credentialsAvailable` is reported as
+         *     false to them so no screen offers a download that would be refused.
          *
          *     **Handed over exactly once.** The passwords are held in this service's
          *     memory and dropped as they are served, so a second call is a **410**. That
@@ -519,9 +531,7 @@ export interface paths {
          *     connected to it, a field technician, or existing device-management
          *     tooling. This service does not deliver credentials to devices.
          */
-        get: operations["getMigrationCredentials"];
-        put?: never;
-        post?: never;
+        post: operations["collectMigrationCredentials"];
         delete?: never;
         options?: never;
         head?: never;
@@ -562,6 +572,27 @@ export interface paths {
          *     administrator re-issues by removing the
          *     `c8y_DeviceMigrationCredentialsIssued` fragment from the device's managed
          *     object in the target tenant.
+         *
+         *     That rule bounds **how often** a credential is issued, not to whom. The
+         *     fragment lives on an object owned by the device user it was issued for, so
+         *     anything able to write that object can clear it — which is what the
+         *     re-issue procedure above is. It is a brake on repetition, not a record that
+         *     a credential was handed over exactly once.
+         *
+         *     Two further limits are worth knowing before enabling this for a migration,
+         *     and neither has a mitigation here:
+         *
+         *     - **The caller is whoever holds the device user.** `device_` is the
+         *       platform's naming convention, not a reserved namespace. This endpoint
+         *       establishes that the caller holds `device_<externalId>` in a subscribed
+         *       tenant, not that it is the physical device, so a migration that opts into
+         *       this route trusts the source tenant's user administration while
+         *       credentials are outstanding.
+         *     - **A device with no device user of its own cannot use it.** A child device
+         *       behind a gateway authenticates as the gateway; a device registered by
+         *       hand may hold a username of any shape. Such devices are migrated like any
+         *       other and told there is nothing to do, so they arrive without
+         *       credentials.
          *
          *     "Nothing to do" is a `200` with `migrate: false`, not an error: a device
          *     asking on a timer should not fill its log with failures.
@@ -623,9 +654,15 @@ export interface paths {
         put?: never;
         /**
          * Move a trusted certificate from one tenant to another
-         * @description Removes a trusted CA from the source tenant and creates it in the target
-         *     with auto-registration enabled, so the devices chained to it are accepted
-         *     there instead.
+         * @description Removes a trusted CA from the source tenant and creates it in the target,
+         *     so the devices chained to it are accepted there instead.
+         *
+         *     **The certificate arrives as it stood.** Its status is carried across
+         *     unchanged, and auto-registration defaults to whatever the source tenant
+         *     had — both decide which devices this CA may bring into a tenant, so
+         *     neither is decided here. Pass `autoRegistrationEnabled` to choose
+         *     deliberately; the response says plainly when the result is false, because
+         *     arriving devices are then refused.
          *
          *     **There is an outage in this operation and no way to flip it back.** A
          *     fingerprint can exist in only one tenant per platform instance, and
@@ -639,7 +676,10 @@ export interface paths {
          *     reach the person who asked while they are still there to act on it.
          *     Everything checkable is checked before the source loses anything — the
          *     certificate exists and is movable, its PEM is readable, and the target
-         *     does not already have it.
+         *     does not already have it. A **disabled** certificate is refused: it
+         *     authenticates nobody, so there is no fleet to move and an outage would buy
+         *     nothing — and it is disabled because somebody disabled it, which a
+         *     migration is not the place to undo.
          *
          *     No proof of possession is demanded by the platform, so the **public**
          *     certificate is all that crosses and nobody needs the CA's private key.
@@ -1039,7 +1079,7 @@ export interface components {
              *
              *     The passwords are never written to the job record. They are held in
              *     this service's memory and collected **once** from
-             *     `GET /migrations/{id}/credentials`; a restart loses them, and
+             *     `POST /migrations/{id}/credentials`; a restart loses them, and
              *     re-registering to replace them rotates every password it touches.
              *
              *     Cannot be combined with `remoteTargetId`: a remote target is reached
@@ -1159,6 +1199,18 @@ export interface components {
              *     because names are not unique and this operation has an outage in it.
              */
             fingerprint: string;
+            /**
+             * @description Whether the target should register a device presenting this chain for
+             *     the first time. **Omit it to carry the source tenant's own setting
+             *     across**, which is the default and almost always what is wanted.
+             *
+             *     Give it only to change that deliberately. Which devices a CA may bring
+             *     into a tenant is a decision somebody takes, not a side effect of
+             *     moving the certificate — this endpoint used to force it on, and a
+             *     tenant that had trusted a CA *without* auto-registration got it
+             *     enabled with nothing saying so.
+             */
+            autoRegistrationEnabled?: boolean;
         };
         TrustAnchorCutoverResponse: {
             fingerprint?: string;
@@ -1166,8 +1218,11 @@ export interface components {
             sourceTenant?: string;
             targetTenant?: string;
             /**
-             * @description Read back from the target rather than assumed. False means arriving
-             *     devices will be refused until it is enabled.
+             * @description What the target says after the move, read back rather than assumed.
+             *     False means a device arriving with no device user of its own is
+             *     refused there — which may be exactly what was asked for, or may be a
+             *     target that did not take the setting with the certificate. `message`
+             *     distinguishes the two.
              */
             autoRegistrationEnabled?: boolean;
             warning?: string;
@@ -1207,6 +1262,11 @@ export interface components {
             /**
              * @description True when a credential was handed over for this device before, so this
              *     call did not mint another one. The endpoint still answers where to go.
+             *
+             *     It says a credential was issued for this device, not that this caller
+             *     received it — there is no record of who collected. A device that lost
+             *     its credential and one that never had it see the same answer, and
+             *     `message` says what to do about either.
              */
             alreadyIssued?: boolean;
             /** @description The migration that carried this device, for diagnosis. */
@@ -1465,11 +1525,13 @@ export interface components {
             credentialsIssued?: number;
             /**
              * @description Whether those credentials are still waiting to be collected from
-             *     `GET /migrations/{id}/credentials`.
+             *     `POST /migrations/{id}/credentials`, **by this caller**.
              *
              *     Not part of the stored record: it is this service's memory, and it
              *     becomes false the moment they are collected or the container is
-             *     replaced.
+             *     replaced. It is also false for anyone who did not start the
+             *     migration, who could only be refused by the endpoint - so no screen
+             *     offers a download that cannot work.
              */
             credentialsAvailable?: boolean;
             /**
@@ -2234,7 +2296,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
-    getMigrationCredentials: {
+    collectMigrationCredentials: {
         parameters: {
             query?: never;
             header?: never;
@@ -2267,7 +2329,18 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            /**
+             * @description The caller may not collect these: they did not start this migration,
+             *     or its record does not say who did.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             404: components["responses"]["NotFound"];
             /**
              * @description There are no credentials to hand over: already collected, lost to a
@@ -2309,6 +2382,24 @@ export interface operations {
              */
             403: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description This caller is asking more often than a device needs to. The answer
+             *     does not change between asks, and the search behind it costs calls in
+             *     other tenants, so a caller in a loop is refused rather than served.
+             *
+             *     `Retry-After` carries the number of seconds to wait. A device on an
+             *     ordinary timer — minutes, not seconds — never meets this.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds to wait before asking again. */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2370,7 +2461,7 @@ export interface operations {
             };
             /**
              * @description The certificate cannot be moved — the tenant's own CA, an expired one,
-             *     or no readable PEM. Nothing was changed.
+             *     a disabled one, or no readable PEM. Nothing was changed.
              */
             400: {
                 headers: {

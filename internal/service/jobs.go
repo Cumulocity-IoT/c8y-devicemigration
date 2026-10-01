@@ -402,7 +402,7 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 		RootName: s.rootName(ctx, request),
 	}
 	if caller != nil {
-		job.RequestedBy = caller.Tenant + "/" + caller.Username
+		job.RequestedBy = caller.Name()
 	}
 
 	recordID, err := s.CreateRecord(ctx, &job)
@@ -567,6 +567,11 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 	// merely out of date; the other order was wrong - it said SUCCEEDED while
 	// the record, which is what everything else reads, said nothing of the kind.
 	queued.publish(finished)
+
+	// A migration that just succeeded may be one its devices can collect a
+	// credential from, and the device endpoint reads a held index of those. Dropped
+	// here so the first device to ask sees it, rather than up to a TTL later.
+	s.collectable.invalidate()
 
 	slog.Info("job finished", "job", finished.ID, "status", finished.Status, "runId", finished.RunID)
 }

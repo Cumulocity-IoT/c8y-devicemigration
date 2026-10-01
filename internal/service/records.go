@@ -303,6 +303,10 @@ func (s *Service) DeleteJob(ctx context.Context, jobID string) ([]string, error)
 		recordsDeleted.Inc()
 	}
 
+	// A deleted record must stop being collectable at once, not when a held index
+	// happens to expire: the point of removing it is that the run is gone.
+	s.collectable.invalidate()
+
 	slog.Info("deleted job records on request", "job", jobID, "count", len(deleted))
 	return deleted, nil
 }
