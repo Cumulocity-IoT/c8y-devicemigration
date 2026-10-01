@@ -279,12 +279,20 @@ func registrableRecords(plan *export.Plan) []registration.Record {
 		// in range. Both come from registration so the choice cannot drift from
 		// the one the run makes.
 		chosen := device.Identities[registration.SelectIdentity(types, registration.DefaultIdentityType)]
-		records = append(records, registration.Record{
+		record := registration.Record{
 			SourceID:     device.ObjectID,
 			Name:         device.Name,
 			ExternalID:   chosen.ExternalID,
 			ExternalType: chosen.Type,
-		})
+		}
+		// And the same refusal the run applies to a device whose own values
+		// cannot be written into the registration file. Without this the
+		// dialogue would promise a credential the run then skips, and the
+		// pre-flight would check a target for an identity nobody registers.
+		if registration.RecordProblem(record) != "" {
+			continue
+		}
+		records = append(records, record)
 	}
 	return records
 }

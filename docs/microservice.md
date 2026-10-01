@@ -210,10 +210,23 @@ operator who asked for it with nothing. Anyone else gets a **403**, and
 download that could only be refused. A record that does not name who started it
 is refused for everybody, for the same reason.
 
-A 410 means one of three things and cannot tell them apart — already collected,
-the container was replaced, or none were issued. The way back in every case is to
-register the devices again, which **rotates** their passwords and invalidates any
-file handed out earlier.
+They are also held for **one hour**, and dropped after that whether or not
+anybody collected. A fleet's passwords should not be resident in a long-lived
+process for as long as the container happens to live, and an operator who has not
+collected within the hour has moved on. It takes away nothing that could be relied
+on: the file is already lost whenever the container is replaced, so expiry makes
+that loss predictable rather than a matter of when a deployment happens.
+
+A 410 means one of four things and cannot tell them apart — already collected,
+expired, the container was replaced, or none were issued. The way back in every
+case is to register the devices again, which **rotates** their passwords and
+invalidates any file handed out earlier.
+
+All of this is **one process's memory**, which is why the manifest pins the
+service to a single replica (`"replicas": 1`, `"scale": "NONE"`) and a test
+asserts it. With a second container each would hold its own credentials:
+`credentialsAvailable` would depend on which replica answered, and a collection
+could be refused by one while another still held the file.
 
 Three refusals worth knowing:
 
@@ -237,12 +250,35 @@ Three refusals worth knowing:
   without credentials and provision them from the target tenant, or subscribe the
   target.
 - **Devices with no external identity are skipped**, along with groups and
-  devices carrying several identities and no `c8y_Serial`. Each appears in the
-  job's progress with its reason. They are migrated like any other object; they
-  simply arrive without credentials.
+  devices carrying several identities and no `c8y_Serial`. So is a device whose
+  name, type or external identity contains a **comma**, a **quote** or a line
+  break: the bulk registration file has no escaping, so such a row would be read
+  with its columns shifted and the platform accepts that without complaint. The
+  value is refused rather than altered. Each appears in the job's progress with
+  its reason. They are migrated like any other object; they simply arrive without
+  credentials.
 
 `revert` removes the device users along with the objects, in the same platform
 call, so an undone migration leaves nothing behind that still authenticates.
+
+#### The source tenant keeps its own credentials
+
+A migration is a copy. Nothing is removed from the tenant the devices came from,
+and that includes the devices' ability to authenticate there: after a migration
+with `provisionCredentials` or `deviceSelfCredentials`, a device holds **two**
+working identities in two tenants, and the source tenant's administrators retain
+the ability to act as it there.
+
+That is deliberate — a migration that disabled the source would have no way back —
+but it is worth saying out loud, because "migrated" reads to most people as "no
+longer in the source". Where the two tenants belong to different parties, when the
+source loses access is a question this tool does not answer: deprovisioning there
+is a separate, manual step.
+
+`certificateFleet` is the exception, and the only mechanism here that really
+*moves* anything: the trust-anchor cutover removes the certificate from the source,
+so the fleet genuinely leaves. That is also why it has an unavoidable outage and
+the other two do not.
 
 ### Device self-service credentials
 

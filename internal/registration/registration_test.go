@@ -121,25 +121,44 @@ func TestRegistrationFileRefusesAnUnusableMarker(t *testing.T) {
 	}
 }
 
-// A comma in a device name is entirely ordinary, and quoting is what encoding/csv
-// is for. This is the case that would have been broken by hand-rolling the rows.
-func TestRegistrationFileQuotesCommasInSourceText(t *testing.T) {
+// A comma in a device name is entirely ordinary, and this used to assert that
+// encoding/csv quoting carried it. Measured 2026-10-01, it does not: the endpoint
+// splits on every comma, quoted or not, and the row that results is *accepted*
+// whenever the shift starts after the password column - the device arriving under
+// a different external id type, with nothing said. See
+// docs/platform-behaviour.md.
+//
+// So the row is refused instead. The test is kept pointing at the same case,
+// because the case is the ordinary one and the old expectation is the thing most
+// likely to be reintroduced by somebody reasoning from the RFC.
+func TestRegistrationFileRefusesCommasInSourceText(t *testing.T) {
 	in := records()
 	in[0].Name = "Pump, north"
 
 	var out bytes.Buffer
-	if err := registration.WriteRegistrationFile(&out, "", in); err != nil {
-		t.Fatal(err)
+	err := registration.WriteRegistrationFile(&out, "", in)
+	if err == nil {
+		t.Fatalf("a comma in a name was written:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), `"Pump, north"`) {
-		t.Fatalf("comma in a name was not quoted:\n%s", out.String())
+	// Named, because the operator has to know which device and which field.
+	for _, want := range []string{in[0].ExternalID, "name", "comma"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not mention %q: %v", want, err)
+		}
 	}
-	rows, err := csv.NewReader(&out).ReadAll()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rows[1][3] != "Pump, north" {
-		t.Fatalf("name round-tripped as %q", rows[1][3])
+}
+
+// Quotes are not escaping either, and this is the other half of the same
+// measurement: `"Pump ""North"""` on the wire - RFC 4180's encoding of
+// `Pump "North"` - arrived as `Pump ""North`, one quote trimmed off the front and
+// three off the back, the doubled pair untouched.
+func TestRegistrationFileRefusesQuotesInSourceText(t *testing.T) {
+	in := records()
+	in[0].Name = `Pump "North"`
+
+	var out bytes.Buffer
+	if err := registration.WriteRegistrationFile(&out, "", in); err == nil {
+		t.Fatalf("a quote in a name was written:\n%s", out.String())
 	}
 }
 

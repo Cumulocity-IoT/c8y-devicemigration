@@ -155,15 +155,41 @@ func (r *Registrar) Plan() (*Plan, error) {
 			continue
 		}
 
-		plan.Records = append(plan.Records, Record{
+		record := Record{
 			SourceID:     sourceID,
 			ExternalID:   chosen.ExternalID,
 			ExternalType: chosen.Type,
 			Name:         name,
 			Type:         jsonraw.String(body, "type"),
-		})
+		}
+
+		// A device whose own values cannot be written into the file is skipped
+		// here rather than failing the run at the writer. The whole fleet losing
+		// its credentials over one device's name would be a poor trade, and this
+		// matches what already happens to a device with no usable identity: it is
+		// migrated like any other and arrives without credentials, loudly.
+		if problem := RecordProblem(record); problem != "" {
+			plan.Skipped = append(plan.Skipped, Skipped{sourceID, name, problem})
+			continue
+		}
+
+		plan.Records = append(plan.Records, record)
 	}
 	return plan, nil
+}
+
+// RecordProblem is why a device cannot be registered as itself, or empty.
+//
+// Exported so that the count in a migration dialogue and the pre-flight that
+// checks a target both apply it: a device this skips is a device that gets no
+// credential, and an estimate that counted it would promise one.
+func RecordProblem(record Record) string {
+	for _, field := range record.fields() {
+		if problem := FieldProblem(field[0], field[1]); problem != "" {
+			return problem
+		}
+	}
+	return ""
 }
 
 // Check is Plan with every chosen identity resolved against the target.

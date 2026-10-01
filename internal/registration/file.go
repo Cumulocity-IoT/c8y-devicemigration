@@ -190,17 +190,70 @@ func WriteCredentialsFile(w io.Writer, credentials []Credential) error {
 	return nil
 }
 
+// unencodable is the characters no field of the registration file can carry.
+//
+// Measured 2026-10-01, against the endpoint rather than against RFC 4180, and
+// the result is that the file has no escaping at all - see
+// docs/platform-behaviour.md:
+//
+//   - **A comma always separates a field**, including inside a quoted one. A row
+//     whose quoted external id held a comma was split there, putting the rest of
+//     the id into AUTH_TYPE, and the platform answered "has unknown auth type".
+//     That one failed loudly only because AUTH_TYPE happens to be validated:
+//     nothing after CREDENTIALS is, so the same shift in a *name* was accepted,
+//     and the device was registered under the wrong external id type entirely.
+//   - **Quotes are trimmed, never unescaped.** `"Pump ""North"""` on the wire -
+//     which is what RFC 4180 encoding of `Pump "North"` produces - arrived as
+//     `Pump ""North`: one quote off the front, three off the back, the doubled
+//     pair left as it was.
+//   - **A line break ends the row** whatever is written around it.
+//
+// So encoding/csv quoting buys nothing here, and a value carrying any of these is
+// refused rather than escaped, altered or dropped. Altering one was considered
+// and rejected: a name is overwritten by the import moments later and could in
+// principle be stripped, but a tool that silently changes what it was asked to
+// migrate is a worse thing to own than one that says it cannot.
+const unencodable = ",\"\r\n"
+
+// FieldProblem says why a value cannot be carried in the registration file, or
+// returns empty when it can.
+//
+// Exported because two callers need the same answer at different moments: the
+// registration phase skips such a device while it is still planning, and the file
+// writer refuses it outright. One rule, so a device that plans cannot then fail
+// to write.
+func FieldProblem(what, value string) string {
+	if !strings.ContainsAny(value, unencodable) {
+		return ""
+	}
+	return fmt.Sprintf("its %s contains a comma, a quote or a line break, and the device "+
+		"registration file has no way to carry one: the platform would read the row with "+
+		"its columns shifted", what)
+}
+
+// fields is what a record puts in the file, named as an operator would name them.
+//
+// A slice rather than a map so the first problem reported for a record is always
+// the same one, whichever field carries it.
+func (r Record) fields() [][2]string {
+	return [][2]string{
+		{"external id", r.ExternalID},
+		{"external id type", r.ExternalType},
+		{"name", r.Name},
+		{"type", r.Type},
+	}
+}
+
 // validate refuses a record the registration file cannot carry.
 //
 // The index is in the message because an external id is not always something an
 // operator recognises, and "row 4" is findable in the file either way.
 //
-// A newline is the one character that cannot be rescued. Everything else is
-// escaped by encoding/csv per RFC 4180, and a comma in a device name is entirely
-// ordinary - but a line-oriented parser that does not implement quoting would
-// read a newline as the end of the row whatever we write, and the failure would
-// look like a device that registered with the wrong values rather than a rejected
-// file.
+// This is the backstop rather than the thing an operator meets: the registration
+// phase skips an unencodable device while planning, with a reason naming it. What
+// reaches here is a caller that built its own record - the device self-service
+// endpoint does - and refusing is the only safe answer, because a shifted row is
+// accepted by the platform rather than rejected.
 func (r Record) validate(index int) error {
 	if strings.TrimSpace(r.ExternalID) == "" {
 		return fmt.Errorf("row %d has no external id, so the device it registers could never be found again", index+1)
@@ -211,19 +264,14 @@ func (r Record) validate(index int) error {
 	if r.Password == "" {
 		return fmt.Errorf("row %d (%s) has no password", index+1, r.ExternalID)
 	}
-	if strings.ContainsAny(r.Password, ",\"\r\n") {
+	if strings.ContainsAny(r.Password, unencodable) {
 		// Generated passwords cannot contain any of these, so reaching this
 		// means a caller supplied its own.
 		return fmt.Errorf("row %d (%s) has a password containing a comma, quote or newline, which the registration file cannot carry", index+1, r.ExternalID)
 	}
-	for field, value := range map[string]string{
-		"external id":      r.ExternalID,
-		"external id type": r.ExternalType,
-		"name":             r.Name,
-		"type":             r.Type,
-	} {
-		if strings.ContainsAny(value, "\r\n") {
-			return fmt.Errorf("row %d (%s) has a %s containing a line break, which the registration file cannot carry", index+1, r.ExternalID, field)
+	for _, field := range r.fields() {
+		if problem := FieldProblem(field[0], field[1]); problem != "" {
+			return fmt.Errorf("row %d (%s): %s", index+1, r.ExternalID, problem)
 		}
 	}
 	return nil
