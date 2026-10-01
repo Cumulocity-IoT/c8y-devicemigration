@@ -203,11 +203,50 @@ these travel through are comma-separated and the endpoint has not been shown to
 honour RFC 4180 quoting, the rest because an operator is told to paste them inside
 single quotes. See [`internal/registration/password.go`](../internal/registration/password.go).
 
-**Untested, and it would be easy to mistake for a platform fault:** whether the
-registration file's **quoted commas** are honoured. A device named `Pump, north`
-is entirely ordinary and the writer quotes it per RFC 4180, but nothing has
-confirmed the endpoint parses quoting. If it does not, that device registers with
-its fields shifted.
+**The registration file has no escaping. The endpoint splits on every comma and
+trims quotes rather than unescaping them.** Measured 2026-10-01, with a file
+written by `registration.WriteRegistrationFile` itself so the encoding was the
+tool's own:
+
+| written | arrived as |
+| --- | --- |
+| `"RFC4180-B,RUN1"` as the external id | split at the comma: `RFC4180-B` in `ID`, `RUN1` in `AUTH_TYPE`, answered `has unknown auth type: 'RUN1'` |
+| `"Pump, north"` as the name | split at the comma, and **created anyway**: name `"Pump`, type `north"`, external id type `c8y_Test` — the `TYPE` value — and the marker column carrying `c8y_Serial` |
+| `"Pump ""North"""` as the name, RFC 4180's encoding of `Pump "North"` | `Pump ""North` — one quote trimmed off the front, three off the back, the doubled pair left as it was |
+
+Three things follow, and the second is the one that matters.
+
+**A shift that starts after `CREDENTIALS` is accepted silently.** The row with a
+comma in its external id failed only because the text after the comma landed in
+`AUTH_TYPE`, which the platform validates; nothing after `CREDENTIALS` is
+validated at all. The device in the second row was registered under
+`c8y_Test:RFC4180-A-RUN1` instead of `c8y_Serial:…`, so the import's adoption —
+which looks the identity up as the export carried it — would not resolve it, and
+would create a **second** object. One object owned by the device user with no
+data, one with the data owned by the service user, and a device that arrives
+unable to write its own twin.
+
+**The marker survives a shift.** It receives the wrong *value* (`c8y_Serial`
+rather than `registered`), but the fragment is still created, and both the
+import's adoption check and the revert's query test for its **presence**. An
+earlier reading of this page's own warning said a shift could suppress the marker;
+it cannot.
+
+What depends on it:
+[`internal/registration/file.go`](../internal/registration/file.go) refuses a
+comma, a quote or a line break in **any** field rather than relying on quoting,
+and [`internal/registration/registration.go`](../internal/registration/registration.go)
+skips such a device while planning so one device's name cannot cost a fleet its
+credentials. Altering the value instead was considered and rejected: a name is
+overwritten by the import moments later and could have been stripped, but a tool
+that silently changes what it was asked to migrate is worse to own than one that
+says it cannot. The estimate and the credential pre-flight apply the same rule,
+so the count in the dialogue cannot promise a credential the run then skips.
+
+> **This replaced an open question, not a wrong finding.** The page previously
+> recorded that quoting was *untested* and named the exact failure it would cause
+> if unsupported. It was tested, it is unsupported, and the failure is the one
+> that was predicted — with the addition that the dangerous half is silent.
 
 ## Device users calling a microservice
 

@@ -63,6 +63,10 @@ type Skipped struct {
 type Plan struct {
 	Records []Record
 	Skipped []Skipped
+
+	// Conflicts is the devices whose external identity the target tenant already
+	// holds. Any at all refuses the run - see conflict.go.
+	Conflicts []Conflict
 }
 
 // FailedRow is one row the platform refused.
@@ -108,6 +112,11 @@ func New(client *api.Client, stderr io.Writer, opts Options) *Registrar {
 //
 // No passwords and no requests: a caller can print this and ask before anything
 // exists in the target tenant, and the answer does not change when it then runs.
+// Which identity a device would be registered under is a rule about the export
+// alone, and keeping it that way is what lets it be tested - and compared
+// against the importer's copy of it - without a platform.
+//
+// What the *target* already holds is a separate question, asked by Check.
 func (r *Registrar) Plan() (*Plan, error) {
 	files, err := importer.ObjectFiles(r.opts.InputDirectory)
 	if err != nil {
@@ -146,13 +155,63 @@ func (r *Registrar) Plan() (*Plan, error) {
 			continue
 		}
 
-		plan.Records = append(plan.Records, Record{
+		record := Record{
+			SourceID:     sourceID,
 			ExternalID:   chosen.ExternalID,
 			ExternalType: chosen.Type,
 			Name:         name,
 			Type:         jsonraw.String(body, "type"),
-		})
+		}
+
+		// A device whose own values cannot be written into the file is skipped
+		// here rather than failing the run at the writer. The whole fleet losing
+		// its credentials over one device's name would be a poor trade, and this
+		// matches what already happens to a device with no usable identity: it is
+		// migrated like any other and arrives without credentials, loudly.
+		if problem := RecordProblem(record); problem != "" {
+			plan.Skipped = append(plan.Skipped, Skipped{sourceID, name, problem})
+			continue
+		}
+
+		plan.Records = append(plan.Records, record)
 	}
+	return plan, nil
+}
+
+// RecordProblem is why a device cannot be registered as itself, or empty.
+//
+// Exported so that the count in a migration dialogue and the pre-flight that
+// checks a target both apply it: a device this skips is a device that gets no
+// credential, and an estimate that counted it would promise one.
+func RecordProblem(record Record) string {
+	for _, field := range record.fields() {
+		if problem := FieldProblem(field[0], field[1]); problem != "" {
+			return problem
+		}
+	}
+	return ""
+}
+
+// Check is Plan with every chosen identity resolved against the target.
+//
+// The one call both the run and the dry run make, so that what `--dry-run`
+// reports and what a registration refuses cannot come apart. One request per
+// registrable device, and nothing is created by any of them.
+//
+// This cannot be deferred into the run itself: an identity the target already
+// holds is the case where registering reaches a device the migration is not
+// about, and the only moment to say so is before a password has been generated
+// for anything.
+func (r *Registrar) Check(ctx context.Context) (*Plan, error) {
+	plan, err := r.Plan()
+	if err != nil {
+		return nil, err
+	}
+	conflicts, err := FindConflicts(ctx, r.client, plan.Records)
+	if err != nil {
+		return nil, err
+	}
+	plan.Conflicts = conflicts
 	return plan, nil
 }
 
@@ -163,7 +222,7 @@ func (r *Registrar) Plan() (*Plan, error) {
 // worked because others did not would mean re-registering - which rotates the
 // passwords of the devices that were fine.
 func (r *Registrar) Run(ctx context.Context) ([]Credential, error) {
-	plan, err := r.Plan()
+	plan, err := r.Check(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +230,14 @@ func (r *Registrar) Run(ctx context.Context) ([]Credential, error) {
 		fmt.Fprintf(r.stderr, "Not registering %s (%s): %s\n",
 			displayName(skipped.Name), skipped.SourceID, skipped.Reason)
 	}
+
+	// Before any password is generated and before anything is sent, so a refusal
+	// costs the target tenant nothing at all.
+	if len(plan.Conflicts) > 0 {
+		ReportConflicts(r.stderr, plan.Conflicts)
+		return nil, &ConflictError{Conflicts: plan.Conflicts}
+	}
+
 	if len(plan.Records) == 0 {
 		return nil, fmt.Errorf(
 			"None of the %d exported objects can be registered, so no credentials can be issued",
@@ -292,13 +359,22 @@ func (r *Registrar) collect(records []Record, out Outcome) ([]Credential, error)
 		if rotated[record.ExternalID] {
 			// The target already knew this external id, so nothing was created
 			// and the object it belongs to was left untouched - owner included.
-			// Said out loud because it also means any credentials file handed
-			// out earlier for this device has just stopped working.
+			// Check refuses exactly this before a password is generated, so
+			// reaching it here means the target gained the identity between that
+			// lookup and this upload.
+			//
+			// Reported as a failure and not handed over. The device whose password
+			// was just replaced is one the target already had, which this run has
+			// no claim on: the credentials file would otherwise carry a working
+			// credential for a device this migration did not create. Withholding it
+			// is the same answer the check gives a moment earlier.
 			r.rotated++
-			fmt.Fprintf(r.stderr,
-				"Rotated the password of %s, which the target already knew: "+
-					"no object was created and any earlier credentials for it no longer work\n",
-				record.ExternalID)
+			reason := "the target tenant already had this external identity, so no object was " +
+				"created and an existing device's password was replaced. Its new credential is " +
+				"deliberately not reported here"
+			fmt.Fprintf(r.stderr, "Refused %s: %s\n", record.ExternalID, reason)
+			failures = append(failures, FailedRow{record.ExternalID, reason})
+			continue
 		}
 		credentials = append(credentials, Credential{
 			ExternalID: record.ExternalID,
@@ -311,7 +387,12 @@ func (r *Registrar) collect(records []Record, out Outcome) ([]Credential, error)
 	fmt.Fprintf(r.stderr, "Registered %d of %d %s\n",
 		len(credentials), len(records), plural(len(records), "device", "devices"))
 	if r.rotated > 0 {
-		fmt.Fprintf(r.stderr, "%d of them were already known and had their password rotated\n", r.rotated)
+		fmt.Fprintf(r.stderr,
+			"%d %s turned out to be already known to the target between the check and the "+
+				"upload, so an existing device's password was replaced. Those devices belong "+
+				"to the target tenant rather than to this migration - whoever operates them "+
+				"has to re-issue their credentials there.\n",
+			r.rotated, plural(r.rotated, "device", "devices"))
 	}
 
 	if len(failures) > 0 {

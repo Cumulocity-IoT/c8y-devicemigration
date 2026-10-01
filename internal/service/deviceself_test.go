@@ -3,6 +3,7 @@ package service_test
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -277,5 +278,113 @@ func TestTheAnswerIsNotCacheable(t *testing.T) {
 	recorder := call(t, svc, deviceRequest(t, "t-source", deviceUser, devicePassword))
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+}
+
+// What a device asking on a timer costs this service.
+//
+// Every ask used to list the owner tenant's job records and then, per candidate
+// migration, resolve an identity and read an object in the target tenant - all
+// with this service's own service users, so a caller asking in a loop spends the
+// platform's budget rather than its own.
+
+func TestTheJobRecordsAreNotReReadForEveryDevice(t *testing.T) {
+	p, svc, _ := migratedDevice(t)
+	owner := p.tenants[bootstrapTenant]
+
+	before := owner.CountExact("/inventory/managedObjects")
+	for range 4 {
+		if recorder := call(t, svc, deviceRequest(t, "t-source", deviceUser, devicePassword)); recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, body %s", recorder.Code, recorder.Body)
+		}
+	}
+	asked := owner.CountExact("/inventory/managedObjects") - before
+
+	// One listing covers the lot: everything that decides whether a migration can
+	// answer for a device is terminal, so re-reading it per caller buys nothing.
+	if asked > 1 {
+		t.Errorf("the job records were listed %d times for 4 devices", asked)
+	}
+}
+
+// A device of a tenant with nothing to collect is the common case once a fleet
+// has moved, and it should cost nothing in the other tenants.
+func TestADeviceWithNothingToCollectTouchesNoOtherTenant(t *testing.T) {
+	p := twoTenants(t)
+	p.AddUser("t-source", deviceUser, devicePassword, "ROLE_DEVICE")
+	svc := p.start(t)
+
+	target := p.tenants["t-target"]
+	before := len(target.Requests())
+
+	recorder := call(t, svc, deviceRequest(t, "t-source", deviceUser, devicePassword))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", recorder.Code, recorder.Body)
+	}
+	if decode(t, recorder)["migrate"] != false {
+		t.Fatalf("a device with no migration was told to move: %s", recorder.Body)
+	}
+	if asked := len(target.Requests()) - before; asked != 0 {
+		t.Errorf("%d calls were made into the target tenant to answer 'nothing to do'", asked)
+	}
+}
+
+// A migration that has just succeeded has to be collectable at once. The held
+// index is dropped when a job finishes, so this cannot wait for it to expire.
+func TestAFinishedMigrationIsCollectableImmediately(t *testing.T) {
+	p := twoTenants(t)
+	p.AddUser("t-source", deviceUser, devicePassword, "ROLE_DEVICE", "ROLE_INVENTORY_READ")
+	svc := p.start(t)
+
+	// Asking first is what puts an index in place that says there is nothing.
+	if recorder := call(t, svc, deviceRequest(t, "t-source", deviceUser, devicePassword)); recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", recorder.Code, recorder.Body)
+	}
+
+	job := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1",
+		DeviceSelfCredentials: true,
+	})
+	if job["status"] != string(service.StatusSucceeded) {
+		t.Fatalf("status = %v, error %v", job["status"], job["error"])
+	}
+
+	body := decode(t, call(t, svc, deviceRequest(t, "t-source", deviceUser, devicePassword)))
+	if body["migrate"] != true {
+		t.Fatalf("a device was not told about a migration that had just succeeded: %v", body)
+	}
+}
+
+// A caller asking far more often than a device would is refused, because the
+// answer cannot have changed and the search costs platform calls in other
+// tenants. The device is told when to come back rather than why.
+func TestACallerAskingInALoopIsRefused(t *testing.T) {
+	p, svc, _ := migratedDevice(t)
+
+	var limited *httptest.ResponseRecorder
+	for range 20 {
+		recorder := call(t, svc, deviceRequest(t, "t-source", deviceUser, devicePassword))
+		if recorder.Code == http.StatusTooManyRequests {
+			limited = recorder
+			break
+		}
+	}
+	if limited == nil {
+		t.Fatal("a caller asking twenty times in a row was never refused")
+	}
+	if limited.Header().Get("Retry-After") == "" {
+		t.Error("the refusal does not say when to come back")
+	}
+	if got := decode(t, limited)["error"]; got != "devicemigration/tooManyRequests" {
+		// Not devicemigration/busy, which means a migration is running and says
+		// nothing about the caller.
+		t.Errorf("error kind is %v", got)
+	}
+
+	// And one device's behaviour does not cost another device its allowance.
+	p.AddUser("t-source", "device_OTHER", devicePassword, "ROLE_DEVICE")
+	other := call(t, svc, deviceRequest(t, "t-source", "device_OTHER", devicePassword))
+	if other.Code == http.StatusTooManyRequests {
+		t.Error("a second device was refused because the first had been asking")
 	}
 }

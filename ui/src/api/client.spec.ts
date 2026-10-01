@@ -261,3 +261,43 @@ describe('counting objects by fragment', () => {
       .toBe(true);
   });
 });
+
+/**
+ * Collecting credentials destroys what it serves, so it is a write.
+ *
+ * Pinned here because the method is the security property, not a detail: as a
+ * GET it would be exempt from the platform's cross-site rule, and a page an
+ * operator visited while signed in could spend the one collection on nothing.
+ */
+describe('collecting credentials', () => {
+  it('is a POST, not a read', async () => {
+    const { fetchLike, calls } = answers({ status: 200 });
+
+    await createApi(fetchLike).migrationCredentials('job-1');
+
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe(`${BASE}/migrations/job-1/credentials`);
+  });
+
+  it('reports a refusal for somebody else’s migration as forbidden', async () => {
+    const { fetchLike } = answers({
+      status: 403,
+      body: { error: 'security/Forbidden', message: 'started by t-owner/someone-else' }
+    });
+
+    await expect(createApi(fetchLike).migrationCredentials('job-1')).rejects.toMatchObject({
+      kind: 'forbidden'
+    });
+  });
+
+  it('still reports nothing to collect as gone', async () => {
+    const { fetchLike } = answers({
+      status: 410,
+      body: { error: 'devicemigration/credentialsGone', message: 'handed over once' }
+    });
+
+    await expect(createApi(fetchLike).migrationCredentials('job-1')).rejects.toMatchObject({
+      kind: 'gone'
+    });
+  });
+});

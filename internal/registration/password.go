@@ -8,8 +8,24 @@ import (
 
 // PasswordLength is the length of every generated device password.
 //
-// Fifteen characters over the 89-character pool below is about 97 bits, and sits
-// comfortably inside the 8-32 window the bulk registration API accepts.
+// Fifteen characters sits comfortably inside the 8-32 window the bulk
+// registration API accepts. Fifteen drawn freely from the 89-character pool below
+// would be about 97 bits, but that is not what is guaranteed and the difference is
+// worth writing down rather than rediscovering.
+//
+// go-c8y's generator fills the first eight positions from fixed classes - two
+// symbols, two digits, two uppercase, two lowercase - and the remaining seven from
+// the whole pool, each character drawn with crypto/rand. It then shuffles with
+// math/rand seeded from the wall clock. The shuffle is what hides which position
+// holds which class, and it is not a cryptographic one, so the floor to assume is
+// the entropy with the arrangement known:
+//
+//	2*log2(27) + 2*log2(10) + 2*log2(26) + 2*log2(26) + 7*log2(89) ~= 80 bits
+//
+// Eighty bits is far beyond brute force, and the character *selection* - the part
+// that matters - is crypto/rand throughout. So this is a figure to quote
+// accurately rather than a weakness to fix here; fixing it means a crypto/rand
+// shuffle upstream.
 const PasswordLength = 15
 
 // passwordSymbols is the punctuation a generated password may contain.
@@ -20,10 +36,12 @@ const PasswordLength = 15
 // then has to survive, and there are only two rules:
 //
 //   - **The registration and credentials files.** Both are comma separated, so a
-//     comma is out, and a double quote is out because a value carrying one
-//     depends on the reader implementing RFC 4180 quoting, which this endpoint
-//     has not been shown to do. CR and LF cannot appear in a line-oriented file
-//     at all.
+//     comma is out, and a double quote with it: measured 2026-10-01, the
+//     registration endpoint implements no RFC 4180 quoting at all - it splits on
+//     every comma, quoted or not, and trims quotes from a field rather than
+//     unescaping them. CR and LF cannot appear in a line-oriented file either.
+//     The same rule now applies to every other field of that file; see
+//     file.go and docs/platform-behaviour.md.
 //   - **Pasting the thing.** An operator ends up putting these into curl,
 //     mosquitto_pub and basic-auth URLs, and the advice that makes every one of
 //     them safe is "wrap it in single quotes". So a single quote is out, since it

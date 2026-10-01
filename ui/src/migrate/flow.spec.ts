@@ -673,3 +673,231 @@ describe('how the migrated devices will authenticate', () => {
     expect(flow.canIssueCredentials).toBe(true);
   });
 });
+
+/**
+ * Provisioning a device user per device is the one answer whose availability
+ * depends on what the target already holds: registering an external identity a
+ * tenant already has replaces the credential of the device already using it.
+ * The service checks it, and the wizard has to stop before Start rather than
+ * learn it from a failed job.
+ */
+describe('the credential check against the target', () => {
+  const conflict = {
+    sourceId: '4',
+    name: 'Pump West',
+    externalId: 'PUMP-WEST-001',
+    externalType: 'c8y_Serial',
+    targetId: '8801'
+  };
+
+  it('is not asked for until the answer needs it', async () => {
+    const asked: unknown[] = [];
+    const flow = await readyFlow(
+      stub({
+        preflight: async request => {
+          asked.push(request);
+          return {};
+        }
+      })
+    );
+    await flow.ensureCredentialCheck();
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).not.toHaveProperty('provisionCredentials');
+  });
+
+  it('is asked for, with the hierarchy, once that answer is chosen', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const flow = await readyFlow(
+      stub({
+        preflight: async request => {
+          asked.push(request as Record<string, unknown>);
+          return {};
+        }
+      })
+    );
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+
+    expect(asked.at(-1)).toMatchObject({ rootId: '1', provisionCredentials: true });
+  });
+
+  it('blocks the migration when the target already holds an identity', async () => {
+    const flow = await readyFlow(stub({ preflight: async () => ({ conflicts: [conflict] }) }));
+    flow.chooseCredentials('file');
+    await flow.ensureEstimate();
+    await flow.ensureCredentialCheck();
+
+    expect(flow.credentialsRefused).toBe(true);
+    expect(flow.readiness.ready).toBe(false);
+    expect(flow.credentialConflicts).toEqual([conflict]);
+  });
+
+  // The devices are named on screen, so the list has to survive to the view
+  // rather than being collapsed to a count: the way out is to go and look at
+  // them in both tenants.
+  it('keeps every device the service named', async () => {
+    const second = { ...conflict, sourceId: '5', externalId: 'LINE-A-SN', name: 'Line A' };
+    const flow = await readyFlow(
+      stub({ preflight: async () => ({ conflicts: [conflict, second] }) })
+    );
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+
+    expect(flow.credentialConflicts.map(c => c.externalId)).toEqual([
+      'PUMP-WEST-001',
+      'LINE-A-SN'
+    ]);
+  });
+
+  // The refusal is about one answer, not about the migration: dropping that
+  // answer has to clear it, or the screen blocks for a reason nothing explains.
+  it('stops blocking when another answer is chosen', async () => {
+    const flow = await readyFlow(stub({ preflight: async () => ({ conflicts: [conflict] }) }));
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+    expect(flow.readiness.ready).toBe(false);
+
+    flow.chooseCredentials('self');
+    await flow.ensureCredentialCheck();
+
+    expect(flow.credentialsRefused).toBe(false);
+    expect(flow.credentialConflicts).toEqual([]);
+  });
+
+  // Which devices would be registered depends on the hierarchy and on which
+  // relationships are followed, so narrowing the child types is as much a reason
+  // to ask again as changing the target is.
+  it('asks again when the scope changes', async () => {
+    let asks = 0;
+    const flow = await readyFlow(
+      stub({
+        preflight: async () => {
+          asks += 1;
+          return {};
+        }
+      })
+    );
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+    const afterFirst = asks;
+
+    await flow.ensureCredentialCheck();
+    expect(asks).toBe(afterFirst);
+
+    flow.changeScope({ childTypes: 'asset' });
+    await flow.ensureCredentialCheck();
+    expect(asks).toBe(afterFirst + 1);
+  });
+
+  // A stale answer that blocks is recoverable; a stale answer that allows would
+  // let a migration start that the service then refuses.
+  it('keeps blocking while it is being asked again', async () => {
+    const flow = await readyFlow(stub({ preflight: async () => ({ conflicts: [conflict] }) }));
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+
+    flow.changeScope({ childTypes: 'asset' });
+
+    expect(flow.credentialsRefused).toBe(true);
+  });
+
+  // A remote target cannot register a device user at all, so there is nothing to
+  // check and nothing to report about a control that is not even offered.
+  it('does not ask for a remote target', async () => {
+    const asked: Record<string, unknown>[] = [];
+    const flow = new MigrationFlow(
+      stub({
+        preflight: async request => {
+          asked.push(request as Record<string, unknown>);
+          return {};
+        }
+      })
+    );
+    await flow.loadTenants();
+    flow.chooseSource('t-a');
+    flow.chooseRoot({ id: '1', name: 'Plant Berlin' });
+    await flow.establishRemoteTarget('h', 't-remote');
+    await flow.checkRemoteTarget();
+    await flow.ensureCredentialCheck();
+
+    for (const request of asked) {
+      expect(request).not.toHaveProperty('provisionCredentials');
+    }
+  });
+});
+
+// Establishing a remote target changes the credential answer for the operator,
+// because such a target cannot register a device user at all. Nothing between
+// there and Start would ask again, so the refusal has to go with the answer.
+describe('a refusal and a remote target', () => {
+  it('is forgotten when the answer is changed for the operator', async () => {
+    const flow = await readyFlow(
+      stub({
+        preflight: async () => ({
+          conflicts: [
+            {
+              sourceId: '4',
+              name: 'Pump West',
+              externalId: 'PUMP-WEST-001',
+              externalType: 'c8y_Serial',
+              targetId: '8801'
+            }
+          ]
+        })
+      })
+    );
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+    expect(flow.credentialsRefused).toBe(true);
+
+    await flow.establishRemoteTarget('h', 't-remote');
+
+    expect(flow.choices.credentials).toBe('none');
+    expect(flow.credentialsRefused).toBe(false);
+  });
+});
+
+// Which devices would be registered depends on which relationships are
+// followed, so the check has to walk the same ones the migration will. A
+// pre-flight over a different set answers about different devices.
+describe('the credential check and the migration agree on scope', () => {
+  async function scopeOf(change: Partial<import('./flow').Choices>) {
+    const asked: Record<string, unknown>[] = [];
+    const flow = await readyFlow(
+      stub({
+        preflight: async request => {
+          asked.push(request as Record<string, unknown>);
+          return {};
+        }
+      })
+    );
+    flow.changeScope(change);
+    flow.chooseCredentials('file');
+    await flow.ensureCredentialCheck();
+    const request = flow.request();
+    return {
+      preflight: asked.at(-1)!,
+      migration: request as unknown as Record<string, unknown>
+    };
+  }
+
+  it('on a narrowed set of relationships', async () => {
+    const { preflight, migration } = await scopeOf({ childTypes: 'asset' });
+    expect(preflight.childTypes).toBe(migration.childTypes);
+    expect(preflight.noChildren).toBe(migration.noChildren);
+  });
+
+  it('on no relationships at all', async () => {
+    const { preflight, migration } = await scopeOf({ noChildren: true });
+    expect(preflight.noChildren).toBe(true);
+    expect(preflight.noChildren).toBe(migration.noChildren);
+  });
+
+  it('on the default, which both leave for the service to apply', async () => {
+    const { preflight, migration } = await scopeOf({});
+    expect(preflight.childTypes).toBeUndefined();
+    expect(migration.childTypes).toBeUndefined();
+    expect(preflight.noChildren).toBeUndefined();
+  });
+});

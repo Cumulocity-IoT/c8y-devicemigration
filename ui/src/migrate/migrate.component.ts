@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { BottomDrawerRef, CoreModule, DateTimePickerComponent } from '@c8y/ngx-components';
 import { BsDropdownModule } from 'ngx-bootstrap/dropdown';
 
+import type { PreflightConflict } from '../api/client';
 import { MigrationService } from '../api/migration.service';
 import type { Message } from '../i18n';
 import {
@@ -56,6 +57,15 @@ interface View {
    * since choosing a remote target changes the answer.
    */
   canIssueCredentials: boolean;
+
+  /**
+   * The devices the target tenant already has under the same external identity,
+   * which is what makes provisioning a device user per device unavailable.
+   *
+   * Listed rather than counted: the answer is to go and look at those devices in
+   * the two tenants, and a number gives nobody anywhere to start.
+   */
+  credentialConflicts: PreflightConflict[];
 
   busy: boolean;
 }
@@ -201,8 +211,7 @@ export class MigrateComponent implements OnInit {
 
   async toggle(field: 'childTypes' | 'dataTypes', kind: string): Promise<void> {
     this.flow.toggle(field, kind);
-    await this.flow.ensureEstimate();
-    this.refresh();
+    await this.settle();
   }
 
   // --- choosing --------------------------------------------------------------
@@ -214,8 +223,7 @@ export class MigrateComponent implements OnInit {
 
   async chooseTarget(tenant: string): Promise<void> {
     await this.flow.chooseTarget(tenant);
-    await this.flow.ensureEstimate();
-    this.refresh();
+    await this.settle();
   }
 
   /** Whether the operator is aiming at a tenant this instance is not subscribed to. */
@@ -241,8 +249,7 @@ export class MigrateComponent implements OnInit {
   /** Proves it once the CA has been registered on the target. */
   async checkRemote(): Promise<void> {
     await this.flow.checkRemoteTarget();
-    await this.flow.ensureEstimate();
-    this.refresh();
+    await this.settle();
   }
 
   /**
@@ -282,8 +289,7 @@ export class MigrateComponent implements OnInit {
   /** What the asset selector chose, or nothing once it was cleared. */
   async chooseRoot(root: { id: string; name: string } | undefined): Promise<void> {
     this.flow.chooseRoot(root);
-    await this.flow.ensureEstimate();
-    this.refresh();
+    await this.settle();
   }
 
   /**
@@ -300,7 +306,21 @@ export class MigrateComponent implements OnInit {
 
   async changeScope(change: Partial<Choices>): Promise<void> {
     this.flow.changeScope(change);
+    await this.settle();
+  }
+
+  /**
+   * Everything the service still has to be asked after a choice, then a render.
+   *
+   * One call rather than two at every call site, because the two have to happen
+   * together: the estimate says how much would move and the credential check
+   * says whether the chosen way of authenticating is available, and a screen
+   * that refreshed after one but not the other would offer a Start that the
+   * service refuses.
+   */
+  private async settle(): Promise<void> {
     await this.flow.ensureEstimate();
+    await this.flow.ensureCredentialCheck();
     this.refresh();
   }
 
@@ -308,10 +328,14 @@ export class MigrateComponent implements OnInit {
    * Answering the credentials question. No estimate round trip: the count it
    * needs is already in the estimate the dialogue has, whatever the answer -
    * this changes what is created alongside the migration, not what moves.
+   *
+   * It can still cost a round trip of its own. Provisioning a device user per
+   * device is the one answer whose availability depends on what the target
+   * already has, so choosing it asks.
    */
-  chooseCredentials(choice: CredentialChoice): void {
+  async chooseCredentials(choice: CredentialChoice): Promise<void> {
     this.flow.chooseCredentials(choice);
-    this.refresh();
+    await this.settle();
   }
 
 
@@ -363,6 +387,7 @@ export class MigrateComponent implements OnInit {
       windowError: this.flow.windowError,
       remoteTarget: this.flow.remoteTarget,
       canIssueCredentials: this.flow.canIssueCredentials,
+      credentialConflicts: this.flow.credentialConflicts,
       busy: this.flow.busy
     });
   }

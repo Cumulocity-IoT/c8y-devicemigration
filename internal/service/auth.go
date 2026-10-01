@@ -34,6 +34,14 @@ type Caller struct {
 	Username string
 }
 
+// Name is how a caller is written down and compared.
+//
+// One function because it is recorded on a job when the migration is accepted
+// and compared against when its credentials are collected, possibly days later
+// and certainly by a different request. Two spellings of this would read as a
+// permission problem rather than as the formatting bug it would be.
+func (c *Caller) Name() string { return c.Tenant + "/" + c.Username }
+
 // Authorize establishes who is calling and whether they may migrate.
 //
 // The API gateway has already authenticated the request, but it forwards the
@@ -95,7 +103,24 @@ func (s *Service) Authorize(ctx context.Context, r *http.Request) (*Caller, erro
 				"Administration under Roles", creds.username, RequiredRole)}
 	}
 
-	return &Caller{Tenant: creds.tenant, Username: creds.username}, nil
+	return &Caller{Tenant: creds.tenant, Username: usernameOf(result.Data.Bytes(), creds.username)}, nil
+}
+
+// usernameOf is the platform's own name for the caller, falling back to what
+// they presented.
+//
+// The platform's answer rather than the request's, because this name is written
+// onto a job record and compared against later: only the credentials of a
+// migration somebody started are handed back to them, and a comparison between
+// two things a caller typed would turn a difference in capitalisation into a
+// lock-out. A token session carries no password to re-present either, so what
+// "the same caller" means has to come from one authority, and the platform is
+// the only one both calls share.
+func usernameOf(user []byte, presented string) string {
+	if name := gjson.GetBytes(user, "userName").String(); name != "" {
+		return name
+	}
+	return presented
 }
 
 // checkXSRF applies the platform's cross-site rule to a browser session.

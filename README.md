@@ -302,6 +302,12 @@ target tenant or anywhere else, and re-issuing them rotates them rather than
 retrieving them. Getting it onto the devices is the operator's own channel.
 `revert` deletes the device users along with the objects.
 
+A migration that would provision credentials is **refused outright** when the
+target tenant already has a device under one of the external identities it would
+register: registering such an identity creates nothing and replaces the password
+of the device already using it. There is no flag to proceed anyway — migrate
+without credentials, or settle the duplicate identities first.
+
 A device can only write to its own managed object if it **owns** it, so a
 migration whose credentials arrive by some other route — devices registered by
 hand later, or a certificate fleet that auto-registers — should pass

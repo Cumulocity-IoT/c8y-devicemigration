@@ -241,10 +241,16 @@ func TestRefusedRowsAreReportedWithoutLosingTheRest(t *testing.T) {
 }
 
 // A CREDENTIAL_UPDATED row means the target already knew the id: nothing was
-// created, the object was left alone, and any credentials file handed out earlier
-// has just stopped working. The credential is still issued - it is the one that
-// now authenticates - but the run has to say so.
-func TestRotatedRowsAreCountedAndReported(t *testing.T) {
+// created, the object was left alone, and an existing device's password was
+// replaced.
+//
+// Check refuses that before anything is generated, so a row arriving here means
+// the target gained the identity between the lookup and the upload. The device
+// it belongs to is the target tenant's, not this migration's, so its new
+// credential is reported as a failure rather than handed over - the same answer
+// the check gives a moment earlier, and the reason there is no flag to ask for
+// the other one.
+func TestRotatedRowsAreRefusedRatherThanHandedOver(t *testing.T) {
 	server, registrar, _ := exportThenRegister(t, registration.Options{})
 
 	plan, err := registrar.Plan()
@@ -255,20 +261,25 @@ func TestRotatedRowsAreCountedAndReported(t *testing.T) {
 	server.RotateRegistration(rotated)
 
 	credentials, err := registrar.Run(context.Background())
-	if err != nil {
-		t.Fatal(err)
+
+	var partial *registration.PartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error is %v, want a *PartialError", err)
 	}
 	if registrar.Rotated() != 1 {
 		t.Errorf("Rotated() is %d, want 1", registrar.Rotated())
 	}
-	var found bool
 	for _, credential := range credentials {
 		if credential.ExternalID == rotated {
-			found = true
+			t.Errorf("a credential was handed over for %s, whose password belonged to a "+
+				"device the target already had", rotated)
 		}
 	}
-	if !found {
-		t.Errorf("no credential was issued for the rotated device %s", rotated)
+	// The devices that did register are still handed over: their credentials
+	// exist only in this response.
+	if len(credentials) != len(plan.Records)-1 {
+		t.Errorf("got %d credentials, want the %d devices that did register",
+			len(credentials), len(plan.Records)-1)
 	}
 }
 

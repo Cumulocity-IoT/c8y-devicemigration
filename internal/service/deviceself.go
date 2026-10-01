@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,14 @@ import (
 // thin-edge device asks every few minutes, so an endpoint that minted a fresh
 // password on every call would rotate a device's own credential forever and never
 // let it settle.
+//
+// What it therefore bounds is how often a credential is issued, not to whom. It
+// lives on an object owned by the device user it was issued for - which is what
+// this route arranges, so that an arriving device can write its own twin - so
+// anything able to write that object can clear it and have a second credential
+// minted. An administrator of the target tenant doing exactly that is the
+// documented way to re-issue. Recorded here because "handed over once" reads as a
+// stronger statement than this fragment can make; see docs/microservice.md.
 const IssuedFragment = "c8y_DeviceMigrationCredentialsIssued"
 
 // DeviceMigrationResponse is what the calling device is told.
@@ -60,6 +69,12 @@ type DeviceMigrationResponse struct {
 	// The endpoint still answers where to go, because that is what a device
 	// retrying a failed move needs on every attempt. Only the credential is
 	// once.
+	//
+	// It says a credential was issued for this device, not that this caller
+	// received it, and nothing here can tell the two apart - there is no record
+	// of who collected, by decision. A device that lost its credential and one
+	// that never had it see the same answer, and the way forward is the same for
+	// both: the Message says it.
 	AlreadyIssued bool `json:"alreadyIssued,omitempty"`
 
 	// RunID is the migration that carried this device, for diagnosis.
@@ -93,17 +108,31 @@ type DeviceCaller struct {
 //     object's `owner`, which is writable by anyone who administers the tenant and
 //     is therefore no evidence at all.
 //
-// The soft edge, recorded rather than mitigated: `device_` is a naming
-// convention, not a protected namespace, so an administrator of the calling
-// tenant could in principle present themselves as one. In practice they cannot
-// simply create that user - it exists and the device is using it - so they would
-// have to delete it or reset its password, either of which stops that device
-// authenticating and is conspicuous. That is the barrier: not the name, but that
-// the name is already occupied by a working credential.
+// What this establishes is that the caller holds the device user named
+// device_<externalId> in a subscribed tenant. What it cannot establish is that
+// the holder is the physical device, and the limits of that are recorded rather
+// than mitigated:
 //
-// ROLE_DEVICE is required as well. A tenant administrator can grant it, so it is
-// a bar rather than a boundary - but it costs nothing and it means impersonation
-// takes two deliberate steps instead of one.
+//   - `device_` is the platform's naming convention, not a protected namespace,
+//     and the platform does not restrict who may hold such a name within a
+//     tenant. Where the user already exists and a device is using it, taking it
+//     over means deleting it or resetting its password, which stops that device
+//     authenticating and is conspicuous. Where it does *not* exist the name is
+//     simply free - and it does not exist for every migrated device, because a
+//     child device behind a gateway authenticates as the gateway, and a device
+//     registered by hand may hold a username of any shape.
+//   - ROLE_DEVICE is required as well, and a tenant administrator can grant it.
+//     A bar rather than a boundary - it costs nothing and it means two deliberate
+//     steps instead of one.
+//
+// Together those put the trust for a migration that opted into this route in the
+// source tenant's user administration, for as long as credentials are
+// outstanding. That is the decision the per-migration flag exists to make
+// deliberate; see docs/microservice.md.
+//
+// The consequence for devices with no device user of their own is a functional
+// one and it is the more likely to be met: they cannot collect at all, and the
+// endpoint tells them there is nothing to do.
 func (s *Service) AuthorizeDevice(ctx context.Context, r *http.Request) (*DeviceCaller, error) {
 	creds, ok := credentialsFrom(r)
 	if !ok {
@@ -163,6 +192,22 @@ func (s *Service) handleDeviceSelfMigration(w http.ResponseWriter, r *http.Reque
 	caller, err := s.AuthorizeDevice(r.Context(), r)
 	if err != nil {
 		writeError(w, r, err)
+		return
+	}
+
+	// After the caller is proven, so the allowance belongs to a verified identity
+	// rather than to whatever name a request put forward - otherwise one caller
+	// could spend a device's allowance by claiming to be it. What it guards is
+	// the search below, which costs this service platform calls in other tenants
+	// under its own service users.
+	if !s.deviceAsks.allow(caller.Tenant + "/" + caller.Username) {
+		// Retry-After in seconds, because the caller is a device and the useful
+		// thing to tell it is when to come back rather than why.
+		w.Header().Set("Retry-After", strconv.Itoa(int(deviceAskInterval.Seconds())))
+		writeError(w, r, &RateLimitedError{Reason: fmt.Sprintf(
+			"%s is asking more often than a device needs to. The answer to this call does "+
+				"not change between asks: wait %s and ask again",
+			caller.Username, deviceAskInterval)})
 		return
 	}
 
@@ -247,34 +292,23 @@ type targetObject struct {
 func (s *Service) findMigrationOf(
 	ctx context.Context, caller *DeviceCaller) (*Job, *targetObject, error) {
 
-	jobs, err := s.Records(ctx)
+	// Which migrations could answer for a device of this tenant at all, derived
+	// once and held briefly rather than re-read per device: every condition it
+	// turns on is terminal, so the answer cannot go stale while a device is
+	// asking. See devicelimits.go.
+	jobs, err := s.collectableFor(ctx, caller.Tenant)
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(jobs) == 0 {
+		// Answered without touching another tenant. A device whose tenant has
+		// nothing to collect is the common case once a fleet has moved, and it
+		// used to pay an identity lookup and an object read per migration before
+		// being told so.
+		return nil, nil, nil
+	}
 
 	for _, job := range jobs {
-		if job.Kind != KindMigration || job.Status != StatusSucceeded {
-			continue
-		}
-		if job.Request == nil || job.Request.SourceTenant != caller.Tenant {
-			continue
-		}
-		if !job.Request.DeviceSelfCredentials {
-			// A migration whose operator did not ask for device self-service is
-			// not collectable. This is what bounds the one endpoint outside the
-			// owner tenant to migrations somebody deliberately opened, rather
-			// than to every migration this service has ever run - and it stops a
-			// device rotating a password an operator has already distributed
-			// from a credentials file.
-			continue
-		}
-		if job.RunID == "" || job.Request.TargetTenant == "" {
-			// Without a run marker there is no way to tell this run's copy from
-			// anything else the target knows, so such a run cannot answer for a
-			// device.
-			continue
-		}
-
 		target, err := s.tenant(job.Request.TargetTenant)
 		if err != nil {
 			// A target this service can no longer reach cannot be offered to a

@@ -185,8 +185,14 @@ nothing else.
 The file itself is held in this container's memory and collected **once**:
 
 ```sh
-c8y api GET /service/devicemigration/migrations/<id>/credentials > credentials.csv
+c8y api POST /service/devicemigration/migrations/<id>/credentials > credentials.csv
 ```
+
+**A POST rather than a GET**, because it is not a read: the passwords are
+destroyed as they are served, so the call changes state however much a file
+download looks like one. A browser session sends `X-XSRF-TOKEN` with it like any
+other write, which is what stops a page somebody visits while signed in spending
+the one collection on their behalf.
 
 It arrives as `text/csv` with `EXTERNAL_ID`, `TENANT`, `USERNAME`, `PASSWORD`,
 and is dropped as it is served. A second call is **410 Gone**, which is
@@ -195,13 +201,48 @@ bounds how long a list of working device passwords sits in a long-lived process.
 `credentialsAvailable` on the job says whether there is still something to
 collect, which is what the UI's download action watches.
 
-A 410 means one of three things and cannot tell them apart — already collected,
-the container was replaced, or none were issued. The way back in every case is to
-register the devices again, which **rotates** their passwords and invalidates any
-file handed out earlier.
+**Only the caller who started the migration may collect it.** Holding
+`ROLE_DEVICE_MIGRATION_ADMIN` is what lets somebody start one; it is deliberately
+not enough to take the passwords of one they did not, because the file is handed
+over once — a colleague collecting first does not share it, it leaves the
+operator who asked for it with nothing. Anyone else gets a **403**, and
+`credentialsAvailable` is reported as false to them, so no screen offers a
+download that could only be refused. A record that does not name who started it
+is refused for everybody, for the same reason.
 
-Two refusals worth knowing:
+They are also held for **one hour**, and dropped after that whether or not
+anybody collected. A fleet's passwords should not be resident in a long-lived
+process for as long as the container happens to live, and an operator who has not
+collected within the hour has moved on. It takes away nothing that could be relied
+on: the file is already lost whenever the container is replaced, so expiry makes
+that loss predictable rather than a matter of when a deployment happens.
 
+A 410 means one of four things and cannot tell them apart — already collected,
+expired, the container was replaced, or none were issued. The way back in every
+case is to register the devices again, which **rotates** their passwords and
+invalidates any file handed out earlier.
+
+All of this is **one process's memory**, which is why the manifest pins the
+service to a single replica (`"replicas": 1`, `"scale": "NONE"`) and a test
+asserts it. With a second container each would hold its own credentials:
+`credentialsAvailable` would depend on which replica answered, and a collection
+could be refused by one while another still held the file.
+
+Three refusals worth knowing:
+
+- **A migration is refused when the target tenant already has a device under one
+  of the external identities it would register.** Registering such an identity
+  creates nothing and sets a new password on the device already using it, so a
+  device the migration is not about would stop working. The refusal covers the
+  whole run rather than skipping that device, and there is no flag to proceed
+  anyway: migrate without `provisionCredentials`, or settle the duplicate
+  identities between the tenants first.
+
+  `POST /preflight` answers the same question before anything is started, given
+  `rootId` and `provisionCredentials: true`. It returns `credentialsRefused` and a
+  `conflicts` list naming each device on both sides; the user interface asks this
+  as soon as the option is chosen and will not start a migration that would be
+  refused.
 - **`provisionCredentials` cannot be combined with `remoteTargetId`.** A remote
   target is reached with a device access token, whose effective roles are the
   device ones — it has no permission to register anything. Refused when the
@@ -209,12 +250,35 @@ Two refusals worth knowing:
   without credentials and provision them from the target tenant, or subscribe the
   target.
 - **Devices with no external identity are skipped**, along with groups and
-  devices carrying several identities and no `c8y_Serial`. Each appears in the
-  job's progress with its reason. They are migrated like any other object; they
-  simply arrive without credentials.
+  devices carrying several identities and no `c8y_Serial`. So is a device whose
+  name, type or external identity contains a **comma**, a **quote** or a line
+  break: the bulk registration file has no escaping, so such a row would be read
+  with its columns shifted and the platform accepts that without complaint. The
+  value is refused rather than altered. Each appears in the job's progress with
+  its reason. They are migrated like any other object; they simply arrive without
+  credentials.
 
 `revert` removes the device users along with the objects, in the same platform
 call, so an undone migration leaves nothing behind that still authenticates.
+
+#### The source tenant keeps its own credentials
+
+A migration is a copy. Nothing is removed from the tenant the devices came from,
+and that includes the devices' ability to authenticate there: after a migration
+with `provisionCredentials` or `deviceSelfCredentials`, a device holds **two**
+working identities in two tenants, and the source tenant's administrators retain
+the ability to act as it there.
+
+That is deliberate — a migration that disabled the source would have no way back —
+but it is worth saying out loud, because "migrated" reads to most people as "no
+longer in the source". Where the two tenants belong to different parties, when the
+source loses access is a question this tool does not answer: deprovisioning there
+is a separate, manual step.
+
+`certificateFleet` is the exception, and the only mechanism here that really
+*moves* anything: the trust-anchor cutover removes the certificate from the source,
+so the fleet genuinely leaves. That is also why it has an unavoidable outage and
+the other two do not.
 
 ### Device self-service credentials
 
@@ -282,10 +346,74 @@ arrives bound to its own twin and unable to write it.
 "Nothing to do" is a `200` with `migrate: false`, not an error: a device asking on
 a timer should not fill its log with failures.
 
-Not built, by decision: **rate limiting** per caller, and an **audit trail** of
-who collected when. The issuance fragment is not that trail — it records *that* a
-credential was issued, because the once-only rule needs it, not who asked or how
-often.
+#### Limitations of this route
+
+Four of them, and they are the reason this is a per-migration option rather than
+the default. None of them has a mitigation in this service; they are properties of
+what the mechanism can establish, and they decide whether it suits a given fleet.
+
+**"Issued once" bounds how often, not to whom.** The once-only rule exists so that
+a device asking on a timer cannot rotate its own password forever — nothing more.
+It is recorded as the `c8y_DeviceMigrationCredentialsIssued` fragment on the
+migrated object, and that object is owned by the device user it was issued for,
+which is precisely what `deviceSelfCredentials` arranges. So anything that can
+write that object can clear the record and cause a second credential to be issued:
+an administrator of the target tenant, which is the documented way to re-issue,
+and the device itself. Read it as a brake on repetition, not as a guarantee that a
+credential was handed over exactly once.
+
+**The caller is whoever holds the device user.** The endpoint identifies a device
+by its authenticated username and takes the external id from it, which is what
+leaves nothing in the request to tamper with. What it cannot establish is that the
+holder of `device_<externalId>` is the physical device: `device_` is the platform's
+naming convention, not a reserved namespace, and the platform does not restrict
+who may hold such a name within a tenant. Enabling this for a migration therefore
+places trust in the **source tenant's user administration** for the duration.
+
+**Devices without a device user of their own cannot use it.** A child device
+behind a gateway authenticates with the gateway's credential; a device registered
+by hand may hold a username of any shape; a certificate device's name follows its
+leaf. None of these can present themselves as `device_<externalId>` for the
+identity their migration carried, so they collect nothing and are told there is
+nothing to do. They are migrated like any other device and arrive without
+credentials — which is worth checking against the fleet before choosing this route
+rather than after it.
+
+**A device cannot tell why it was refused a credential.** `alreadyIssued: true`
+says a credential was handed over for this device, not that *this caller* received
+it, and there is no record of who collected to settle it afterwards — an issuance
+audit trail is **not built, by decision**. A device that has lost its credential
+and one that never received it see the same answer, and the way forward is the
+same for both: an administrator removes the issuance fragment in the target
+tenant, and the next call mints a new password.
+
+#### What an ask costs
+
+Answering a device means finding the migration that carried it, and that used to
+mean listing the owner tenant's job records and then — per candidate migration —
+resolving an external identity and reading an object in the target tenant. All of
+it with this service's own service users, so the work is charged to the platform
+rather than to the caller, and a device with **nothing** to do paid the whole
+search before being told so.
+
+Three things bound that now, and none of them changes what the endpoint answers:
+
+- **The collectable migrations are derived once and held briefly.** Everything
+  that decides whether a migration can answer for a device is terminal — it
+  succeeded, it asked for self-service, it has a run marker and a target — so the
+  answer cannot go stale while devices are asking. A fleet reconnecting at once
+  costs one listing rather than one each. The index is dropped the moment a job
+  finishes or a record is deleted, so a migration that has just succeeded is
+  collectable immediately rather than when a timer expires.
+- **A tenant with nothing to collect is answered from that index alone.** No
+  client for another tenant, no identity lookup, no object read — which is the
+  common case once a fleet has moved and keeps asking.
+- **A caller asking far more often than a device would is refused**, with a
+  **429** and a `Retry-After`. The allowance is per caller and keyed on the
+  *verified* identity, so one caller cannot spend another's by claiming its name,
+  and a fleet's devices are independent of each other. A short burst covers a
+  device retrying a move it failed; a device on an ordinary timer — minutes, not
+  seconds — never meets it.
 
 ### Moving a trust anchor, for a certificate fleet
 
@@ -310,7 +438,7 @@ Then two endpoints move the anchor:
 # what can be moved out of a tenant, and what cannot
 c8y api GET /service/devicemigration/tenants/t11111/trusted-certificates | jq .
 
-# move one
+# move one, carrying the source tenant's own settings across
 c8y api POST /service/devicemigration/certificate-cutovers \
     --data '{"sourceTenant":"t11111","targetTenant":"t22222",
              "fingerprint":"f75bd686243e6916c94408e1fa65e34367136077"}'
@@ -331,18 +459,59 @@ checked before the source loses anything — the certificate exists and is movab
 its PEM is readable, and the target does not already have it. A refusal at any of
 those points leaves the source untouched.
 
-Two certificates are never offered, and both would otherwise be discovered *after*
-the delete:
+Three certificates are never offered, and the first two would otherwise be
+discovered *after* the delete:
 
 | | |
 | --- | --- |
 | the tenant's **own** certificate authority | cannot be moved at all. A fleet enrolled against it needs re-enrolling in the target, which is a different mechanism |
 | an **expired** certificate | would produce a cutover that cannot work, after an outage that cannot be avoided |
+| a **disabled** certificate | authenticates nobody, so there is no fleet to move and the outage would buy nothing — and it is disabled because somebody disabled it, which a cutover is not the place to undo. Enable it in the source first if it should move |
+
+### What the certificate is allowed to do when it arrives
+
+The certificate arrives **as it stood**. Its status is carried across unchanged,
+and `autoRegistrationEnabled` defaults to whatever the source tenant had.
+
+That default is the point. Auto-registration decides which devices a CA may bring
+into a tenant — with it on, anything presenting a chain to that certificate is
+registered there, including devices no migration covered. This endpoint used to
+force it **on**, so a tenant that had deliberately trusted a CA *without*
+auto-registration had it switched on by a cutover, with nothing saying so.
+
+Pass `autoRegistrationEnabled` to choose deliberately, in either direction. The UI
+shows a checkbox set to the source's own answer, so moving the certificate changes
+nothing by itself. Turning it off is a real answer: a fleet whose objects a
+migration already created device users for does not need it.
 
 `autoRegistrationEnabled` in the response is **read back from the target** rather
-than assumed. A target that accepted the certificate while dropping that flag
-would refuse every arriving device, which is a silent failure of the only thing
-the operation is for.
+than assumed, and the `message` says which of two things a `false` means — what
+was asked for, or a target that did not take the setting with the certificate. The
+second would decide, silently, which devices that CA admits.
+
+#### What a cutover leaves on the record
+
+The platform audits **both halves, in their own tenants**: *Trusted certificate
+deleted* in the source and *Trusted certificate uploaded* in the target, each with
+a timestamp. So what happened, where and when is recorded durably by the platform
+and needs nothing from this service — which is why a cutover creates no job,
+unlike a migration or an undo. It is two platform calls rather than a run, and the
+platform already writes them down.
+
+**The actor in those entries is the service user**, not the operator. The calls are
+made with the service user the platform issues for each subscribed tenant, because
+the person who asked is an owner-tenant user with no rights in either subtenant —
+there is no other identity for this service to act under. Every cutover therefore
+looks the same in the audit log, and reconstructing *who* asked means pairing its
+timestamp with the microservice's own log, which carries the caller and does not
+outlive the container.
+
+That is a **known limitation, accepted rather than closed**. Naming the caller in
+the platform's audit log would mean this service writing audit records itself,
+which costs `ROLE_AUDIT_ADMIN` in every subscribed tenant — a wide permission to
+hold permanently for one line of provenance on one operation. If attribution
+matters for a given deployment, the way to get it today is to retain the
+microservice log.
 
 **One thing it cannot do**, and one it does after all. It cannot tell you how many
 devices a certificate serves: the platform records nothing linking a device to the

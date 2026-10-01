@@ -101,6 +101,11 @@ type Server struct {
 	updated    map[string][]byte
 	identities []CreatedIdentity
 
+	// failIdentityLookups makes the external id lookup fail rather than answer,
+	// which is a different thing from answering "not here". See
+	// FailIdentityLookups.
+	failIdentityLookups bool
+
 	// deviceUsers is the users bulk registration created, as the platform does
 	// alongside each device. A revert has to take these with the objects or it
 	// leaves working credentials in the target.
@@ -1470,6 +1475,7 @@ func (s *Server) getIdentity(w http.ResponseWriter, rest string) {
 	}
 
 	s.mu.Lock()
+	failing := s.failIdentityLookups
 	var deviceID string
 	for _, existing := range s.identities {
 		if existing.Type == identityType && existing.ExternalID == externalID {
@@ -1478,6 +1484,12 @@ func (s *Server) getIdentity(w http.ResponseWriter, rest string) {
 		}
 	}
 	s.mu.Unlock()
+
+	if failing {
+		w.WriteHeader(http.StatusInternalServerError)
+		s.writeJSON(w, map[string]any{"error": "general/internalError"})
+		return
+	}
 
 	if deviceID == "" {
 		w.WriteHeader(http.StatusNotFound)
@@ -1670,6 +1682,34 @@ func (s *Server) RefuseRegistration(reason string, externalIDs ...string) {
 	for _, id := range externalIDs {
 		s.refuseRegistration[id] = reason
 	}
+}
+
+// FailIdentityLookups makes the external id lookup answer 500 rather than
+// resolving or 404ing.
+//
+// The distinction the registration phase turns on: a 404 means the target holds
+// nothing and the device may be registered, while an unanswered lookup means
+// nothing is known either way and nothing may be registered. A fixture that
+// could only produce the first could not test the second.
+func (s *Server) FailIdentityLookups() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failIdentityLookups = true
+}
+
+// HoldIdentity makes this server resolve an external id to an object, as a
+// tenant does for a device it already has.
+//
+// The lookup is otherwise served only from identities this server was asked to
+// create, which is what an import or a registration does. A tenant that already
+// knew an id before either ran has no such record, and that is precisely the
+// state the registration phase refuses on - so it has to be settable directly.
+func (s *Server) HoldIdentity(identityType, externalID, deviceID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.identities = append(s.identities, CreatedIdentity{
+		DeviceID: deviceID, Type: identityType, ExternalID: externalID,
+	})
 }
 
 // RotateRegistration makes the endpoint answer these external ids in

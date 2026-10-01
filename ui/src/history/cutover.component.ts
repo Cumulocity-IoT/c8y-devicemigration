@@ -64,10 +64,23 @@ import { explain, type Failure, type GridRow } from './rows';
             <strong>{{ 'The certificate has moved.' | translate }}</strong>
             <p class="m-0">{{ outcome.message }}</p>
           </div>
-          @if (!outcome.autoRegistrationEnabled) {
+          <!--
+            A false here used to mean one thing - the target dropped the flag -
+            because this always asked for true. Now it can also be what was
+            asked for, and the two need different words: one is a failure of the
+            move, the other is the move working as chosen.
+          -->
+          @if (outcome.autoRegistrationEnabled !== autoRegistration()) {
             <div class="alert alert-danger">
               {{
-                'The target reports auto-registration as disabled for this certificate, so devices arriving with it will be refused. Enable it in the target tenant before the devices reconnect.'
+                'The target reports auto-registration differently from what was asked for, so which devices this certificate admits is not what you chose. Check it in the target tenant before the devices reconnect.'
+                  | translate
+              }}
+            </div>
+          } @else if (!outcome.autoRegistrationEnabled) {
+            <div class="alert alert-warning">
+              {{
+                'Auto-registration is off for this certificate, as you chose. A device arriving with no device user of its own in the target will be refused.'
                   | translate
               }}
             </div>
@@ -114,6 +127,47 @@ import { explain, type Failure, type GridRow } from './rows';
                 </span>
               </label>
             }
+          }
+
+          <!--
+            Auto-registration decides which devices this CA may bring into the
+            target: with it on, anything presenting a chain to this certificate
+            is registered there. The box starts on the source tenant's own answer,
+            so moving the certificate changes nothing by itself and turning it on
+            is a decision somebody takes - it used to be forced on, and a tenant
+            that had deliberately trusted a CA without it got it switched on with
+            nothing saying so.
+          -->
+          @if (chosen()) {
+            <div class="m-b-8">
+              <label class="c8y-checkbox">
+                <input
+                  type="checkbox"
+                  [checked]="autoRegistration()"
+                  (change)="setAutoRegistration($any($event.target).checked)"
+                />
+                <span></span>
+                <span>{{ 'Register devices presenting this certificate automatically' | translate }}</span>
+              </label>
+              <p class="help-block m-0">
+                @if (autoRegistration() && !sourceAutoRegistration()) {
+                  {{
+                    'This is off in the source tenant. Turning it on lets any device with a certificate from this authority register itself in the target, including devices no migration covered.'
+                      | translate
+                  }}
+                } @else if (!autoRegistration()) {
+                  {{
+                    'A device arriving with no device user of its own in the target will be refused. Devices a migration already created one for are unaffected.'
+                      | translate
+                  }}
+                } @else {
+                  {{
+                    'This is how the source tenant has it. Any device with a certificate from this authority can register itself in the target.'
+                      | translate
+                  }}
+                }
+              </p>
+            </div>
           }
 
           @if (warning()) {
@@ -187,6 +241,20 @@ export class CutoverComponent implements OnInit {
 
   choose(certificate: TrustedCertificateView): void {
     this.chosen.set(certificate.fingerprint ?? '');
+    // The source tenant's own answer, which is what the service would apply if
+    // this screen said nothing. Set from the certificate being chosen so the box
+    // always shows what would happen, and changing it is the decision rather
+    // than the default.
+    this.autoRegistration.set(certificate.autoRegistrationEnabled === true);
+    this.sourceAutoRegistration.set(certificate.autoRegistrationEnabled === true);
+  }
+
+  /** What the target will be asked for, and what the source has now. */
+  readonly autoRegistration = signal(false);
+  readonly sourceAutoRegistration = signal(false);
+
+  setAutoRegistration(on: boolean): void {
+    this.autoRegistration.set(on);
   }
 
   /**
@@ -230,7 +298,12 @@ export class CutoverComponent implements OnInit {
       const outcome = await this.migration.api.cutOverCertificate({
         sourceTenant: this.sourceTenant(),
         targetTenant: this.targetTenant(),
-        fingerprint: this.chosen()
+        fingerprint: this.chosen(),
+        // Sent whatever it is, so the request says exactly what the screen
+        // showed. Omitting it would carry the source's value - the same answer
+        // when nothing was touched, but the one case where that differs is a
+        // deliberate change, and it should not depend on a default.
+        autoRegistrationEnabled: this.autoRegistration()
       });
       this.done.set(outcome);
       this.movedOver.emit();

@@ -111,6 +111,12 @@ type Service struct {
 	// credentialstore.go.
 	credentials *credentialStore
 
+	// collectable and deviceAsks bound what the device self-service endpoint
+	// costs: which migrations a device could collect from, held briefly, and how
+	// often one caller may ask. See devicelimits.go.
+	collectable *collectableIndex
+	deviceAsks  *rateLimiter
+
 	// tenantNames is how each tenant has been described, once asked, and
 	// managementNames is what tenant management said about all of them - with
 	// managementAsked recording that it was asked, since a refusal is an answer.
@@ -175,6 +181,8 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 		tenantNames:        make(map[string]TenantDescription),
 		remoteTargets:      newRemoteTargetStore(),
 		credentials:        newCredentialStore(),
+		collectable:        newCollectableIndex(),
+		deviceAsks:         newRateLimiter(deviceAskInterval, deviceAskBurst),
 	}
 
 	if err := s.prepareStaging(); err != nil {

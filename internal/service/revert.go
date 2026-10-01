@@ -44,7 +44,7 @@ func (s *Service) EnqueueRevert(ctx context.Context, request RevertRequest, call
 		QueuedAt: recordTime(time.Now()),
 	}
 	if caller != nil {
-		job.RequestedBy = caller.Tenant + "/" + caller.Username
+		job.RequestedBy = caller.Name()
 	}
 
 	recordID, err := s.CreateRecord(ctx, &job)

@@ -169,6 +169,15 @@ func TestNothingIsChangedByARefusedCutover(t *testing.T) {
 				SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint},
 			status: http.StatusBadRequest, says: "expired",
 		},
+		// Disabled in the source means it authenticates nobody, so there is no
+		// fleet here to move - and it is disabled because somebody disabled it,
+		// which a cutover is not the place to undo.
+		"a disabled certificate": {
+			seed: map[string]any{"name": movableFingerprint, "status": "DISABLED"},
+			request: service.TrustAnchorCutoverRequest{
+				SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint},
+			status: http.StatusBadRequest, says: "disabled",
+		},
 		"no readable PEM": {
 			seed: map[string]any{"name": movableFingerprint, "certInPemFormat": ""},
 			request: service.TrustAnchorCutoverRequest{
@@ -247,5 +256,174 @@ func TestACutoverNeedsTheMigrationRole(t *testing.T) {
 	}
 	if got := p.tenants["t-source"].TrustedCertificates(); len(got) != 1 {
 		t.Errorf("an unauthorised request moved the certificate: %v", got)
+	}
+}
+
+// What a CA may do in the tenant it arrives in is carried across, not decided
+// here.
+//
+// This endpoint used to create every certificate with status ENABLED and
+// autoRegistrationEnabled true whatever the source said, so a tenant that had
+// trusted a CA *without* auto-registration got it switched on by a cutover, with
+// nothing saying so. Both now follow the source unless somebody asks otherwise.
+
+func TestAutoRegistrationIsCarriedAcrossRatherThanForced(t *testing.T) {
+	p := twoTenants(t)
+	p.tenants["t-source"].AddTrustedCertificate(movableFingerprint, map[string]any{
+		"name": movableFingerprint, "autoRegistrationEnabled": false,
+	})
+	svc := p.start(t)
+
+	body := decode(t, call(t, svc, cutoverRequest(t, service.TrustAnchorCutoverRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint,
+	})))
+
+	entry, ok := p.tenants["t-target"].TrustedCertificate(movableFingerprint)
+	if !ok {
+		t.Fatal("the certificate did not move")
+	}
+	if entry["autoRegistrationEnabled"] != false {
+		t.Errorf("the target's copy has autoRegistration %v, want the source's false",
+			entry["autoRegistrationEnabled"])
+	}
+	if body["autoRegistrationEnabled"] != false {
+		t.Errorf("the answer reports %v", body["autoRegistrationEnabled"])
+	}
+	// And it says what that means, because a device arriving with no device user
+	// of its own is refused there.
+	if answer := fmt.Sprint(body["message"]); !strings.Contains(answer, "refused") {
+		t.Errorf("the answer does not say arriving devices are refused: %s", answer)
+	}
+}
+
+func TestAutoRegistrationCanBeTurnedOnDeliberately(t *testing.T) {
+	p := twoTenants(t)
+	p.tenants["t-source"].AddTrustedCertificate(movableFingerprint, map[string]any{
+		"name": movableFingerprint, "autoRegistrationEnabled": false,
+	})
+	svc := p.start(t)
+
+	on := true
+	body := decode(t, call(t, svc, cutoverRequest(t, service.TrustAnchorCutoverRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint,
+		AutoRegistrationEnabled: &on,
+	})))
+
+	entry, _ := p.tenants["t-target"].TrustedCertificate(movableFingerprint)
+	if entry["autoRegistrationEnabled"] != true {
+		t.Errorf("the target's copy has autoRegistration %v, want the requested true",
+			entry["autoRegistrationEnabled"])
+	}
+	// Repeated back, because it widens what this CA may do in the target.
+	if answer := fmt.Sprint(body["message"]); !strings.Contains(answer, "where it was off") {
+		t.Errorf("the answer does not say the setting was changed: %s", answer)
+	}
+}
+
+func TestAutoRegistrationCanBeTurnedOffDeliberately(t *testing.T) {
+	p := twoTenants(t)
+	p.tenants["t-source"].AddTrustedCertificate(movableFingerprint,
+		map[string]any{"name": movableFingerprint})
+	svc := p.start(t)
+
+	off := false
+	body := decode(t, call(t, svc, cutoverRequest(t, service.TrustAnchorCutoverRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint,
+		AutoRegistrationEnabled: &off,
+	})))
+
+	entry, _ := p.tenants["t-target"].TrustedCertificate(movableFingerprint)
+	if entry["autoRegistrationEnabled"] != false {
+		t.Errorf("the target's copy has autoRegistration %v, want the requested false",
+			entry["autoRegistrationEnabled"])
+	}
+	// A deliberate false is not a failure of the move, so the answer must not
+	// read as one - but it does have to say what it means.
+	if body["autoRegistrationEnabled"] != false {
+		t.Errorf("the answer reports %v", body["autoRegistrationEnabled"])
+	}
+	if answer := fmt.Sprint(body["message"]); strings.Contains(answer, "WARNING") {
+		t.Errorf("a setting that was asked for is reported as a warning: %s", answer)
+	}
+}
+
+// The status is whatever the source said, not a value this service chooses. A
+// status it does not recognise is the clearest way to pin that: nothing here
+// should be interpreting it.
+func TestTheStatusIsCarriedAcrossUnchanged(t *testing.T) {
+	p := twoTenants(t)
+	p.tenants["t-source"].AddTrustedCertificate(movableFingerprint, map[string]any{
+		"name": movableFingerprint, "status": "SOMETHING_ELSE",
+	})
+	svc := p.start(t)
+
+	if recorder := call(t, svc, cutoverRequest(t, service.TrustAnchorCutoverRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint,
+	})); recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", recorder.Code, recorder.Body)
+	}
+
+	entry, ok := p.tenants["t-target"].TrustedCertificate(movableFingerprint)
+	if !ok {
+		t.Fatal("the certificate did not move")
+	}
+	if entry["status"] != "SOMETHING_ELSE" {
+		t.Errorf("the target's copy is %v, want the source's own status", entry["status"])
+	}
+}
+
+// Putting the certificate back is undoing a move, not performing a different
+// one, so it restores what the source had rather than what was asked for.
+func TestARestoreUsesTheSourcesOwnSettings(t *testing.T) {
+	p := twoTenants(t)
+	p.tenants["t-source"].AddTrustedCertificate(movableFingerprint, map[string]any{
+		"name": movableFingerprint, "autoRegistrationEnabled": false, "status": "ENABLED",
+	})
+	p.tenants["t-target"].RefuseCertificateCreate()
+	svc := p.start(t)
+
+	on := true
+	if recorder := call(t, svc, cutoverRequest(t, service.TrustAnchorCutoverRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", Fingerprint: movableFingerprint,
+		AutoRegistrationEnabled: &on,
+	})); recorder.Code == http.StatusOK {
+		t.Fatal("a refused create was reported as a successful cutover")
+	}
+
+	entry, ok := p.tenants["t-source"].TrustedCertificate(movableFingerprint)
+	if !ok {
+		t.Fatal("the certificate was not put back, so the fleet is on neither tenant")
+	}
+	if entry["autoRegistrationEnabled"] != false {
+		t.Errorf("the restored copy has autoRegistration %v: a failed move changed the source",
+			entry["autoRegistrationEnabled"])
+	}
+	if entry["status"] != "ENABLED" {
+		t.Errorf("the restored copy is %v, want the source's own status", entry["status"])
+	}
+}
+
+// A disabled certificate is not offered for moving at all, with the reason on
+// the listing where somebody chooses.
+func TestADisabledCertificateIsNotOffered(t *testing.T) {
+	p := twoTenants(t)
+	p.tenants["t-source"].AddTrustedCertificate(movableFingerprint, map[string]any{
+		"name": movableFingerprint, "status": "DISABLED",
+	})
+	svc := p.start(t)
+
+	body := decode(t, call(t, svc,
+		request(t, http.MethodGet, "/tenants/t-source/trusted-certificates", nil)))
+	certificates, _ := body["certificates"].([]any)
+	if len(certificates) != 1 {
+		t.Fatalf("listed %d certificates, want 1", len(certificates))
+	}
+
+	fields, _ := certificates[0].(map[string]any)
+	if fields["movable"] == true {
+		t.Error("a disabled certificate was offered as movable")
+	}
+	if reason := fmt.Sprint(fields["reason"]); !strings.Contains(reason, "Enable it here first") {
+		t.Errorf("the reason does not say what to do about it: %s", reason)
 	}
 }

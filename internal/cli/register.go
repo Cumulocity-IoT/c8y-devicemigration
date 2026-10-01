@@ -44,6 +44,10 @@ func newRegisterCommand(stderr io.Writer) *cobra.Command {
 			"The credentials are written to --credentialsFile and exist nowhere else.\n" +
 			"Registering the same device again ROTATES its password, which invalidates any\n" +
 			"file handed out earlier.\n\n" +
+			"Every identity is resolved against the target first, and the whole run is\n" +
+			"REFUSED if the target already has a device under one of them: registering such\n" +
+			"an identity creates nothing and replaces the password of the device already\n" +
+			"using it. There is no flag to proceed anyway. --dry-run runs the same check.\n\n" +
 			"Pass the same --runId to the import, so it can tell the objects this\n" +
 			"registration created from anything else the target already holds.\n\n" +
 			"Without --session the active go-c8y-cli session is used.",
@@ -143,7 +147,7 @@ func runRegister(ctx context.Context, stderr io.Writer, sessionValue, home strin
 	})
 
 	if opts.dryRun {
-		return reportRegisterPlan(stderr, registrar)
+		return reportRegisterPlan(ctx, stderr, registrar)
 	}
 
 	// Opened before the registration, not after. A file that cannot be created -
@@ -174,8 +178,13 @@ func runRegister(ctx context.Context, stderr io.Writer, sessionValue, home strin
 }
 
 // reportRegisterPlan prints what a registration would do.
-func reportRegisterPlan(stderr io.Writer, registrar *registration.Registrar) error {
-	plan, err := registrar.Plan()
+//
+// Returns the same refusal the run would, rather than only describing it: a dry
+// run whose purpose is to find out whether a registration is possible has to exit
+// non-zero when the answer is no, or a script reads "nothing was created" as
+// permission to carry on.
+func reportRegisterPlan(ctx context.Context, stderr io.Writer, registrar *registration.Registrar) error {
+	plan, err := registrar.Check(ctx)
 	if err != nil {
 		return err
 	}
@@ -189,6 +198,11 @@ func reportRegisterPlan(stderr io.Writer, registrar *registration.Registrar) err
 	}
 	fmt.Fprintf(stderr, "%d %s would be registered, %d skipped. Nothing was created.\n",
 		len(plan.Records), plural(len(plan.Records), "device", "devices"), len(plan.Skipped))
+
+	if len(plan.Conflicts) > 0 {
+		registration.ReportConflicts(stderr, plan.Conflicts)
+		return &registration.ConflictError{Conflicts: plan.Conflicts}
+	}
 	return nil
 }
 

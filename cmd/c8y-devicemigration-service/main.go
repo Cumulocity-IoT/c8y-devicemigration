@@ -68,6 +68,9 @@ func run() error {
 
 	go svc.WatchSubscriptions(ctx)
 	go svc.WatchHousekeeping(ctx)
+	// Its own loop: uncollected device credentials are held for an hour, and
+	// sweeping them on the hourly housekeeping turn would keep them for two.
+	go svc.WatchCredentialExpiry(ctx)
 
 	// One worker, so one migration at a time. See Service.Work.
 	go svc.Work(ctx)

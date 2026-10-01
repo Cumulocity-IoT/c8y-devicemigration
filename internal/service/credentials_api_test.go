@@ -78,7 +78,7 @@ func TestCredentialsAreHandedOverExactlyOnce(t *testing.T) {
 	})
 	id := fmt.Sprint(job["id"])
 
-	first := call(t, svc, request(t, http.MethodGet, "/migrations/"+id+"/credentials", nil))
+	first := call(t, svc, request(t, http.MethodPost, "/migrations/"+id+"/credentials", nil))
 	if first.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", first.Code, first.Body)
 	}
@@ -114,7 +114,7 @@ func TestCredentialsAreHandedOverExactlyOnce(t *testing.T) {
 		}
 	}
 
-	second := call(t, svc, request(t, http.MethodGet, "/migrations/"+id+"/credentials", nil))
+	second := call(t, svc, request(t, http.MethodPost, "/migrations/"+id+"/credentials", nil))
 	if second.Code != http.StatusGone {
 		t.Fatalf("a second collection returned %d, want 410", second.Code)
 	}
@@ -141,7 +141,7 @@ func TestAMigrationWithoutCredentialsHasNoneToCollect(t *testing.T) {
 	})
 	id := fmt.Sprint(job["id"])
 
-	recorder := call(t, svc, request(t, http.MethodGet, "/migrations/"+id+"/credentials", nil))
+	recorder := call(t, svc, request(t, http.MethodPost, "/migrations/"+id+"/credentials", nil))
 	if recorder.Code != http.StatusGone {
 		t.Fatalf("status = %d, want 410", recorder.Code)
 	}
@@ -158,7 +158,7 @@ func TestCredentialsForAnUnknownJobAreNotFound(t *testing.T) {
 	svc := p.start(t)
 
 	recorder := call(t, svc,
-		request(t, http.MethodGet, "/migrations/20260101T000000Z_nope/credentials", nil))
+		request(t, http.MethodPost, "/migrations/20260101T000000Z_nope/credentials", nil))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", recorder.Code)
 	}
@@ -182,5 +182,99 @@ func TestCredentialsAreRefusedForARemoteTarget(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, "device access token") {
 		t.Errorf("the refusal does not explain why:\n%s", body)
+	}
+}
+
+// Collecting destroys what it serves, so it is a POST and not a read.
+//
+// As a GET it would have been exempt from the cross-site check, which lets reads
+// through on purpose - and a page an operator visited while signed in could then
+// have spent the one collection without ever seeing the answer.
+func TestCollectingIsNotAGet(t *testing.T) {
+	p := twoTenants(t)
+	svc := p.start(t)
+
+	job := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1",
+		ProvisionCredentials: true,
+	})
+	id := fmt.Sprint(job["id"])
+
+	recorder := call(t, svc, request(t, http.MethodGet, "/migrations/"+id+"/credentials", nil))
+	if recorder.Code == http.StatusOK {
+		t.Fatal("a GET collected the credentials")
+	}
+
+	// And the collection was not spent by the attempt.
+	after := call(t, svc, request(t, http.MethodPost, "/migrations/"+id+"/credentials", nil))
+	if after.Code != http.StatusOK {
+		t.Fatalf("the credentials were lost to a GET: status = %d, body %s", after.Code, after.Body)
+	}
+}
+
+// Holding the role is what lets somebody start a migration. It is deliberately
+// not enough to take the passwords of one they did not: the list is handed over
+// once, so a colleague collecting first does not share it - it leaves the
+// operator who asked for it with nothing.
+func TestOnlyTheCallerWhoStartedItMayCollect(t *testing.T) {
+	p := twoTenants(t)
+	p.AddUser(bootstrapTenant, "colleague", "colleague-secret", service.RequiredRole)
+	svc := p.start(t)
+
+	job := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1",
+		ProvisionCredentials: true,
+	})
+	id := fmt.Sprint(job["id"])
+
+	asColleague := request(t, http.MethodPost, "/migrations/"+id+"/credentials", nil)
+	authenticate(asColleague, bootstrapTenant, "colleague", "colleague-secret")
+
+	refused := call(t, svc, asColleague)
+	if refused.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body %s", refused.Code, refused.Body)
+	}
+	// Named, so the refusal is actionable rather than a dead end.
+	if !strings.Contains(refused.Body.String(), "admin") {
+		t.Errorf("the refusal does not say who may collect: %s", refused.Body)
+	}
+	// And no password leaked through the refusal.
+	for _, row := range p.tenants["t-target"].Registrations() {
+		if strings.Contains(refused.Body.String(), row.Password) {
+			t.Fatal("a password appears in the refusal")
+		}
+	}
+
+	// The refusal must not have spent the one collection.
+	mine := call(t, svc, request(t, http.MethodPost, "/migrations/"+id+"/credentials", nil))
+	if mine.Code != http.StatusOK {
+		t.Fatalf("the caller who started it could not collect: %d, body %s", mine.Code, mine.Body)
+	}
+}
+
+// A screen drives its download action from credentialsAvailable, so leaving it
+// set for everybody would put a button in front of readers it can only refuse.
+func TestTheDownloadIsOfferedOnlyToTheCallerWhoStartedIt(t *testing.T) {
+	p := twoTenants(t)
+	p.AddUser(bootstrapTenant, "colleague", "colleague-secret", service.RequiredRole)
+	svc := p.start(t)
+
+	job := migrate1(t, svc, service.MigrationRequest{
+		SourceTenant: "t-source", TargetTenant: "t-target", RootID: "1",
+		ProvisionCredentials: true,
+	})
+	id := fmt.Sprint(job["id"])
+	if job["credentialsAvailable"] != true {
+		t.Fatalf("the caller who started it is not offered the download: %v", job)
+	}
+
+	for _, path := range []string{"/migrations/" + id, "/migrations"} {
+		asColleague := request(t, http.MethodGet, path, nil)
+		authenticate(asColleague, bootstrapTenant, "colleague", "colleague-secret")
+
+		body := call(t, svc, asColleague).Body.String()
+		if strings.Contains(body, `"credentialsAvailable":true`) {
+			t.Errorf("%s offers the download to somebody who cannot collect: %s", path, body)
+		}
 	}
 }

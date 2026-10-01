@@ -328,11 +328,23 @@ words. That matters more here than anywhere: a refused cutover may have left the
 source certificate restored, and the message is the only place that says so. It
 lists unmovable certificates with their reason rather than hiding them, because
 *this fleet needs re-enrolling* is the answer somebody needs, not an empty list
-that reads as a bug; it shows the service's coverage warning, which admits the
-device count cannot be determined rather than approximating it; and on success it
-shows `autoRegistrationEnabled` read back from the target, since a target that
-accepted the certificate while dropping that flag would refuse every arriving
-device in silence.
+that reads as a bug; and it shows the service's coverage warning, which admits
+the device count cannot be determined rather than approximating it.
+
+**Auto-registration is a checkbox, set to the source tenant's own answer.** It
+decides which devices the certificate may bring into the target — with it on,
+anything presenting a chain to that authority registers itself there, including
+devices no migration covered. Starting it where the source has it means moving
+the certificate changes nothing by itself, and turning it on is a decision
+somebody takes; the service used to force it on, and a tenant that had
+deliberately trusted a CA without it got it switched on with nothing saying so. A
+line under the box says what the current setting means, and which of the three
+things it is: unchanged, widened, or off.
+
+On success the dialogue shows `autoRegistrationEnabled` **read back from the
+target**, and distinguishes the two things a `false` can mean — what was asked
+for, or a target that accepted the certificate while dropping the setting. Only
+the second is an alarm; the first is the move working as chosen.
 
 **An undo cannot itself be undone, and the expansion says so** rather than
 leaving it to the absence of a menu entry. A row's menu says what can be done,
@@ -534,6 +546,30 @@ token whose effective roles are the device ones; bulk registration needs
 answer is possible there. The certificate answer stays, because it registers
 nothing — it only names an owner on objects that same token already owns.
 
+**Choosing the first answer asks the service whether it is available**, because
+that one depends on what the target tenant already has: a device there under one
+of the external identities the migration would register cannot be given a new
+device user without losing the credential it uses today, so the service refuses
+such a migration outright. Choosing the answer runs a pre-flight with the
+hierarchy; a refusal is shown under the radios as the list of devices involved,
+named on both sides, and Start stays disabled until another answer is chosen. The
+check is re-run whenever anything it depends on changes — the hierarchy, the
+target, or which relationships are followed — and a refusal already found is kept
+until the new answer replaces it, because a stale block is recoverable and a
+stale pass is not.
+
+**The second answer has limits the dialogue does not check**, because they are
+about the fleet rather than about the two tenants and nothing here can see them.
+Letting devices collect their own credentials only works for devices that have a
+device user of their own: a child device behind a gateway authenticates as the
+gateway and has none, so it is migrated like any other and arrives without
+credentials. And the service identifies a collecting device by its username,
+which places trust in the source tenant's user administration while credentials
+are outstanding. Both are set out in
+[the microservice docs](microservice.md#limitations-of-this-route); they are
+worth reading against the fleet before choosing this route, because nothing
+reports them afterwards.
+
 The summary's credentials row uses the same number for all three answers and
 labels it differently: users created, devices able to collect, devices owning
 their twins. Its note — *of N objects; the rest are groups or have no usable
@@ -645,6 +681,13 @@ to ask again: the row's offer is driven by `credentialsAvailable`, which the
 service computes from its own memory rather than from the job record. The
 dialogue says so before anything runs, because a migration whose credentials
 nobody collects leaves devices registered with passwords no one has.
+
+**The offer appears only on your own migrations.** Because the file is handed
+over once, collecting a colleague's would leave them without it, so the service
+hands the credentials only to the caller who started that migration — and reports
+`credentialsAvailable` as false to everybody else, so the action is not shown
+rather than shown and refused. Other people's migrations are still listed in
+full; it is only the download that is theirs.
 
 The download fetches the body with the platform's own client and only then hands
 it to the browser as a file, rather than pointing a link at the endpoint. A

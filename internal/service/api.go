@@ -9,6 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/export"
+	"github.com/Cumulocity-IoT/c8y-devicemigration/internal/registration"
 )
 
 // Route is one endpoint. The routes are a table rather than a series of
@@ -78,8 +81,16 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodGet, Path: "/migrations/{id}", handler: s.handleGetMigration},
 		{Method: http.MethodPost, Path: "/migrations/{id}/cancel",
 			handler: s.handleCancelMigration},
-		{Method: http.MethodGet, Path: "/migrations/{id}/credentials",
-			handler: s.handleGetCredentials},
+		// POST, not GET, and the method is the security boundary rather than a
+		// matter of taste: this hands the credentials over *once* and destroys
+		// them as it serves them, so it changes state. A browser session's cookie
+		// travels with any request a page can be talked into making, and the
+		// cross-site check deliberately lets reads through - so as a GET, a page
+		// an operator visited while signed in could spend the one collection
+		// without ever reading the answer, and the only way back is to register
+		// the fleet again.
+		{Method: http.MethodPost, Path: "/migrations/{id}/credentials",
+			handler: s.handleCollectCredentials},
 		// Removes this service's record of a run. Not the run: see DeleteJob.
 		{Method: http.MethodDelete, Path: "/migrations/{id}", handler: s.handleDeleteJob},
 
@@ -188,7 +199,8 @@ type MigrationsResponse struct {
 }
 
 func (s *Service) handleListMigrations(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Authorize(r.Context(), r); err != nil {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -203,6 +215,7 @@ func (s *Service) handleListMigrations(w http.ResponseWriter, r *http.Request) {
 	// container that no longer exists is settled here, so the screen showing it
 	// stops offering a Cancel that cannot work. See SettleStale.
 	s.SettleStale(r.Context(), jobs)
+	hideOthersCredentials(caller, jobs...)
 	writeJSON(w, r, http.StatusOK, MigrationsResponse{Migrations: jobs})
 }
 
@@ -260,7 +273,8 @@ func (s *Service) handleListReverts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Authorize(r.Context(), r); err != nil {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -268,6 +282,7 @@ func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
 	// Read from the running job when there is one, because its record is only
 	// as fresh as the last progress write, and from the tenant otherwise.
 	if running := s.Running(); running != nil && running.ID == r.PathValue("id") {
+		hideOthersCredentials(caller, running)
 		writeJSON(w, r, http.StatusOK, running)
 		return
 	}
@@ -277,18 +292,36 @@ func (s *Service) handleGetMigration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	hideOthersCredentials(caller, job)
 	writeJSON(w, r, http.StatusOK, job)
 }
 
-// handleGetCredentials hands over the device credentials a migration issued,
-// exactly once.
+// hideOthersCredentials clears the collection offer on jobs this caller may not
+// collect.
+//
+// The flag drives a download action on a screen, so leaving it set for everybody
+// would put a button in front of readers who can only be refused by it - and
+// worse, would read as "somebody has not collected these yet" to a person who
+// cannot do anything about that. The same rule decides both, in collectableBy,
+// so the offer and the answer cannot disagree.
+func hideOthersCredentials(caller *Caller, jobs ...*Job) {
+	for _, job := range jobs {
+		if job != nil && collectableBy(job, caller) != nil {
+			job.CredentialsAvailable = false
+		}
+	}
+}
+
+// handleCollectCredentials hands over the device credentials a migration issued,
+// exactly once, and only to whoever started it.
 //
 // Served as text/csv rather than JSON, because what the caller wants is the file
 // - the same columns the command line writes - and a browser download is the
 // point. No-store, because a list of working device passwords must not sit in a
-// proxy or a browser cache after the one read that was allowed.
-func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Authorize(r.Context(), r); err != nil {
+// proxy or a browser cache after the one collection that was allowed.
+func (s *Service) handleCollectCredentials(w http.ResponseWriter, r *http.Request) {
+	caller, err := s.Authorize(r.Context(), r)
+	if err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -298,7 +331,12 @@ func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
 	// The job has to exist and belong to this tenant before its credentials are
 	// discussed, so an unknown id is a 404 rather than a Gone that hints at what
 	// might once have been there.
-	if _, err := s.Record(r.Context(), jobID); err != nil {
+	job, err := s.Record(r.Context(), jobID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if err := collectableBy(job, caller); err != nil {
 		writeError(w, r, err)
 		return
 	}
@@ -317,6 +355,38 @@ func (s *Service) handleGetCredentials(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// collectableBy says whether this caller may collect this migration's
+// credentials, and why not when they may not.
+//
+// Holding ROLE_DEVICE_MIGRATION_ADMIN on the owner tenant is what lets somebody
+// *start* a migration; it is deliberately not enough to take the passwords of
+// one they did not. The list is handed over once, so a colleague collecting it
+// first is not a lesser version of reading it - it is the operator who asked for
+// it losing it, with no way to get it back that does not rotate the whole fleet.
+//
+// A record that does not say who started it is refused rather than opened up.
+// Nobody can prove they are the caller it does not name, and "the record has
+// forgotten" is not a reason to hand a fleet's passwords to the next person who
+// asks.
+func collectableBy(job *Job, caller *Caller) error {
+	if caller == nil {
+		return &ForbiddenError{Reason: "the credentials of a migration are handed only to " +
+			"the caller who started it, and this request has no caller"}
+	}
+	if job.RequestedBy == "" {
+		return &ForbiddenError{Reason: "this migration's record does not say who started it, " +
+			"so its credentials cannot be handed to anyone. Re-register the devices to issue " +
+			"new ones, which rotates their passwords"}
+	}
+	if job.RequestedBy != caller.Name() {
+		return &ForbiddenError{Reason: fmt.Sprintf(
+			"the credentials of a migration are handed only to the caller who started it, "+
+				"and this one was started by %s. They are handed over once, so taking them "+
+				"on somebody else's behalf would leave them without any", job.RequestedBy)}
+	}
+	return nil
 }
 
 // handleGetJob and handleCancelJob serve reverts. A job is a job once it exists,
@@ -420,6 +490,29 @@ type PreflightRequest struct {
 	// RemoteTargetID checks a remote target instead of a subscribed one. Exactly
 	// one of TargetTenant and RemoteTargetID is given.
 	RemoteTargetID string `json:"remoteTargetId,omitempty"`
+
+	// RootID is the hierarchy the migration would move, and it is needed only by
+	// the credential check below - the tenant checks are about the two tenants
+	// and nothing else.
+	RootID string `json:"rootId,omitempty"`
+
+	// ChildTypes and NoChildren are the migration's own, and they belong here for
+	// the same reason RootID does: which relationships are followed decides which
+	// devices the migration covers, so a check that assumed the default would
+	// answer about a different set of devices from the one being migrated - in
+	// either direction, since the default neither includes everything nor
+	// excludes nothing.
+	ChildTypes string `json:"childTypes,omitempty"`
+	NoChildren bool   `json:"noChildren,omitempty"`
+
+	// ProvisionCredentials asks the one question that depends on what is being
+	// moved: whether a device user can be created for each of these devices in
+	// this target. It costs a hierarchy walk and a lookup per device, so it is
+	// asked for rather than always done.
+	//
+	// Requires RootID. A caller that set this and got an answer without naming a
+	// hierarchy would believe a check had passed that was never run.
+	ProvisionCredentials bool `json:"provisionCredentials,omitempty"`
 }
 
 // PreflightResponse reports what the platform said about each side, so a
@@ -428,6 +521,32 @@ type PreflightResponse struct {
 	Host   string        `json:"host"`
 	Source PreflightSide `json:"source"`
 	Target PreflightSide `json:"target"`
+
+	// CredentialsRefused is true when this migration cannot provision
+	// credentials. Said plainly because it is what a caller branches on, the way
+	// an estimate's withinLimits is - and false by default, so a caller that did
+	// not ask the question is not told the answer is no.
+	CredentialsRefused bool `json:"credentialsRefused,omitempty"`
+
+	// Conflicts is why, one entry per device. Reported as data rather than as a
+	// refusal of the whole pre-flight because the two tenants did check out: it
+	// is one migration option that is unavailable, and a caller that drops it can
+	// go ahead.
+	Conflicts []PreflightConflict `json:"conflicts,omitempty"`
+}
+
+// PreflightConflict is one device whose external identity the target tenant
+// already holds.
+//
+// Enough to find it on either side and no more. The external id is here because
+// it is what somebody has to compare in the two tenants to decide what the
+// duplicate means; it is the same identifier the inventory already shows them.
+type PreflightConflict struct {
+	SourceID     string `json:"sourceId"`
+	Name         string `json:"name,omitempty"`
+	ExternalID   string `json:"externalId"`
+	ExternalType string `json:"externalType"`
+	TargetID     string `json:"targetId,omitempty"`
 }
 
 // PreflightSide is one tenant: the tenant asked for, and the tenant the platform
@@ -503,7 +622,7 @@ func (s *Service) Preflight(ctx context.Context, request PreflightRequest) (*Pre
 		return nil, err
 	}
 
-	return &PreflightResponse{
+	response := &PreflightResponse{
 		Host: s.baseURL,
 		Source: PreflightSide{
 			Tenant:         source.session.Tenant,
@@ -515,7 +634,79 @@ func (s *Service) Preflight(ctx context.Context, request PreflightRequest) (*Pre
 			ReportedTenant: targetReported,
 			ServiceUser:    target.session.Username,
 		},
-	}, nil
+	}
+
+	if request.ProvisionCredentials {
+		conflicts, err := s.credentialConflicts(ctx, request, source, target)
+		if err != nil {
+			return nil, err
+		}
+		response.Conflicts = conflicts
+		response.CredentialsRefused = len(conflicts) > 0
+	}
+	return response, nil
+}
+
+// credentialConflicts reports the devices a credential-provisioning migration
+// would be refused over.
+//
+// The same two rules the run applies, reached through the same functions: which
+// devices would be registered is registration's, and whether the target already
+// holds an identity is registration's. A second copy of either here would be a
+// pre-flight that passes and a migration that then fails, which is worse than no
+// pre-flight at all.
+func (s *Service) credentialConflicts(ctx context.Context, request PreflightRequest,
+	source, target *tenantClient) ([]PreflightConflict, error) {
+
+	if request.RootID == "" {
+		return nil, &BadRequestError{Reason: "rootId is required to check whether credentials " +
+			"can be provisioned: the check is about the devices being migrated, not about " +
+			"the two tenants"}
+	}
+	if request.RemoteTargetID != "" {
+		// The same refusal Enqueue gives, here rather than after a hierarchy
+		// walk that could not change the answer.
+		return nil, &BadRequestError{Reason: "credentials cannot be provisioned into a remote " +
+			"target, so there is nothing to check. Migrate with certificateFleet, or " +
+			"subscribe the target to this service"}
+	}
+
+	// The migration's own scope, resolved its own way - the same defaults, the
+	// same refusals - so the devices checked here are the devices that would be
+	// registered. No data types: which records would move has no bearing on which
+	// devices get a credential, and counting them would make this as slow as an
+	// estimate for an answer it does not use.
+	options, err := s.planOptions(EstimateRequest{
+		SourceTenant: request.SourceTenant,
+		RootID:       request.RootID,
+		ChildTypes:   request.ChildTypes,
+		NoChildren:   request.NoChildren,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	plan, err := export.MakePlan(ctx, source.client, options)
+	if err != nil {
+		return nil, &BadRequestError{Reason: err.Error()}
+	}
+
+	conflicts, err := registration.FindConflicts(ctx, target.client, registrableRecords(plan))
+	if err != nil {
+		return nil, err
+	}
+
+	reported := make([]PreflightConflict, 0, len(conflicts))
+	for _, conflict := range conflicts {
+		reported = append(reported, PreflightConflict{
+			SourceID:     conflict.SourceID,
+			Name:         conflict.Name,
+			ExternalID:   conflict.ExternalID,
+			ExternalType: conflict.ExternalType,
+			TargetID:     conflict.TargetID,
+		})
+	}
+	return reported, nil
 }
 
 // BadRequestError is a caller mistake: a missing field, or two tenants that are
@@ -525,6 +716,18 @@ type BadRequestError struct {
 }
 
 func (e *BadRequestError) Error() string { return e.Reason }
+
+// RateLimitedError means the caller is asking faster than anything needs to.
+//
+// Its own type rather than QueueFullError, which also answers 429: that one says
+// this service is busy with somebody else's migration, and a device told that
+// would wait for a queue it is not in. This one says the caller itself is the
+// reason, and the answer would not have changed anyway.
+type RateLimitedError struct {
+	Reason string
+}
+
+func (e *RateLimitedError) Error() string { return e.Reason }
 
 // GoneError means the thing existed and deliberately does not any more.
 //
@@ -575,6 +778,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var conflict *ConflictError
 	var full *QueueFullError
 	var gone *GoneError
+	var limited *RateLimitedError
 
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
@@ -593,6 +797,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, kind = http.StatusConflict, "devicemigration/conflict"
 	case errors.As(err, &full):
 		status, kind = http.StatusTooManyRequests, "devicemigration/busy"
+	case errors.As(err, &limited):
+		status, kind = http.StatusTooManyRequests, "devicemigration/tooManyRequests"
 	}
 
 	if status == http.StatusInternalServerError {
