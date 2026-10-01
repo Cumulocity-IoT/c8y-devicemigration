@@ -25,8 +25,11 @@ migrating tenants is an operator task and the microservice only accepts
 parent-tenant administrators anyway; nothing stops it being added to Device
 Management or a custom application instead.
 
-Then grant `ROLE_DEVICE_MIGRATION_ADMIN` to whoever should use it. The navigator
-entry is hidden without it, because every call the UI makes would be refused.
+Then grant `ROLE_DEVICE_MIGRATION_ADMIN` to whoever should use it. Where the
+microservice is subscribed the navigator entry is hidden without that role,
+because every call the UI makes would be refused. Where it is **not** subscribed
+the same entry is shown to everybody, because what it opens there needs no
+migration role at all — see [one entry, two screens](#one-entry-two-screens).
 
 **What that screen shows about the plugin is [ui/README.md](../ui/README.md).** The
 devkit copies it into the zip as `README.md`, and again as
@@ -618,13 +621,50 @@ carries a **Trust a migration certificate** page
 ([src/trust](../ui/src/trust)): opened in the target tenant, by that tenant's own
 admin, it takes the pasted certificate and registers it as trusted with
 auto-registration, using the admin's own session and touching the microservice
-not at all — it is the platform's own trusted-certificate call. That page is
-deliberately **not** gated on the migration role, because the person using it is
-a target-tenant admin who does not hold it; its navigator entry is visible where
-the plugin is installed. For a target without the plugin, the source panel offers
-the certificate as a **download** for the manual Administration upload. The
-mechanism behind the connection is in
+not at all — it is the platform's own trusted-certificate call. It is deliberately
+**not** gated on the migration role, because the person using it is a
+target-tenant admin who does not hold it. For a target without the plugin, the
+source panel offers the certificate as a **download** for the manual
+Administration upload. The mechanism behind the connection is in
 [the microservice docs](microservice.md#remote-targets).
+
+### One entry, two screens
+
+There is **one navigator entry, always called Device migration**, and one route
+behind it. Which of the plugin's two screens that route opens is decided by the
+tenant rather than by the reader:
+
+| | |
+| --- | --- |
+| the microservice **is** subscribed | the migration list — the feature proper |
+| it is **not** | the trust-a-certificate page, which is the one useful thing such a tenant can do |
+
+The navigator used to carry both as separate entries. That put the plugin's
+internals in front of people with no way to read them: *Trust a migration
+certificate* exists as a separate screen only because a target tenant has no
+microservice, which is not something somebody browsing a menu should have to
+know. What they want is the feature, and the feature has one name.
+
+The question behind it is asked once, of the platform, by
+[`serviceReachable`](../ui/src/api/availability.ts): a `GET` on the microservice's
+`/health`. That route is chosen because it is the only one the service answers
+**without credentials**, so a positive answer means *this tenant is subscribed and
+the service is up* and says nothing about who is asking. Any other route would
+conflate an unsubscribed tenant with a caller lacking a role — and those two need
+opposite screens. A network failure counts as unreachable, because the screen that
+needs no microservice is the one that can still do something.
+
+That same answer decides the entry's **permission**, which is why the navigator
+node is built by a factory rather than written as a literal: gated on the
+migration role where the entry leads to the migration list, ungated where it leads
+to the certificate page. [`AvailabilityService`](../ui/src/api/availability.service.ts)
+caches the promise rather than the value, so the navigator and the route share one
+request and cannot disagree.
+
+The route renders **neither** screen until the answer arrives. Rendering one and
+swapping it would start the migration list loading jobs from a service the tenant
+may not have, and would show a reader a screen that is then replaced by a
+different one.
 
 **The device picker is the platform's own asset selector.** `c8y-asset-selector`,
 with its search, its drill-down, its paging and the look every other picker in
