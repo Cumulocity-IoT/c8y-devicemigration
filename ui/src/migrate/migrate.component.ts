@@ -1,12 +1,17 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { BottomDrawerRef, CoreModule, DateTimePickerComponent } from '@c8y/ngx-components';
+import {
+  BottomDrawerRef,
+  C8yTranslatePipe,
+  CoreModule,
+  DateTimePickerComponent
+} from '@c8y/ngx-components';
 import { BsDropdownModule } from 'ngx-bootstrap/dropdown';
 
 import type { PreflightConflict } from '../api/client';
 import { MigrationService } from '../api/migration.service';
-import type { Message } from '../i18n';
+import { gettext, type Message } from '../i18n';
 import {
   MigrationFlow,
   type Choices,
@@ -14,6 +19,7 @@ import {
   type Failure,
   type Tenant
 } from './flow';
+import { hierarchyNote, type Note } from './hierarchy';
 import { kindLabel } from './labels';
 import { dateFromWindow, windowFromDate } from './window';
 import { RootPickerComponent } from './root-picker.component';
@@ -59,6 +65,13 @@ interface View {
   canIssueCredentials: boolean;
 
   /**
+   * What would be migrated, as a sentence, for while the relationship choice is
+   * folded away. Derived on every refresh so it cannot outlive the choices it
+   * describes.
+   */
+  hierarchyNote: Note;
+
+  /**
    * The devices the target tenant already has under the same external identity,
    * which is what makes provisioning a device user per device unavailable.
    *
@@ -88,6 +101,10 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
     // insideClick so choosing a date does not close it mid-choice.
     BsDropdownModule
   ],
+  // A pipe has to be provided to be injectable. One string is built as text
+  // rather than rendered through the template - the conjunction inside the
+  // hierarchy note, which a pure function needs handed to it.
+  providers: [C8yTranslatePipe],
   templateUrl: './migrate.component.html',
   // The drawer lays its content out as a card, and expects the content to be
   // the card's own contents rather than a box inside it.
@@ -161,7 +178,8 @@ export class MigrateComponent implements OnInit {
 
   constructor(
     private readonly migration: MigrationService,
-    private readonly drawer: BottomDrawerRef<MigrateComponent>
+    private readonly drawer: BottomDrawerRef<MigrateComponent>,
+    private readonly translator: C8yTranslatePipe
   ) {
     this.flow = new MigrationFlow(migration.api);
     this.result = new Promise<string>((resolve, reject) => {
@@ -310,6 +328,23 @@ export class MigrateComponent implements OnInit {
   }
 
   /**
+   * Whether the relationship checkboxes are on screen.
+   *
+   * The summarising sentence stays either way, so folding them back never hides
+   * what somebody just chose - it goes on saying it, in words.
+   */
+  readonly hierarchyOpen = signal(false);
+
+  /** A catalogue string, for the one place a template cannot reach. */
+  private say(text: string): string {
+    return this.translator.transform(text);
+  }
+
+  toggleHierarchy(): void {
+    this.hierarchyOpen.update(open => !open);
+  }
+
+  /**
    * Everything the service still has to be asked after a choice, then a render.
    *
    * One call rather than two at every call site, because the two have to happen
@@ -387,6 +422,9 @@ export class MigrateComponent implements OnInit {
       windowError: this.flow.windowError,
       remoteTarget: this.flow.remoteTarget,
       canIssueCredentials: this.flow.canIssueCredentials,
+      // The conjunction is translated here because hierarchyNote is a pure
+      // function and this is where the translator is.
+      hierarchyNote: hierarchyNote(this.flow.choices, this.say(gettext('and'))),
       credentialConflicts: this.flow.credentialConflicts,
       busy: this.flow.busy
     });

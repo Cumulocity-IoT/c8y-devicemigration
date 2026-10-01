@@ -577,6 +577,27 @@ external identity* — is load-bearing for a certificate fleet in a way it is no
 elsewhere: those devices do not merely arrive without a password, they arrive
 unable to write their own twin, and the note says so.
 
+**The relationship choice is folded away until it is asked for.** It answers a
+question most people do not have — the default follows assets and devices, which
+is what almost every migration wants — so what is on screen is a sentence saying
+what would happen, with *(Configure hierarchy migration)* beside it opening the
+checkboxes and *(Hide)* folding them back. The checkboxes carry no heading of
+their own: the sentence immediately above them is the heading, and a second one
+would say the same thing twice.
+
+The sentence **stays on screen while they are open**, and is **derived from the
+choices** rather than fixed, so it reads back what each tick just did and folding
+the controls away never hides a choice somebody has just made. It is also why
+there is no separate hint about unticking everything: with nothing ticked the
+sentence says *only this object is migrated, without any children*, which is the
+same thing the hint used to say and is now said in the one place that is always
+true. Unticking everything and asking for no children are the same request, which
+is how it is built as well.
+
+It is assembled in [`hierarchy.ts`](../ui/src/migrate/hierarchy.ts) from whole
+sentences rather than fragments, so a translator gets grammar rather than a list
+to reassemble, and so the wording is testable without a browser.
+
 **Relationships and device data are both multi-select.** Checkboxes over the
 API's own values, `asset`/`device`/`addition` and
 `measurements`/`events`/`alarms`, sent in the order the API documents them.

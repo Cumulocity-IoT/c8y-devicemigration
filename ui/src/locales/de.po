@@ -161,12 +161,6 @@ msgstr "Migriert wird"
 msgid "Both tenants can be reached. Nothing has been read from either hierarchy yet."
 msgstr "Beide Mandanten sind erreichbar. Aus keiner der beiden Hierarchien wurde bisher gelesen."
 
-msgid "Relationships to follow"
-msgstr "Zu folgende Beziehungen"
-
-msgid "Nothing ticked migrates only the object itself."
-msgstr "Ohne Auswahl wird nur das Objekt selbst migriert."
-
 msgid "Device data to migrate"
 msgstr "Zu migrierende Gerätedaten"
 
@@ -647,3 +641,33 @@ msgstr "Der Zielmandant meldet die automatische Registrierung anders als angefor
 
 msgid "Auto-registration is off for this certificate, as you chose. A device arriving with no device user of its own in the target will be refused."
 msgstr "Die automatische Registrierung ist für dieses Zertifikat ausgeschaltet, wie von Ihnen gewählt. Ein Gerät, das im Zielmandanten keinen eigenen Gerätebenutzer hat, wird abgewiesen."
+
+msgid "assets"
+msgstr "Anlagen"
+
+msgid "devices"
+msgstr "Geräte"
+
+msgid "additions"
+msgstr "Ergänzungen"
+
+msgid "and"
+msgstr "und"
+
+msgid "Note: only this object and its data are migrated."
+msgstr "Hinweis: Es werden nur dieses Objekt und seine Daten migriert."
+
+msgid "Note: only this object is migrated, without any children."
+msgstr "Hinweis: Es wird nur dieses Objekt migriert, ohne untergeordnete Objekte."
+
+msgid "Note: child {{ kinds }} and their data are migrated."
+msgstr "Hinweis: Untergeordnete {{ kinds }} und ihre Daten werden migriert."
+
+msgid "Note: child {{ kinds }} are migrated."
+msgstr "Hinweis: Untergeordnete {{ kinds }} werden migriert."
+
+msgid "Configure hierarchy migration"
+msgstr "Hierarchie-Migration konfigurieren"
+
+msgid "Hide"
+msgstr "Ausblenden"

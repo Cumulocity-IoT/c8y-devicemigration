@@ -219,25 +219,49 @@
             }
           </c8y-form-group>
 
-          <c8y-form-group>
-            <label>{{ 'Relationships to follow' | translate }}</label>
-            @for (kind of childTypes; track kind) {
-              <label class="c8y-checkbox">
-                <input
-                  type="checkbox"
-                  [checked]="ticked('childTypes', kind)"
-                  (change)="toggle('childTypes', kind)"
-                />
-                <span></span>
-                <span>{{ label(kind) | translate }}</span>
-              </label>
-            }
-            <p class="help-block m-0">
-              {{ 'Nothing ticked migrates only the object itself.' | translate }}
-            </p>
-          </c8y-form-group>
+          <!--
+            The relationship choice answers a question most people do not have:
+            the default follows assets and devices, which is what almost every
+            migration wants. So it is folded away behind a sentence saying what
+            would happen, and the checkboxes appear only when somebody asks.
 
-          <c8y-form-group>
+            The sentence stays on screen while they are open, because it is
+            derived from the choices rather than fixed - so it reads back what
+            each tick just did. That is also why there is no separate hint about
+            unticking everything: the sentence says so itself.
+          -->
+          <p class="help-block m-0">
+            {{ v.hierarchyNote.text | translate: v.hierarchyNote.params }}
+            <button
+              type="button"
+              class="btn btn-link btn-sm p-0 text-12"
+              (click)="toggleHierarchy()"
+            >
+              @if (hierarchyOpen()) {
+                ({{ 'Hide' | translate }})
+              } @else {
+                ({{ 'Configure hierarchy migration' | translate }})
+              }
+            </button>
+          </p>
+
+          @if (hierarchyOpen()) {
+            <c8y-form-group class="m-t-8">
+              @for (kind of childTypes; track kind) {
+                <label class="c8y-checkbox">
+                  <input
+                    type="checkbox"
+                    [checked]="ticked('childTypes', kind)"
+                    (change)="toggle('childTypes', kind)"
+                  />
+                  <span></span>
+                  <span>{{ label(kind) | translate }}</span>
+                </label>
+              }
+            </c8y-form-group>
+          }
+
+          <c8y-form-group class="m-t-24">
             <label>{{ 'Device data to migrate' | translate }}</label>
             @for (kind of dataTypes; track kind) {
               <label class="c8y-checkbox">
