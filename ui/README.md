@@ -29,7 +29,12 @@ user for each side, so no personal credential is involved in a migration.
 
 The plugin is usable in the tenant the microservice is deployed on. Opened in a
 subtenant, it shows the *Trust a migration certificate* page instead — that is the
-one thing a target tenant does here.
+one thing a target tenant does here, and it needs no migration role, so the
+navigator entry is shown to everybody there.
+
+Either way there is **one entry, called Device migration**. Which of the two
+screens it opens is worked out from whether the microservice answers in that
+tenant, rather than being something to choose.
 
 ## The migration list
 
