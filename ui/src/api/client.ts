@@ -17,6 +17,7 @@ import type { components } from './types';
 export type TenantsResponse = components['schemas']['TenantsResponse'];
 export type PreflightRequest = components['schemas']['PreflightRequest'];
 export type PreflightResponse = components['schemas']['PreflightResponse'];
+export type PreflightConflict = components['schemas']['PreflightConflict'];
 export type MigrationRequest = components['schemas']['MigrationRequest'];
 export type RevertRequest = components['schemas']['RevertRequest'];
 export type Job = components['schemas']['Job'];

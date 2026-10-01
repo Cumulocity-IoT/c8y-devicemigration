@@ -365,6 +365,52 @@
                 }}
               </p>
             }
+
+            <!--
+              The target already has devices under the same external identities,
+              so creating a device user for each of these would set a new
+              password on devices that are already there and already working.
+              The migration itself is unaffected - this is the one answer that is
+              unavailable, and Start stays disabled until another is chosen.
+
+              The devices are listed rather than counted because the way out is
+              to go and look at them in both tenants, and a number gives nobody
+              anywhere to start.
+            -->
+            @if (v.credentialConflicts.length) {
+              <div class="alert alert-danger m-t-8 m-b-0" role="alert">
+                <p class="m-b-4">
+                  <strong>
+                    {{
+                      'A device user cannot be created for each device in this tenant.'
+                        | translate
+                    }}
+                  </strong>
+                </p>
+                <p class="m-b-4">
+                  {{
+                    'The target tenant already has these devices under the same external identity. Creating a device user for them would replace the credentials those devices authenticate with today.'
+                      | translate
+                  }}
+                </p>
+                <ul class="m-b-4 p-l-16">
+                  @for (conflict of v.credentialConflicts; track conflict.externalId) {
+                    <li>
+                      <strong>{{ conflict.name || conflict.externalId }}</strong>
+                      <span class="text-muted">
+                        — {{ conflict.externalType }}: {{ conflict.externalId }}
+                      </span>
+                    </li>
+                  }
+                </ul>
+                <p class="m-b-0">
+                  {{
+                    'Choose another way for the devices to authenticate, or resolve the duplicate identities in the two tenants first.'
+                      | translate
+                  }}
+                </p>
+              </div>
+            }
           </c8y-form-group>
 
           <!--

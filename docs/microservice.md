@@ -200,8 +200,21 @@ the container was replaced, or none were issued. The way back in every case is t
 register the devices again, which **rotates** their passwords and invalidates any
 file handed out earlier.
 
-Two refusals worth knowing:
+Three refusals worth knowing:
 
+- **A migration is refused when the target tenant already has a device under one
+  of the external identities it would register.** Registering such an identity
+  creates nothing and sets a new password on the device already using it, so a
+  device the migration is not about would stop working. The refusal covers the
+  whole run rather than skipping that device, and there is no flag to proceed
+  anyway: migrate without `provisionCredentials`, or settle the duplicate
+  identities between the tenants first.
+
+  `POST /preflight` answers the same question before anything is started, given
+  `rootId` and `provisionCredentials: true`. It returns `credentialsRefused` and a
+  `conflicts` list naming each device on both sides; the user interface asks this
+  as soon as the option is chosen and will not start a migration that would be
+  refused.
 - **`provisionCredentials` cannot be combined with `remoteTargetId`.** A remote
   target is reached with a device access token, whose effective roles are the
   device ones — it has no permission to register anything. Refused when the

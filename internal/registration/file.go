@@ -78,6 +78,12 @@ var credentialsColumns = []string{"EXTERNAL_ID", "TENANT", "USERNAME", "PASSWORD
 
 // Record is one device to register.
 type Record struct {
+	// SourceID is the object this row came from in the source tenant. Not
+	// written to the registration file, which has no column for it: it is here so
+	// that a refusal can name a device in the tenant the operator is looking at,
+	// rather than only by an external id they may not recognise.
+	SourceID string
+
 	// ExternalID and ExternalType are the identity the export carried over, and
 	// the reason registration can be matched to the imported object at all.
 	ExternalID   string

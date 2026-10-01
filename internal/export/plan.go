@@ -74,18 +74,39 @@ type Plan struct {
 // that without walking the hierarchy a second time.
 type DeviceCounts struct {
 	ObjectID string
-	Records  map[DataType]int
+
+	// Name is the object's own name, read from the same object the IsDevice
+	// check reads, so it costs nothing extra. Carried because a caller refusing
+	// a migration over one device has to be able to name it in words the person
+	// reading recognises.
+	Name string
+
+	Records map[DataType]int
 
 	// IsDevice is whether the object carries c8y_IsDevice. A group has no device
 	// user, so nothing would be registered for it.
 	IsDevice bool
 
-	// IdentityTypes is the type of each external identity the object carries, in
-	// the order the platform returned them. Types only: which identity would be
-	// chosen is decided from these, and the external ids themselves are of no
-	// use to a count and would put device identifiers in an estimate response
-	// that does not otherwise carry any.
-	IdentityTypes []string
+	// Identities is each external identity the object carries, in the order the
+	// platform returned them - which is the order the choice of identity depends
+	// on.
+	//
+	// The external ids are carried as well as the types, because a caller that
+	// has to find out whether the target tenant already holds one of them cannot
+	// do it from a type. They are deliberately not rendered into the estimate
+	// response, which carries counts and no device identifiers; see
+	// internal/service/estimate.go.
+	Identities []Identity
+}
+
+// IdentityTypes is the type of each identity, which is all that deciding
+// *which* identity a device would be registered under depends on.
+func (d DeviceCounts) IdentityTypes() []string {
+	types := make([]string, 0, len(d.Identities))
+	for _, identity := range d.Identities {
+		types = append(types, identity.Type)
+	}
+	return types
 }
 
 // Breach is one limit that would refuse the export.
@@ -169,22 +190,23 @@ func MakePlan(ctx context.Context, client *api.Client, opts PlanOptions) (*Plan,
 			return nil, err
 		}
 
-		identityTypes, err := e.identityTypes(ctx, id)
+		identities, err := e.plannedIdentities(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		plan.Identities += len(identityTypes)
+		plan.Identities += len(identities)
 
-		isDevice, err := e.isDevice(ctx, id)
+		name, isDevice, err := e.describe(ctx, id)
 		if err != nil {
 			return nil, err
 		}
 
 		counts := DeviceCounts{
-			ObjectID:      id,
-			Records:       map[DataType]int{},
-			IsDevice:      isDevice,
-			IdentityTypes: identityTypes,
+			ObjectID:   id,
+			Name:       name,
+			Records:    map[DataType]int{},
+			IsDevice:   isDevice,
+			Identities: identities,
 		}
 		for _, kind := range opts.DataTypes {
 			count, err := e.countRecords(ctx, kind, id)
@@ -258,37 +280,40 @@ func orderedIDs(rootID string, planned map[string]bool) []string {
 	return append([]string{rootID}, ids...)
 }
 
-// identityTypes is the type of each external identity an object carries.
+// plannedIdentities is every external identity an object carries.
 //
 // The same call exportIdentities makes, without the writing. It used to return
-// only a count; the types come from the same response and cost nothing extra.
-func (e *Exporter) identityTypes(ctx context.Context, id string) ([]string, error) {
+// only a count, then only the types; the whole identity comes from the same
+// response and costs nothing extra.
+func (e *Exporter) plannedIdentities(ctx context.Context, id string) ([]Identity, error) {
 	result := e.client.Identity.List(ctx, id)
 	if result.Err != nil {
 		return nil, fmt.Errorf("cannot list external identities of %s: %w", id, result.Err)
 	}
 
-	var types []string
+	var identities []Identity
 	for item, err := range result.Items() {
 		if err != nil {
 			return nil, fmt.Errorf("cannot read an external identity of %s: %w", id, err)
 		}
-		types = append(types, item.Type())
+		identities = append(identities, Identity{Type: item.Type(), ExternalID: item.ExternalID()})
 	}
-	return types, nil
+	return identities, nil
 }
 
-// isDevice is whether an object carries c8y_IsDevice.
+// describe is an object's name, and whether it carries c8y_IsDevice.
 //
 // One object read per planned object, which is the only new cost this plan
 // carries. Paid unconditionally rather than only when credentials are asked for,
 // because the alternative is an estimate whose answer changes when a checkbox
 // moves - and the number of objects a plan covers is capped, so this is bounded
-// by the child-object limit rather than by the size of a tenant.
-func (e *Exporter) isDevice(ctx context.Context, id string) (bool, error) {
+// by the child-object limit rather than by the size of a tenant. Both answers
+// come out of the one response.
+func (e *Exporter) describe(ctx context.Context, id string) (string, bool, error) {
 	result := e.client.ManagedObjects.Get(ctx, id, managedobjects.GetOptions{})
 	if result.Err != nil {
-		return false, fmt.Errorf("cannot read %s: %w", id, result.Err)
+		return "", false, fmt.Errorf("cannot read %s: %w", id, result.Err)
 	}
-	return jsonraw.Has([]byte(result.Data.Raw()), "c8y_IsDevice"), nil
+	body := []byte(result.Data.Raw())
+	return jsonraw.Name(body), jsonraw.Has(body, "c8y_IsDevice"), nil
 }

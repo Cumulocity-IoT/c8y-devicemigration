@@ -534,6 +534,18 @@ token whose effective roles are the device ones; bulk registration needs
 answer is possible there. The certificate answer stays, because it registers
 nothing — it only names an owner on objects that same token already owns.
 
+**Choosing the first answer asks the service whether it is available**, because
+that one depends on what the target tenant already has: a device there under one
+of the external identities the migration would register cannot be given a new
+device user without losing the credential it uses today, so the service refuses
+such a migration outright. Choosing the answer runs a pre-flight with the
+hierarchy; a refusal is shown under the radios as the list of devices involved,
+named on both sides, and Start stays disabled until another answer is chosen. The
+check is re-run whenever anything it depends on changes — the hierarchy, the
+target, or which relationships are followed — and a refusal already found is kept
+until the new answer replaces it, because a stale block is recoverable and a
+stale pass is not.
+
 The summary's credentials row uses the same number for all three answers and
 labels it differently: users created, devices able to collect, devices owning
 their twins. Its note — *of N objects; the rest are groups or have no usable

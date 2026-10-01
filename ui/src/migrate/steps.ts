@@ -22,6 +22,16 @@ export interface MigrationState {
 
   /** What is wrong with the start date, when something is. */
   windowProblem?: string;
+
+  /**
+   * Set when the chosen credential option cannot be provisioned into this
+   * target, because it already has devices under the same external identities.
+   *
+   * Its own flag rather than a count, because there is nothing to tune: the
+   * answer is to choose a different way for the devices to authenticate, or to
+   * settle the duplicates in the two tenants first.
+   */
+  credentialsRefused?: boolean;
 }
 
 export interface Readiness {
@@ -65,6 +75,15 @@ export function readiness(state: MigrationState): Readiness {
         gettext('This migration is over the export limits. Narrow the data window or the child types.')
       );
     }
+  }
+
+  // Last, because it is about one answer to one question rather than about
+  // whether the migration can run at all - and the devices it names are listed
+  // beside the credentials box, where the choice that caused it was made.
+  if (state.credentialsRefused) {
+    outstanding.push(
+      gettext('Device credentials cannot be provisioned into this tenant. Choose another way for the devices to authenticate.')
+    );
   }
 
   return { ready: outstanding.length === 0, outstanding };

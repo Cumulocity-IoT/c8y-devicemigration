@@ -5,6 +5,7 @@ import {
   type Job,
   type MigrationApi,
   type MigrationRequest,
+  type PreflightConflict,
 } from "../api/client";
 import { gettext, message, type Message } from "../i18n";
 import { tenantLabel, type TenantDescription } from "../tenants";
@@ -91,6 +92,17 @@ export class MigrationFlow {
   preflightPassed = false;
 
   /**
+   * The devices the target already has under the same external identity.
+   *
+   * Only ever filled when the credentials answer is `file`, because that is the
+   * only one the service checks: it is the one that registers every device up
+   * front, and registering an identity a tenant already holds replaces the
+   * credential of whatever device is already using it. Empty is the ordinary
+   * state and means nothing was found, not that nothing was asked.
+   */
+  credentialConflicts: PreflightConflict[] = [];
+
+  /**
    * The remote target just established, if any, so the screen can show the CA to
    * register. The certificate here is public - the private half never leaves the
    * service.
@@ -132,7 +144,19 @@ export class MigrationFlow {
       estimated: !!this.estimate,
       withinLimits: this.estimate?.withinLimits,
       windowProblem: this.windowError?.text,
+      credentialsRefused: this.credentialsRefused,
     });
+  }
+
+  /**
+   * Whether the chosen credential option is refused for this target.
+   *
+   * Derived rather than stored, so it cannot outlive the conflicts it is about:
+   * every path that changes the answer clears them, and a stale `true` here
+   * would block a migration for a reason nothing on screen explains.
+   */
+  get credentialsRefused(): boolean {
+    return this.credentialConflicts.length > 0;
   }
 
   /**
@@ -221,6 +245,9 @@ export class MigrationFlow {
       // on objects that same token already owns.
       if (this.choices.credentials !== "certificate") {
         this.choices.credentials = "none";
+        // The answer those conflicts were about is no longer chosen, and
+        // nothing downstream of here would ask again before Start.
+        this.forgetCredentialConflicts();
       }
     });
   }
@@ -245,6 +272,22 @@ export class MigrationFlow {
    */
   chooseCredentials(choice: CredentialChoice): void {
     this.choices = { ...this.choices, credentials: choice };
+    if (choice !== "file") {
+      this.forgetCredentialConflicts();
+    }
+  }
+
+  /**
+   * Drops a refusal that is no longer about anything.
+   *
+   * The one rule, in one place: conflicts belong to the answer that provisions a
+   * device user per device, so they are cleared exactly when that answer stops
+   * being the chosen one - and never merely because something they depend on
+   * changed, which is what ensureCredentialCheck re-asks about instead.
+   */
+  private forgetCredentialConflicts(): void {
+    this.credentialConflicts = [];
+    this.credentialCheckedFor = undefined;
   }
 
   /**
@@ -338,17 +381,89 @@ export class MigrationFlow {
   }
 
   async preflight(): Promise<void> {
-    const { sourceTenant, targetTenant, remoteTargetId } = this.choices;
+    const { sourceTenant, targetTenant, remoteTargetId, root } = this.choices;
     if (!sourceTenant || (!targetTenant && !remoteTargetId)) {
       return;
     }
 
+    // The credential check is asked for, not implied: it costs a walk of the
+    // hierarchy and a lookup per device, so it is worth doing only once there is
+    // a hierarchy and only for the answer that registers every device up front.
+    // A remote target cannot provision credentials at all, and the service
+    // refuses the pair rather than checking it.
+    const checkCredentials =
+      this.choices.credentials === "file" && !!root?.id && !remoteTargetId;
+
     await this.attempt(async () => {
-      await this.api.preflight(
-        remoteTargetId ? { sourceTenant, remoteTargetId } : { sourceTenant, targetTenant }
+      const answer = await this.api.preflight(
+        remoteTargetId
+          ? { sourceTenant, remoteTargetId }
+          : checkCredentials
+            ? {
+                sourceTenant,
+                targetTenant,
+                rootId: root!.id!,
+                provisionCredentials: true,
+                // The scope as the migration will ask for it, through the same
+                // function, because which relationships are followed decides
+                // which devices the check is about.
+                ...this.scopeOfRequest()
+              }
+            : { sourceTenant, targetTenant }
       );
+      if (checkCredentials) {
+        this.credentialConflicts = answer.conflicts ?? [];
+        this.credentialCheckedFor = this.credentialCheckKey;
+      }
       this.preflightPassed = true;
     });
+  }
+
+  /**
+   * The choices the credential check depends on, as one value to compare.
+   *
+   * Which devices would be registered depends on the hierarchy and on which
+   * relationships are followed, not only on the two tenants - so narrowing the
+   * child types is as much a reason to ask again as changing the target is.
+   */
+  private get credentialCheckKey(): string {
+    const { sourceTenant, root, targetTenant, childTypes, noChildren, credentials } =
+      this.choices;
+    return [sourceTenant, root?.id, targetTenant, childTypes, noChildren, credentials].join("|");
+  }
+
+  private credentialCheckedFor?: string;
+
+  /**
+   * Re-checks the credential answer against the target when it is owed.
+   *
+   * Called wherever ensureEstimate is, and for the same reason: on one screen
+   * every choice can invalidate the one before it, and a check that only ran on
+   * the path somebody happened to take would pass by accident.
+   *
+   * Conflicts already found are deliberately *not* cleared first. A stale answer
+   * that blocks is recoverable - this call replaces it a moment later - while a
+   * stale answer that allows would let somebody start a migration the service
+   * then refuses, which is the failure this whole check exists to prevent.
+   */
+  async ensureCredentialCheck(): Promise<void> {
+    if (this.busy) {
+      return;
+    }
+    const { sourceTenant, root, targetTenant, remoteTargetId } = this.choices;
+
+    if (this.choices.credentials !== "file" || remoteTargetId) {
+      // Nothing to check, and nothing that was found still applies.
+      this.forgetCredentialConflicts();
+      return;
+    }
+    if (!sourceTenant || !root?.id || !targetTenant) {
+      return;
+    }
+    if (this.credentialCheckedFor === this.credentialCheckKey) {
+      return;
+    }
+    await this.preflight();
   }
 
   async refreshEstimate(): Promise<void> {
@@ -432,14 +547,7 @@ export class MigrationFlow {
     // Only what was chosen: an omitted field means the service's own default,
     // and sending an empty one would be refused.
     //
-    // Unticking every relationship means the same thing as "only this object".
-    // Sending neither would let the service apply its own default and follow
-    // children somebody had just explicitly unticked.
-    if (this.choices.noChildren || !this.choices.childTypes) {
-      request.noChildren = true;
-    } else if (this.choices.childTypes !== DEFAULT_CHOICES.childTypes) {
-      request.childTypes = this.choices.childTypes;
-    }
+    Object.assign(request, this.scopeOfRequest());
     if (this.choices.dataTypes) {
       request.dataTypes = this.choices.dataTypes;
     }
@@ -461,6 +569,28 @@ export class MigrationFlow {
         break;
     }
     return request;
+  }
+
+  /**
+   * Which relationships the migration follows, as the API takes it.
+   *
+   * Its own function because two requests send it - the migration and the
+   * credential pre-flight - and they have to agree: a check that walked a
+   * different set of relationships would answer about different devices from the
+   * ones being migrated.
+   *
+   * Unticking every relationship means the same thing as "only this object".
+   * Sending neither field would let the service apply its own default and follow
+   * children somebody had just explicitly unticked.
+   */
+  private scopeOfRequest(): { childTypes?: string; noChildren?: boolean } {
+    if (this.choices.noChildren || !this.choices.childTypes) {
+      return { noChildren: true };
+    }
+    if (this.choices.childTypes !== DEFAULT_CHOICES.childTypes) {
+      return { childTypes: this.choices.childTypes };
+    }
+    return {};
   }
 
   /** Runs an API call, turning a refusal into something a screen can show. */

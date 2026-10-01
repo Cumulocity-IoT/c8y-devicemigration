@@ -193,17 +193,35 @@ Skipped, each with its reason on stderr:
 A skipped device is migrated like any other. It simply arrives without
 credentials, which is worth knowing before the fleet is expected to reconnect.
 
+### Identities the target already has
+
+Registering an external identity the target tenant already holds does not create
+a device. The platform treats it as the device of that name already existing and
+**sets a new password on it** — so a device that has nothing to do with the
+migration stops working with the credential it has.
+
+So `register` and `migrate --credentials` resolve every identity they are about
+to register against the target first, and **refuse the whole run** if any of them
+is already there. Nothing is generated and nothing is created; the message names
+each device on both sides so the duplicate can be looked at. There is no flag to
+proceed anyway — the two ways forward are to migrate without `--credentials`, or
+to settle the duplicate identities between the tenants first.
+
+`register --dry-run` runs the same check and exits non-zero on the same answer,
+so it can be used to find out whether a migration can carry credentials before
+anything is exported.
+
 ### Rotation, resuming, and reverting
 
-Registering a device the target already knows **rotates** its password: the new
-one works, the old one stops, and any file handed out earlier is dead. Two
+Re-registering a device this tool itself registered **rotates** its password: the
+new one works, the old one stops, and any file handed out earlier is dead. Two
 consequences:
 
 - `migrate --resume` does **not** re-register. The credentials from the first
   attempt are still the valid ones, and re-issuing would invalidate them for
   devices that were already working. It says so and carries on.
-- Migrating the same hierarchy twice with `--credentials` rotates the passwords
-  of every device it touches the second time.
+- Migrating the same hierarchy twice with `--credentials` is refused by the check
+  above, because the first run's identities are now in the target.
 
 `revert` removes the device users along with the objects, in the same call — the
 platform's `withDeviceUser` — so an undone migration leaves no credentials

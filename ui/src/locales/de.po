@@ -620,3 +620,15 @@ msgstr "Diese Migration wurde nicht zurückgenommen, und eine Rücknahme braucht
 
 msgid "What this migration created is still in the target tenant. Its certificate has expired, so this service can no longer undo it either way, but deleting the record also removes the run id that would find those objects."
 msgstr "Das von dieser Migration Angelegte liegt weiterhin im Zielmandanten. Ihr Zertifikat ist abgelaufen, dieser Dienst kann sie ohnehin nicht mehr zurücknehmen; mit dem Eintrag verschwindet aber auch die Lauf-Kennung, über die sich diese Objekte finden ließen."
+
+msgid "Device credentials cannot be provisioned into this tenant. Choose another way for the devices to authenticate."
+msgstr "In diesem Mandanten lassen sich keine Gerätezugangsdaten anlegen. Wählen Sie eine andere Art, wie sich die Geräte anmelden."
+
+msgid "A device user cannot be created for each device in this tenant."
+msgstr "In diesem Mandanten kann nicht für jedes Gerät ein Gerätebenutzer angelegt werden."
+
+msgid "The target tenant already has these devices under the same external identity. Creating a device user for them would replace the credentials those devices authenticate with today."
+msgstr "Der Zielmandant führt diese Geräte bereits unter derselben externen Identität. Einen Gerätebenutzer für sie anzulegen würde die Zugangsdaten ersetzen, mit denen sich diese Geräte heute anmelden."
+
+msgid "Choose another way for the devices to authenticate, or resolve the duplicate identities in the two tenants first."
+msgstr "Wählen Sie eine andere Art, wie sich die Geräte anmelden, oder klären Sie zuerst die doppelten Identitäten in beiden Mandanten."

@@ -249,23 +249,48 @@ func estimateFrom(tenant string, options export.PlanOptions, plan *export.Plan) 
 	return response
 }
 
-// formatWindow renders a bound, or nothing when there is none - an absent bound
-// and the zero time are different statements.
 // registrableDevices is how many of a plan's objects would get a device user.
-//
-// The default identity type, because that is what a migration through this
-// service uses - only the command line exposes a choice, and an estimate that
-// assumed a different one would be predicting a run nobody asked for.
 func registrableDevices(plan *export.Plan) int {
-	count := 0
-	for _, device := range plan.Devices {
-		if registration.Registrable(device.IsDevice, device.IdentityTypes, registration.DefaultIdentityType) {
-			count++
-		}
-	}
-	return count
+	return len(registrableRecords(plan))
 }
 
+// registrableRecords is the devices of a plan that would be registered, shaped
+// as the rows the registration phase would build for them.
+//
+// One function for two questions - how many devices would get a credential, and
+// which identities a target would have to be checked for - because they are the
+// same question and an estimate that disagreed with a pre-flight would be worse
+// than either on its own.
+//
+// The default identity type, because that is what a migration through this
+// service uses: only the command line exposes a choice, and predicting a run
+// nobody asked for would be a count and a refusal about a different migration.
+// The rows carry no password and no name beyond the object's own - they exist to
+// be looked up, not to be uploaded.
+func registrableRecords(plan *export.Plan) []registration.Record {
+	var records []registration.Record
+
+	for _, device := range plan.Devices {
+		types := device.IdentityTypes()
+		if !registration.Registrable(device.IsDevice, types, registration.DefaultIdentityType) {
+			continue
+		}
+		// Registrable has just established that this picks one, so the index is
+		// in range. Both come from registration so the choice cannot drift from
+		// the one the run makes.
+		chosen := device.Identities[registration.SelectIdentity(types, registration.DefaultIdentityType)]
+		records = append(records, registration.Record{
+			SourceID:     device.ObjectID,
+			Name:         device.Name,
+			ExternalID:   chosen.ExternalID,
+			ExternalType: chosen.Type,
+		})
+	}
+	return records
+}
+
+// formatWindow renders a bound, or nothing when there is none - an absent bound
+// and the zero time are different statements.
 func formatWindow(t time.Time) string {
 	if t.IsZero() {
 		return ""

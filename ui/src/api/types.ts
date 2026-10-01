@@ -902,12 +902,62 @@ export interface components {
              *     this instance is not subscribed to.
              */
             remoteTargetId?: string;
+            /**
+             * @description The hierarchy a migration would move. Needed only by
+             *     `provisionCredentials`, which is a question about the devices rather
+             *     than about the two tenants.
+             */
+            rootId?: string;
+            /**
+             * @description The migration's own relationship kinds, because which ones are
+             *     followed decides which devices it covers. Give the same value the
+             *     migration will, or `provisionCredentials` answers about a different
+             *     set of devices.
+             */
+            childTypes?: string;
+            /** @description The migration's own `noChildren`, for the same reason. */
+            noChildren?: boolean;
+            /**
+             * @description Also check whether a device user can be created for each of these
+             *     devices in the target. Requires `rootId`, costs a walk of the
+             *     hierarchy and a lookup per device, and is therefore asked for rather
+             *     than always done. Refused together with `remoteTargetId`, which
+             *     cannot provision credentials at all.
+             */
+            provisionCredentials?: boolean;
         };
         PreflightResponse: {
             /** @description The platform both tenants live on. */
             host?: string;
             source?: components["schemas"]["PreflightSide"];
             target?: components["schemas"]["PreflightSide"];
+            /**
+             * @description True when this migration cannot provision credentials, because the
+             *     target tenant already holds an external identity it would have to
+             *     register. Absent unless the request asked.
+             *
+             *     The two tenants themselves still checked out: it is this one option
+             *     that is unavailable, and a migration without it can go ahead.
+             */
+            credentialsRefused?: boolean;
+            /** @description The devices behind `credentialsRefused`, one entry each. */
+            conflicts?: components["schemas"]["PreflightConflict"][];
+        };
+        /**
+         * @description A device to be migrated whose external identity the target tenant
+         *     already holds.
+         */
+        PreflightConflict: {
+            /** @description The object in the source tenant. */
+            sourceId?: string;
+            /** @description Its name, when it has one. */
+            name?: string;
+            /** @description The external identity both tenants hold. */
+            externalId?: string;
+            /** @description That identity's type, for example `c8y_Serial`. */
+            externalType?: string;
+            /** @description The object in the target tenant already carrying it. */
+            targetId?: string;
         };
         PreflightSide: {
             /** @description The tenant that was asked for. */
