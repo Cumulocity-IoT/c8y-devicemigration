@@ -88,7 +88,7 @@ export class RootPickerComponent implements OnInit {
    */
   readonly config = {
     // The selector translates config.label itself; this marks it for extraction.
-    label: gettext('Choose what to migrate'),
+    label: gettext('Parent asset name'),
     search: true,
     groupsSelectable: true,
     showChildDevices: true,

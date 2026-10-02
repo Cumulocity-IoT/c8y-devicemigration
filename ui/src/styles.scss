@@ -1,1 +1,34 @@
 @use '@c8y/style/main.scss' as *;
+
+/*
+ * Help popovers that carry a list rather than a sentence.
+ *
+ * The popover renders into its own container on the body, so a component's
+ * styles cannot reach it - which is why this is here and not beside the
+ * component that uses it.
+ *
+ * Wider than the default, because four options compared against each other in a
+ * narrow column is the wall of text this replaced. The term and its sentence are
+ * a definition list so the four are scannable rather than run together.
+ */
+.popover {
+  .device-migration-help-list {
+    margin: 0;
+
+    dt {
+      font-weight: 600;
+    }
+
+    dd {
+      margin: 0 0 8px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+
+  &:has(.device-migration-help-list) {
+    max-width: 360px;
+  }
+}

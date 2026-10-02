@@ -8,6 +8,7 @@ import {
   DateTimePickerComponent
 } from '@c8y/ngx-components';
 import { BsDropdownModule } from 'ngx-bootstrap/dropdown';
+import { BsModalService } from 'ngx-bootstrap/modal';
 
 import type { PreflightConflict } from '../api/client';
 import { MigrationService } from '../api/migration.service';
@@ -17,11 +18,13 @@ import {
   type Choices,
   type CredentialChoice,
   type Failure,
-  type Tenant
+  type SelectableItem
 } from './flow';
+import { HelpComponent } from './help.component';
 import { hierarchyNote, type Note } from './hierarchy';
 import { kindLabel } from './labels';
 import { dateFromWindow, windowFromDate } from './window';
+import { RemoteTargetComponent } from './remote-target.component';
 import { RootPickerComponent } from './root-picker.component';
 import type { Readiness } from './steps';
 
@@ -39,7 +42,16 @@ import type { Readiness } from './steps';
  * something that changed three actions ago.
  */
 interface View {
-  tenants: { source: Tenant[]; target: Tenant[] };
+  /**
+   * The options each select offers, and which of them is chosen.
+   *
+   * The chosen one is the *item*, not its value: c8y-select's writeValue takes a
+   * SelectableItem and its change emits one, so the dialogue has to hand it the
+   * object rather than the tenant id it keeps.
+   */
+  tenants: { source: SelectableItem[]; target: SelectableItem[] };
+  selectedSource?: SelectableItem;
+  selectedTarget?: SelectableItem;
   choices: Choices;
   ownerTenant: string;
   preflightPassed: boolean;
@@ -95,6 +107,7 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
     CoreModule,
     FormsModule,
     RootPickerComponent,
+    HelpComponent,
     DateTimePickerComponent,
     // For the calendar in the From field's own button. The same arrangement the
     // platform's time-context control uses: a dropdown holding the picker, with
@@ -123,35 +136,72 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
          appearing and disappearing does not push the rest around. The rows
          themselves are always rendered - one per data kind, ticked or not -
          which is what keeps the counts and the ticking from doing it. */
-      .device-migration-estimate {
-        min-height: 160px;
+      /* The preview is a panel, not part of the form: a light surface and a
+         floor under its height, so counts arriving never resize the dialogue
+         somebody is reading. */
+      .device-migration-preview {
+        border: 1px solid var(--c8y-component-border-color, #d6dedd);
+        border-radius: 4px;
+        padding: 8px 16px 16px;
+        min-height: 150px;
       }
-      /* Fixed, so the columns are where the colgroup says and not where this
-         row's content would like them. */
-      .device-migration-estimate table {
+      /* Two columns: the counts answer two questions - how much hierarchy, how
+         much data - and reading one does not require the other. */
+      .device-migration-preview .preview-columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 32px;
+      }
+      @media (max-width: 767px) {
+        .device-migration-preview .preview-columns {
+          grid-template-columns: 1fr;
+        }
+      }
+      /* Fixed, so the figures line up across both tables rather than sitting
+         wherever each table's own longest label puts them. */
+      .device-migration-preview table {
         table-layout: fixed;
       }
-      .device-migration-estimate col.estimate-what {
-        width: 30%;
+      .device-migration-preview td:first-child {
+        width: 50%;
       }
-      .device-migration-estimate col.estimate-count {
-        width: 14%;
+      .device-migration-preview td + td {
+        width: 22%;
       }
+
       /* Two panes instead of a bootstrap row, whose negative margins would eat
-         the modal body's own padding and leave the content against the edge. */
+         the drawer body's own padding and leave the content against the edge. */
       .device-migration-panes {
         display: flex;
         flex-wrap: wrap;
         gap: 24px;
         align-items: flex-start;
       }
-      .device-migration-panes > .pane-source {
-        flex: 3 1 480px;
+      /* Equal halves. They were 3:2 when the left one carried the tenant select
+         as well as the picker; now the tenants have a row of their own, the two
+         panes carry one question each. */
+      .device-migration-panes > .pane-source,
+      .device-migration-panes > .pane-scope {
+        flex: 1 1 360px;
         min-width: 0;
       }
-      .device-migration-panes > .pane-scope {
-        flex: 2 1 300px;
-        min-width: 0;
+
+      /* The two tenants, same width whatever is in them: a wider box for one of
+         them read as the more important half of one question asked twice. */
+      .device-migration-tenants {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        align-items: start;
+      }
+      /* Nothing here aligns the two labels any more. @c8y/style already does it
+         for a label holding the platform's help button - label:has(.btn-help)
+         is a flex row, and label .btn-help is 14px square - which is what this
+         used to reimplement by hand after the two selects came out of line. */
+      @media (max-width: 767px) {
+        .device-migration-tenants {
+          grid-template-columns: 1fr;
+        }
       }
     `
   ]
@@ -179,7 +229,8 @@ export class MigrateComponent implements OnInit {
   constructor(
     private readonly migration: MigrationService,
     private readonly drawer: BottomDrawerRef<MigrateComponent>,
-    private readonly translator: C8yTranslatePipe
+    private readonly translator: C8yTranslatePipe,
+    private readonly modals: BsModalService
   ) {
     this.flow = new MigrationFlow(migration.api);
     this.result = new Promise<string>((resolve, reject) => {
@@ -244,64 +295,54 @@ export class MigrateComponent implements OnInit {
     await this.settle();
   }
 
-  /** Whether the operator is aiming at a tenant this instance is not subscribed to. */
-  readonly remoteMode = signal(false);
-  readonly remoteHost = signal('');
-  readonly remoteTenant = signal('');
+  /**
+   * The value the target dropdown carries for "a tenant not listed here".
+   *
+   * A sentinel in the same list rather than a control beside it: it answers the
+   * same question - which tenant - so it belongs among the answers. As a
+   * checkbox it read as a mode the whole dialogue was in.
+   */
+  readonly REMOTE = '__remote__';
 
-  toggleRemote(on: boolean): void {
-    this.remoteMode.set(on);
-    if (!on) {
-      // Back to the dropdown: forget any remote choice so Start is not gated on
-      // a connection nobody is using.
-      void this.chooseTarget(this.view()?.choices.targetTenant ?? '');
-    }
-  }
-
-  /** Establishes the connection and shows the CA to register. */
-  async establishRemote(): Promise<void> {
-    await this.flow.establishRemoteTarget(this.remoteHost().trim(), this.remoteTenant().trim());
-    this.refresh();
-  }
-
-  /** Proves it once the CA has been registered on the target. */
-  async checkRemote(): Promise<void> {
-    await this.flow.checkRemoteTarget();
-    await this.settle();
-  }
+  /** Where the documentation lives, for the line at the top. */
+  readonly documentation = 'https://github.com/Cumulocity-IoT/c8y-devicemigration';
 
   /**
-   * Saves the CA as a file, for the manual path.
+   * Choosing a target, which may be choosing to connect one.
    *
-   * The platform's own Trusted certificates screen takes a file, not text, which
-   * is the friction this whole panel exists to avoid - but somebody on a target
-   * without the plugin still needs the file, so it is offered under "another way".
+   * The sentinel opens the modal rather than selecting anything. Nothing is
+   * changed until that modal says a connection was proven, so cancelling it
+   * leaves the previous target exactly as it was.
    */
-  /** Whether the certificate was just copied, for the button to say so. */
-  readonly certificateCopied = signal(false);
-
-  /** Copies the CA to the clipboard, the quickest way to feed the paste field. */
-  async copyCertificate(): Promise<void> {
-    const pem = this.view()?.remoteTarget?.caCertificate;
-    if (!pem) {
-      return;
-    }
-    await navigator.clipboard.writeText(pem);
-    this.certificateCopied.set(true);
-    setTimeout(() => this.certificateCopied.set(false), 2000);
+  /** The select hands over the whole item; what the flow keeps is its value. */
+  async chooseSourceOption(item: SelectableItem | undefined): Promise<void> {
+    await this.chooseSource(item?.value ?? '');
   }
 
-  downloadCertificate(): void {
-    const pem = this.view()?.remoteTarget?.caCertificate;
-    if (!pem) {
+  async chooseTargetOption(item: SelectableItem | undefined): Promise<void> {
+    const value = item?.value;
+    if (value === this.REMOTE) {
+      this.connectRemoteTarget();
       return;
     }
-    const url = URL.createObjectURL(new Blob([pem], { type: 'application/x-pem-file' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `migration-${this.view()?.choices.targetTenant ?? 'target'}.pem`;
-    link.click();
-    URL.revokeObjectURL(url);
+    await this.chooseTarget(value ?? '');
+  }
+
+  /** Opens the modal that establishes a certificate connection. */
+  private connectRemoteTarget(): void {
+    const modal = this.modals.show(RemoteTargetComponent, {
+      class: 'modal-md',
+      ignoreBackdropClick: true,
+      initialState: { flow: this.flow }
+    });
+    const connected = (modal.content as RemoteTargetComponent | undefined)?.connected;
+    connected?.subscribe(() => {
+      void this.settle();
+    });
+    // Whatever happens to the modal, the dialogue behind it re-reads the flow:
+    // a cancelled connection may still have established one, and the dropdown
+    // has to stop showing the sentinel either way.
+    modal.onHidden?.subscribe(() => this.refresh());
   }
 
   /** What the asset selector chose, or nothing once it was cleared. */
@@ -411,8 +452,21 @@ export class MigrateComponent implements OnInit {
 
   /** Takes a fresh snapshot for the template. */
   private refresh(): void {
+    const sourceOptions = this.flow.sourceOptions;
+    // The remote case is the last option rather than a control beside the list:
+    // it answers the same question, so it belongs among the answers.
+    const targetOptions = [
+      ...this.flow.targetOptions,
+      { label: this.say(gettext('Connect a different tenant…')), value: this.REMOTE }
+    ];
+    const chosenTarget = this.flow.choices.remoteTargetId
+      ? this.REMOTE
+      : this.flow.choices.targetTenant;
+
     this.view.set({
-      tenants: { source: this.flow.sourceTenants, target: this.flow.targetTenants },
+      tenants: { source: sourceOptions, target: targetOptions },
+      selectedSource: sourceOptions.find(item => item.value === this.flow.choices.sourceTenant),
+      selectedTarget: targetOptions.find(item => item.value === chosenTarget),
       choices: { ...this.flow.choices },
       ownerTenant: this.flow.ownerTenant,
       preflightPassed: this.flow.preflightPassed,

@@ -10,12 +10,6 @@ msgstr ""
 msgid "Device migration"
 msgstr "Gerätemigration"
 
-msgid "Before you begin, both tenants need to be ready:"
-msgstr "Bevor Sie beginnen, müssen beide Mandanten vorbereitet sein:"
-
-msgid "the tenant the devices are in now, subscribed to the migration microservice"
-msgstr "der Mandant, in dem die Geräte jetzt sind, mit abonniertem Migrations-Microservice"
-
 msgid "Migrations"
 msgstr "Migrationen"
 
@@ -125,26 +119,8 @@ msgstr "Das ist nicht möglich"
 msgid "Start migration"
 msgstr "Migration starten"
 
-msgid "Migrate from"
-msgstr "Migrieren aus"
-
-msgid "Migrate to"
-msgstr "Migrieren nach"
-
-msgid "Choose a tenant"
-msgstr "Mandanten wählen"
-
-msgid "Choose what to migrate"
-msgstr "Wählen, was migriert wird"
-
 msgid "Migrating"
 msgstr "Migriert wird"
-
-msgid "Both tenants can be reached. Nothing has been read from either hierarchy yet."
-msgstr "Beide Mandanten sind erreichbar. Aus keiner der beiden Hierarchien wurde bisher gelesen."
-
-msgid "Device data to migrate"
-msgstr "Zu migrierende Gerätedaten"
 
 msgid "Asset"
 msgstr "Asset"
@@ -194,20 +170,8 @@ msgstr "Das ist keine Uhrzeit."
 msgid "Managed objects"
 msgstr "Managed Objects"
 
-msgid "{{ allowed }} children allowed"
-msgstr "{{ allowed }} untergeordnete Objekte erlaubt"
-
 msgid "External identities"
 msgstr "Externe Identitäten"
-
-msgid "no limit"
-msgstr "keine Begrenzung"
-
-msgid "not included"
-msgstr "nicht enthalten"
-
-msgid "busiest device {{ busiest }} of {{ allowed }} allowed"
-msgstr "stärkstes Gerät {{ busiest }} von {{ allowed }} erlaubt"
 
 msgid "Working out how much would move…"
 msgstr "Es wird ermittelt, wie viel verschoben würde…"
@@ -274,9 +238,6 @@ msgstr "{{ id }}"
 msgid "Close"
 msgstr "Schließen"
 
-msgid "Target is not listed here (a remote or unsubscribed tenant)"
-msgstr "Ziel ist nicht aufgeführt (ein entfernter oder nicht abonnierter Mandant)"
-
 msgid "Target host"
 msgstr "Ziel-Host"
 
@@ -291,9 +252,6 @@ msgstr "Ich habe es hinterlegt — Verbindung prüfen"
 
 msgid "Trust this certificate on the target tenant"
 msgstr "Diesem Zertifikat im Zielmandanten vertrauen"
-
-msgid "Download the certificate and add it under Administration → Device management → Trusted certificates, with auto-registration enabled."
-msgstr "Laden Sie das Zertifikat herunter und fügen Sie es unter „Administration → Geräteverwaltung → Vertrauenswürdige Zertifikate“ mit aktivierter automatischer Registrierung hinzu."
 
 msgid "Download certificate"
 msgstr "Zertifikat herunterladen"
@@ -331,17 +289,11 @@ msgstr "Das sieht nicht wie ein Zertifikat aus. Fügen Sie den gesamten Inhalt e
 msgid "Trust this certificate"
 msgstr "Diesem Zertifikat vertrauen"
 
-msgid "Without Device Migration UI (Advanced)"
-msgstr "Ohne Gerätemigrations-UI (Erweitert)"
-
 msgid "Copy certificate"
 msgstr "Zertifikat kopieren"
 
 msgid "Copied"
 msgstr "Kopiert"
-
-msgid "the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate you can set up below"
-msgstr "der Mandant, in den sie verschoben werden — entweder ebenfalls abonniert oder, bei einem Mandanten unter einem anderen übergeordneten Mandanten oder auf einem anderen System, per Zertifikat als vertrauenswürdig hinterlegt, das Sie unten einrichten können"
 
 msgid "This tenant has the migration plugin but not the migration service, which means it is the target of a migration from another instance. Trust the incoming certificate below to let that migration reach this tenant."
 msgstr "Dieser Mandant hat das Migrations-Plugin, aber nicht den Migrationsdienst — er ist also das Ziel einer Migration von einer anderen Instanz. Hinterlegen Sie unten das eingehende Zertifikat als vertrauenswürdig, damit diese Migration diesen Mandanten erreichen kann."
@@ -511,27 +463,6 @@ msgstr "Diese Geräte authentifizieren sich mit Zertifikaten. Wurde ihr Vertraue
 msgid "How will the migrated devices authenticate?"
 msgstr "Wie werden sich die migrierten Geräte authentifizieren?"
 
-msgid "Nothing is arranged for them"
-msgstr "Es wird nichts für sie eingerichtet"
-
-msgid "A device user for each device, downloaded once"
-msgstr "Ein Gerätebenutzer je Gerät, einmalig heruntergeladen"
-
-msgid "They keep their own certificates"
-msgstr "Sie behalten ihre eigenen Zertifikate"
-
-msgid "The copies are created but no device can connect as itself. Right for a rehearsal or a staging tenant, and for a hierarchy with no devices under it."
-msgstr "Die Kopien werden angelegt, aber kein Gerät kann sich als es selbst verbinden. Richtig für einen Probelauf oder einen Staging-Mandanten und für eine Hierarchie ohne Geräte darunter."
-
-msgid "A device user is created for each device and the passwords can be downloaded once, from this migration in the list. Getting them onto the devices is your own channel."
-msgstr "Für jedes Gerät wird ein Gerätebenutzer angelegt, und die Passwörter lassen sich einmalig herunterladen, über diese Migration in der Liste. Sie auf die Geräte zu bringen, bleibt Ihr eigener Weg."
-
-msgid "No file and nothing to distribute: each device asks for its own credential, authenticating with the one it already has in the source tenant. It is issued once per device."
-msgstr "Keine Datei und nichts zu verteilen: Jedes Gerät fordert seine eigenen Zugangsdaten an und authentifiziert sich dabei mit denen, die es im Quellmandanten bereits hat. Sie werden je Gerät einmalig ausgegeben."
-
-msgid "Nothing is issued - the devices keep the key and certificate they already have. They stay where they are until the target tenant trusts their CA, which you can do from this migration once it has finished."
-msgstr "Es wird nichts ausgegeben — die Geräte behalten Schlüssel und Zertifikat, die sie bereits haben. Sie bleiben, wo sie sind, bis der Zielmandant ihrer CA vertraut; das können Sie von dieser Migration aus veranlassen, sobald sie abgeschlossen ist."
-
 msgid "A remote target is reached with a device access token, which has no permission to register device users, so no credential can be issued into it from here."
 msgstr "Ein entferntes Ziel wird mit einem Device-Access-Token erreicht, das keine Berechtigung zum Anlegen von Gerätebenutzern hat; von hier aus können dorthin also keine Zugangsdaten ausgegeben werden."
 
@@ -543,17 +474,6 @@ msgstr "Geräte, die abholen können"
 
 msgid "Devices owning their twins"
 msgstr "Geräte, die ihren Zwilling besitzen"
-
-msgid "one per device"
-msgstr "eines pro Gerät"
-
-msgid "of {{ objects }} objects; the rest are groups or have no usable external identity and would arrive unable to write their own twin"
-msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine verwendbare externe ID und kämen ohne Schreibrecht auf ihren eigenen Zwilling an"
-
-msgid "of {{ objects }} objects; the rest are groups or have no usable external identity"
-msgstr "von {{ objects }} Objekten; die übrigen sind Gruppen oder haben keine verwendbare externe ID"
-# The actions column, and forgetting a run: the record, not what the migration
-# created.
 
 msgid "Actions"
 msgstr "Aktionen"
@@ -651,9 +571,6 @@ msgstr "Ausblenden"
 msgid "Trust a migration certificate"
 msgstr "Migrationszertifikat vertrauen"
 
-msgid "In the target tenant, open Device migration and paste the certificate below. A tenant without the migration service opens straight onto that screen. Then check the connection here."
-msgstr "Öffnen Sie im Zielmandanten Gerätemigration und fügen Sie das Zertifikat unten ein. In einem Mandanten ohne den Migrationsdienst öffnet sich direkt diese Ansicht. Prüfen Sie anschließend hier die Verbindung."
-
 msgid "Start time"
 msgstr "Startzeit"
 
@@ -668,3 +585,99 @@ msgstr "<strong>Die ursprünglichen Geräte werden kopiert und nicht gelöscht</
 
 msgid "Root object"
 msgstr "Stammobjekt"
+
+msgid "Before you begin, make sure that source and target tenant are both subscribed to the migration microservice. For more information, check"
+msgstr "Stellen Sie vorab sicher, dass Quell- und Zielmandant beide den Migrationsdienst abonniert haben. Weitere Informationen finden Sie in"
+
+msgid "the documentation on GitHub"
+msgstr "der Dokumentation auf GitHub"
+
+msgid "Select from where to migrate"
+msgstr "Wählen Sie, woher migriert wird"
+
+msgid "Select to which tenant to migrate"
+msgstr "Wählen Sie, wohin migriert wird"
+
+msgid "Only tenants with the same parent tenant are listed. If your tenant is under a different parent tenant or system, select Connect a different tenant and generate a trusted certificate to establish another connection."
+msgstr "Es werden nur Mandanten mit demselben übergeordneten Mandanten aufgeführt. Liegt Ihr Mandant unter einem anderen übergeordneten Mandanten oder System, wählen Sie „Anderen Mandanten verbinden“ und erzeugen Sie ein vertrauenswürdiges Zertifikat, um eine weitere Verbindung herzustellen."
+
+msgid "Connect a different tenant…"
+msgstr "Anderen Mandanten verbinden …"
+
+msgid "Connect a different tenant"
+msgstr "Anderen Mandanten verbinden"
+
+msgid "Connected to {{ tenant }} by certificate."
+msgstr "Über Zertifikat mit {{ tenant }} verbunden."
+
+msgid "For a tenant under a different parent tenant or on another system. The connection is a certificate rather than a password: this service mints one, you register the public half on that tenant, and the private half never leaves here."
+msgstr "Für einen Mandanten unter einem anderen übergeordneten Mandanten oder System. Die Verbindung läuft über ein Zertifikat statt über ein Kennwort: Dieser Dienst erzeugt eines, Sie registrieren den öffentlichen Teil im Zielmandanten, und der private Teil verlässt diesen Dienst nie."
+
+msgid "In the target tenant, open Device migration and paste the certificate below. A tenant without the migration service opens straight onto that screen."
+msgstr "Öffnen Sie im Zielmandanten Gerätemigration und fügen Sie das Zertifikat unten ein. In einem Mandanten ohne den Migrationsdienst öffnet sich direkt diese Ansicht."
+
+msgid "Without the plugin on that tenant, add the downloaded file under Administration → Device management → Trusted certificates, with auto-registration enabled."
+msgstr "Ohne das Plugin in jenem Mandanten fügen Sie die heruntergeladene Datei unter Administration → Geräteverwaltung → Vertrauenswürdige Zertifikate hinzu, mit aktivierter automatischer Registrierung."
+
+msgid "Data to migrate from"
+msgstr "Zu migrierende Daten von"
+
+msgid "— nothing chosen yet"
+msgstr "— noch nichts ausgewählt"
+
+msgid "Parent asset name"
+msgstr "Name der übergeordneten Anlage"
+
+msgid "Include the following types of data"
+msgstr "Die folgenden Datentypen einbeziehen"
+
+msgid "If disabled, only the selected object will be migrated. If enabled, also subassets, subdevices and additions including their data — measurements, events and alarms — get migrated."
+msgstr "Ist dies deaktiviert, wird nur das ausgewählte Objekt migriert. Ist es aktiviert, werden auch untergeordnete Anlagen, Geräte und Ergänzungen samt ihren Daten — Messwerte, Ereignisse und Alarme — migriert."
+
+msgid "Data preview"
+msgstr "Datenvorschau"
+
+msgid "(max. {{ allowed }})"
+msgstr "(max. {{ allowed }})"
+
+msgid "(no limit)"
+msgstr "(ohne Begrenzung)"
+
+msgid "(not included)"
+msgstr "(nicht enthalten)"
+
+msgid "(of {{ objects }})"
+msgstr "(von {{ objects }})"
+
+msgid "(one per device)"
+msgstr "(eines je Gerät)"
+
+msgid "(busiest {{ busiest }} of {{ allowed }})"
+msgstr "(Maximum {{ busiest }} von {{ allowed }})"
+
+msgid "Both tenants can be reached."
+msgstr "Beide Mandanten sind erreichbar."
+
+msgid "No credentials"
+msgstr "Keine Zugangsdaten"
+
+msgid "They keep their existing certificates"
+msgstr "Sie behalten ihre vorhandenen Zertifikate"
+
+msgid "New credentials, provided as download"
+msgstr "Neue Zugangsdaten, als Download bereitgestellt"
+
+msgid "Devices collect new credentials"
+msgstr "Geräte holen sich neue Zugangsdaten"
+
+msgid "The copies are created, but no device can connect as itself. Right for a rehearsal or a staging tenant."
+msgstr "Die Kopien werden angelegt, aber kein Gerät kann sich als es selbst anmelden. Richtig für eine Probe oder einen Staging-Mandanten."
+
+msgid "One device user per device. The passwords are downloadable once, from this migration in the list; getting them onto the devices is your own channel."
+msgstr "Ein Gerätebenutzer je Gerät. Die Kennwörter lassen sich einmalig über diese Migration in der Liste herunterladen; sie auf die Geräte zu bringen, ist Ihr eigener Weg."
+
+msgid "Nothing to hand round. Each device asks for its own, using the credential it already has in the source tenant."
+msgstr "Nichts zu verteilen. Jedes Gerät fragt seine eigenen an — mit den Zugangsdaten, die es im Quellmandanten bereits hat."
+
+msgid "Nothing is issued. The devices move once the target tenant trusts their certificate authority."
+msgstr "Es wird nichts ausgestellt. Die Geräte wechseln, sobald der Zielmandant ihrer Zertifizierungsstelle vertraut."

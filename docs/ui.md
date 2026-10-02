@@ -605,6 +605,20 @@ external identity* — is load-bearing for a certificate fleet in a way it is no
 elsewhere: those devices do not merely arrive without a password, they arrive
 unable to write their own twin, and the note says so.
 
+**The two tenant fields are the platform's own `c8y-select`**, which brings the
+filter field, the keyboard handling and the look every other select in Cumulocity
+has. It takes `[items]` as `{ label, value }` and its model is the **whole item**
+rather than the value — `writeValue` takes a `SelectableItem` and the change emits
+one — so the dialogue maps between that and the tenant id it keeps.
+
+It has **no per-item disabled state**, which decided a design question: a tenant
+that cannot be chosen is left out rather than shown greyed with a reason. The
+owner tenant is not offered as a source, and the source tenant disappears from
+the target list once it is chosen. The reasons still exist on
+`sourceTenants`/`targetTenants`, which is where the rule is tested;
+`sourceOptions`/`targetOptions` are those same lists filtered, and a test asserts
+nothing offered carries a reason it cannot be used.
+
 **The relationship choice is folded away until it is asked for.** It answers a
 question most people do not have — the default follows assets and devices, which
 is what almost every migration wants — so what is on screen is a sentence saying

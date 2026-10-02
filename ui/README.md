@@ -96,10 +96,13 @@ underneath.
   migration.
 - **Nothing is gated.** Every choice updates the summary, and the summary lists what
   is still outstanding instead of disabling **Start migration** without saying why.
-- **Both tenants are checked** before anything is read, and choosing a different
-  target re-runs that check rather than carrying the old verdict over.
+- **Both tenants are checked** before anything is written, and choosing a
+  different target re-runs that check rather than carrying the old verdict over.
 
-Nothing is read from either tenant until a migration is started.
+**Nothing is written to either tenant until a migration is started.** Reading is
+a different matter and happens as you fill the dialogue in: the picker browses
+the source tenant, and the preview walks the chosen hierarchy to count what would
+move.
 
 ## Undoing a migration
 
