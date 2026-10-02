@@ -49,7 +49,7 @@ import { explain, type Failure, type GridRow } from './rows';
 
         <!--
           Two branches rather than a ternary label, because an undo and a
-          migration are described by different things: "Migration root: undo of
+          migration are described by different things: "Root object: undo of
           20260101T…" reads as a mistake, and the run id an undo would repeat in
           a row of its own is the only thing identifying it anyway.
         -->
@@ -58,7 +58,7 @@ import { explain, type Failure, type GridRow } from './rows';
             <dt>{{ 'Undo of run' | translate }}</dt>
             <dd><code>{{ row.runId }}</code></dd>
           } @else {
-            <dt>{{ 'Migration root' | translate }}</dt>
+            <dt>{{ 'Root object' | translate }}</dt>
             <dd>{{ row.what }}</dd>
           }
 
@@ -67,8 +67,8 @@ import { explain, type Failure, type GridRow } from './rows';
             <dd>{{ row.target }}</dd>
           }
 
-          <dt>{{ 'Timestamp' | translate }}</dt>
-          <dd>{{ row.askedFor }}</dd>
+          <dt>{{ 'Start time' | translate }}</dt>
+          <dd>{{ row.started }}</dd>
 
           @if (!row.isRevert && row.runId) {
             <dt>{{ 'Run id' | translate }}</dt>

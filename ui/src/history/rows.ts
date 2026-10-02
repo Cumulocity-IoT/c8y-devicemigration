@@ -304,6 +304,35 @@ function targetOf(job: Job): string | undefined {
  * list re-reads itself every few seconds while anything is running, which is what
  * keeps a running job's figure moving.
  */
+/**
+ * What the Start time column shows, and what it orders on.
+ *
+ * Two values because they answer different questions, and one of them has to be
+ * present on every row:
+ *
+ *   - **Shown** is when the run actually started, and nothing at all while a job
+ *     is only queued. One job runs at a time, so a second asked for while the
+ *     first is going genuinely has no start time, and showing the moment it was
+ *     asked for would be a different fact under the wrong heading. The Status
+ *     column already says it is waiting.
+ *   - **Order** falls back to when it was asked for, because the grid sorts on
+ *     one path and a row with nothing there sinks to the end of a list whose
+ *     whole point is "newest first" - which is exactly where the job somebody
+ *     just started would land.
+ *
+ * The formatter is passed in rather than reached for: it is the platform's date
+ * pipe, which lives in the component, and this stays a function a test can drive.
+ */
+export function startTime(
+  job: Job,
+  format: (iso: string) => string
+): { shown: string; order: string } {
+  return {
+    shown: job.startedAt ? format(job.startedAt) : "",
+    order: job.startedAt || job.queuedAt || ""
+  };
+}
+
 export function duration(job: Job, now: Date): Message | undefined {
   if (!job.startedAt) {
     return undefined;
@@ -698,16 +727,26 @@ export interface GridRow {
   what: string;
   source: string;
   target: string;
-  /** The timestamp as the reader's locale writes it: what the cell shows. */
-  askedFor: string;
   /**
-   * The same moment as the service recorded it, ISO and UTC.
+   * When the run started, as the reader's locale writes it: what the cell shows.
    *
-   * The Timestamp column orders and searches on this, not on `askedFor`: the
-   * grid sorts whatever `path` points at, and a localised date string sorts
-   * alphabetically - which puts 01/09 before 28/08.
+   * Empty while a job is only queued, because it has not started. One job runs
+   * at a time, so a second one asked for while the first is going has no start
+   * time yet and an invented one would be a lie - the Status column already says
+   * it is waiting.
    */
-  queuedAt: string;
+  started: string;
+  /**
+   * What the Start time column orders and searches on, ISO and UTC.
+   *
+   * Two things make this its own field rather than `started`. The grid sorts
+   * whatever `path` points at, and a localised date string sorts alphabetically
+   * - which puts 01/09 before 28/08. And every row needs a value here or it
+   * sinks to the end: a job that has not started falls back to when it was asked
+   * for, which is the moment that puts it in the right place in a list that
+   * means "newest first".
+   */
+  startedOrder: string;
   took: string;
   by: string;
   runId: string;

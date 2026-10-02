@@ -34,32 +34,47 @@
     What this is, for somebody who has arrived here without being told. It stays
     on the page rather than hiding behind a help link: a migration is rare enough
     that almost everybody doing one is doing it for the first time.
+
+    In the platform's own card, so it reads as a panel of the screen rather than
+    as an alert - it is not a warning and nothing needs dismissing. Both classes
+    are needed and they do different halves of the job: `.card` carries the
+    surface and the elevation, `.card-block` the padding inside it. `.card-block`
+    alone is only padding, because it is written to sit in a card.
+
+    The icon leads rather than trails. On the right it read as decoration; on the
+    left it is what identifies the feature, which is what it is for.
+
+    Each bullet is one translatable sentence carrying its own emphasis. A
+    translator needs the whole sentence to put that emphasis in the right place -
+    German does not break the clause where English does - and the markup inside
+    is this catalogue's own, never anything a user supplied.
   -->
-  <div class="device-migration-intro d-flex gap-24 a-i-center m-b-24">
-    <div class="intro-text">
-      <h2 class="m-t-0">{{ 'Migrate devices to another tenant' | translate }}</h2>
-      <p>
-        {{
-          "Devices can be moved between the sub-tenants of this tenant — out of an onboarding or test tenant into a customer's, or from one customer to another."
-            | translate
-        }}
-      </p>
-      <p>
-        {{
-          'A single device can move, or a whole hierarchy of them, with or without their measurements, events and alarms.'
-            | translate
-        }}
-      </p>
-      <p>
-        {{
-          'Choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below.'
-            | translate
-        }}
-      </p>
+  <div class="card m-b-24">
+    <div class="card-block d-flex gap-24 a-i-center">
+      <c8y-device-migration-icon
+        class="device-migration-emblem hidden-xs hidden-sm"
+      ></c8y-device-migration-icon>
+      <ul class="intro-text m-0 p-l-16">
+        <li
+          [innerHTML]="
+            '<strong>Move devices between sub-tenants of this tenant,</strong> such as from a test tenant to a customer tenant or between customer tenants.'
+              | translate
+          "
+        ></li>
+        <li
+          [innerHTML]="
+            '<strong>You can migrate single devices or full hierarchies</strong> with their measurements, events and alarms.'
+              | translate
+          "
+        ></li>
+        <li
+          [innerHTML]="
+            '<strong>Original devices are copied rather than deleted,</strong> and every migration can be undone from the table below.'
+              | translate
+          "
+        ></li>
+      </ul>
     </div>
-    <c8y-device-migration-icon
-      class="device-migration-emblem text-muted hidden-xs hidden-sm"
-    ></c8y-device-migration-icon>
   </div>
 
   @if (problem(); as failure) {

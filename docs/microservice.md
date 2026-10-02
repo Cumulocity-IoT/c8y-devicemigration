@@ -41,9 +41,11 @@ eval "$(c8y sessions set --sessionFilter parent-tenant)"
 make service-deploy
 ```
 
-The version in the manifest is `0.2.0-SNAPSHOT` — a snapshot of the version being
-developed — unless the commit is exactly a release tag, in which case it is that
-release. `make version` prints it; `make service-package SERVICE_VERSION=1.2.0`
+The version in the manifest is a **snapshot** of the version being developed —
+the contents of [VERSION](../VERSION) with `-SNAPSHOT` after it — unless the
+commit is exactly a release tag, in which case it is that release. Written that
+way rather than quoted, because a version quoted in prose is wrong from the next
+bump onwards. `make version` prints it; `make service-package SERVICE_VERSION=1.2.0`
 overrides it. Every snapshot upload replaces the same version, which is what you
 want while iterating. The platform rejects anything that is not SemVer, so
 `service-package` checks that before building the zip rather than letting the

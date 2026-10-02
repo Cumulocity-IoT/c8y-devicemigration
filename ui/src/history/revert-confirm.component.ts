@@ -48,14 +48,14 @@ import { explain, type Failure, type GridRow } from './rows';
         </p>
 
         <dl class="revert-summary">
-          <dt>{{ 'Migration root' | translate }}</dt>
+          <dt>{{ 'Root object' | translate }}</dt>
           <dd>{{ row.what }}</dd>
 
           <dt>{{ 'Target tenant' | translate }}</dt>
           <dd>{{ row.target }}</dd>
 
           <dt>{{ 'Migrated' | translate }}</dt>
-          <dd>{{ row.askedFor }}</dd>
+          <dd>{{ row.started }}</dd>
 
           <dt>{{ 'Relationships' | translate }}</dt>
           <dd>{{ row.scope.relationships }}</dd>

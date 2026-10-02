@@ -10,6 +10,7 @@ import {
   liveRemoteTargets,
   outcome,
   scopeOf,
+  startTime,
   statusTag,
   refreshInterval,
   serviceAbsent,
@@ -985,5 +986,64 @@ describe("what a row offers", () => {
 
   it("leaves out the log for a run that printed nothing", () => {
     expect(of([job({ id: "m1" })])).not.toContain("log");
+  });
+});
+
+/**
+ * The Start time column shows when a run started, and orders the list.
+ *
+ * Those are two values rather than one because a job that has not started has no
+ * start time to show - and still has to sort into the right place, or the thing
+ * somebody just asked for lands at the end of a list that means "newest first".
+ */
+describe("start time", () => {
+  const iso = (text: string) => `[${text}]`;
+
+  it("shows when the run started", () => {
+    const { shown } = startTime(
+      job({ queuedAt: "2026-08-01T10:00:00Z", startedAt: "2026-08-01T10:00:05Z" }),
+      iso
+    );
+    expect(shown).toBe("[2026-08-01T10:00:05Z]");
+  });
+
+  // One job runs at a time, so a second asked for while the first is going has
+  // no start time yet. Showing the moment it was asked for instead would be a
+  // different fact under the wrong heading; the Status column says it is waiting.
+  it("shows nothing while a job is only queued", () => {
+    const { shown } = startTime(job({ queuedAt: "2026-08-01T10:00:00Z" }), iso);
+    expect(shown).toBe("");
+  });
+
+  it("orders on the start, when there is one", () => {
+    const { order } = startTime(
+      job({ queuedAt: "2026-08-01T10:00:00Z", startedAt: "2026-08-01T10:00:05Z" }),
+      iso
+    );
+    expect(order).toBe("2026-08-01T10:00:05Z");
+  });
+
+  // The grid sorts on one path and nothing else, so a row with nothing there
+  // sinks to the end - which is where a job somebody just started would go.
+  it("falls back to when it was asked for, so a queued job sorts newest", () => {
+    const queued = startTime(job({ queuedAt: "2026-08-02T10:00:00Z" }), iso);
+    const older = startTime(
+      job({ queuedAt: "2026-08-01T10:00:00Z", startedAt: "2026-08-01T10:00:05Z" }),
+      iso
+    );
+
+    expect(queued.order).toBe("2026-08-02T10:00:00Z");
+    expect(queued.order.localeCompare(older.order)).toBeGreaterThan(0);
+  });
+
+  // The raw value orders, never the formatted one: a localised date string sorts
+  // alphabetically, which puts 01/09 before 28/08.
+  it("never orders on the formatted value", () => {
+    const { order } = startTime(job({ startedAt: "2026-08-01T10:00:05Z" }), iso);
+    expect(order).not.toContain("[");
+  });
+
+  it("is empty on both counts when the service recorded neither", () => {
+    expect(startTime(job({ queuedAt: undefined }), iso)).toEqual({ shown: "", order: "" });
   });
 });

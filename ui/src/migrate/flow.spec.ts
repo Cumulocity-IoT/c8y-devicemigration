@@ -901,3 +901,56 @@ describe('the credential check and the migration agree on scope', () => {
     expect(preflight.noChildren).toBeUndefined();
   });
 });
+
+/**
+ * What the platform's select is handed.
+ *
+ * `c8y-select` has no per-item disabled state, so a tenant that cannot be chosen
+ * is left out rather than shown greyed. The rule is still the one above - these
+ * are the same lists, filtered - and what matters is that the two agree.
+ */
+describe('the tenant options a select is given', () => {
+  it('leaves out the tenant migrations are recorded in', async () => {
+    const flow = new MigrationFlow(stub());
+    await flow.loadTenants();
+
+    expect(flow.sourceTenants.map(t => t.id)).toContain('t-owner');
+    expect(flow.sourceOptions.map(o => o.value)).not.toContain('t-owner');
+  });
+
+  it('leaves out the source tenant once one is chosen', async () => {
+    const flow = new MigrationFlow(stub());
+    await flow.loadTenants();
+    expect(flow.targetOptions.map(o => o.value)).toContain('t-a');
+
+    flow.chooseSource('t-a');
+
+    expect(flow.targetOptions.map(o => o.value)).not.toContain('t-a');
+    expect(flow.targetOptions.map(o => o.value)).toContain('t-b');
+  });
+
+  // Whatever is offered has to be choosable: an option carrying a reason it
+  // cannot be used is exactly what this list exists to avoid.
+  it('offers nothing that carries a reason it cannot be chosen', async () => {
+    const flow = new MigrationFlow(stub());
+    await flow.loadTenants();
+    flow.chooseSource('t-a');
+
+    for (const [options, tenants] of [
+      [flow.sourceOptions, flow.sourceTenants],
+      [flow.targetOptions, flow.targetTenants]
+    ] as const) {
+      for (const option of options) {
+        expect(tenants.find(t => t.id === option.value)?.unavailable).toBe('');
+      }
+    }
+  });
+
+  it('labels an option the way the list does', async () => {
+    const flow = new MigrationFlow(stub());
+    await flow.loadTenants();
+
+    const option = flow.sourceOptions.find(o => o.value === 't-a');
+    expect(option?.label).toBe(flow.sourceTenants.find(t => t.id === 't-a')?.label);
+  });
+});

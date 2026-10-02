@@ -21,6 +21,12 @@ import { windowProblem } from "./window";
  * instead of a browser. The component around it renders this and nothing else.
  */
 
+/** One option of a platform select: what it shows, and what it means. */
+export interface SelectableItem {
+  label: string;
+  value: string;
+}
+
 export interface Tenant {
   id: string;
   /** What to show: the name or host with the id, or the id alone. */
@@ -187,6 +193,23 @@ export class MigrationFlow {
           ? gettext("already the source")
           : "",
     }));
+  }
+
+  /**
+   * The tenants as `c8y-select` takes them: the ones that can actually be chosen.
+   *
+   * Derived from the lists above rather than repeating their rule, and
+   * *filtered* rather than marked - the platform's select has no per-item
+   * disabled state, so a tenant that cannot be chosen is simply not offered. The
+   * reasons survive on sourceTenants/targetTenants, which is where the rule is
+   * tested.
+   */
+  get sourceOptions(): SelectableItem[] {
+    return selectable(this.sourceTenants);
+  }
+
+  get targetOptions(): SelectableItem[] {
+    return selectable(this.targetTenants);
   }
 
   // --- choosing --------------------------------------------------------------
@@ -649,4 +672,11 @@ export function failureFrom(error: unknown): Failure {
     detail: error.message,
     retryable: error.retryable,
   };
+}
+
+/** The choosable ones, as select options. */
+function selectable(tenants: Tenant[]): SelectableItem[] {
+  return tenants
+    .filter(tenant => !tenant.unavailable)
+    .map(tenant => ({ label: tenant.label, value: tenant.id }));
 }

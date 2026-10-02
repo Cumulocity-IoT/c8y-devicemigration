@@ -27,47 +27,95 @@
       }
 
       <!--
-        What has to be true before this can work. It lives here rather than on
-        the list page because this is where somebody acts on it: the source
-        dropdown offers only subscribed tenants, and the certificate the second
-        point mentions is set up a few fields below.
+        What has to be true before this can work, in one line. It lives here
+        rather than on the list page because this is where somebody acts on it,
+        and the two bullets it used to be said the same thing twice as long.
       -->
-      <div class="text-muted small m-b-16">
-        <p class="m-b-4">{{ 'Before you begin, both tenants need to be ready:' | translate }}</p>
-        <ul class="m-b-0">
-          <li>
-            {{ 'the tenant the devices are in now, subscribed to the migration microservice' | translate }}
-          </li>
-          <li>
-            {{
-              'the tenant they are moving to, either subscribed to it as well, or — for a tenant under a different parent or on another system — trusted with a certificate you can set up below'
-                | translate
-            }}
-          </li>
-        </ul>
+      <p class="m-b-24">
+        <i c8yIcon="info-circle" class="text-info m-r-4"></i>
+        {{
+          'Before you begin, make sure that source and target tenant are both subscribed to the migration microservice. For more information, check'
+            | translate
+        }}
+        <a [href]="documentation" target="_blank" rel="noopener">{{
+          'the documentation on GitHub' | translate
+        }}</a
+        >.
+      </p>
+
+      <!--
+        The two tenants, side by side and the same width: they are one question
+        asked twice, and a wider box for one of them read as the more important
+        half. The panes below them are where they differ.
+      -->
+      <div class="device-migration-tenants m-b-24">
+        <c8y-form-group class="m-b-0">
+          <label>{{ 'Source tenant' | translate }}</label>
+          <!--
+            The platform's own select, not a styled native one: it brings the
+            filter field, the keyboard handling and the look every other select
+            in Cumulocity has.
+
+            It has no per-item disabled state, so a tenant that cannot be chosen
+            is not offered rather than offered greyed out - the owner tenant
+            here, and the source tenant in the list beside it.
+          -->
+          <c8y-select
+            [items]="v.tenants.source"
+            [ngModel]="v.selectedSource"
+            (ngModelChange)="chooseSourceOption($event)"
+            [ngModelOptions]="{ standalone: true }"
+            [placeholder]="'Select from where to migrate' | translate"
+            [required]="true"
+            [attr.aria-label]="'Source tenant' | translate"
+          ></c8y-select>
+        </c8y-form-group>
+
+        <c8y-form-group class="m-b-0">
+          <label>
+            {{ 'Target tenant' | translate }}
+            <c8y-device-migration-help
+              [label]="'Target tenant' | translate"
+              [text]="
+                'Only tenants with the same parent tenant are listed. If your tenant is under a different parent tenant or system, select Connect a different tenant and generate a trusted certificate to establish another connection.'
+                  | translate
+              "
+            ></c8y-device-migration-help>
+          </label>
+          <!--
+            The remote case is an entry in this list rather than a checkbox
+            beside it. It answers the same question - which tenant - so it
+            belongs among the answers; as a separate control it read as a mode
+            the whole dialogue was in.
+          -->
+          <c8y-select
+            [items]="v.tenants.target"
+            [ngModel]="v.selectedTarget"
+            (ngModelChange)="chooseTargetOption($event)"
+            [ngModelOptions]="{ standalone: true }"
+            [placeholder]="'Select to which tenant to migrate' | translate"
+            [required]="true"
+            [attr.aria-label]="'Target tenant' | translate"
+          ></c8y-select>
+
+          @if (v.choices.remoteTargetId && v.choices.targetTenant) {
+            <p class="text-success small m-t-4 m-b-0">
+              {{
+                'Connected to {{ tenant }} by certificate.' | translate: { tenant: v.choices.targetTenant }
+              }}
+            </p>
+          }
+          @if (v.preflightPassed) {
+            <p class="text-success small m-t-4 m-b-0">
+              {{ 'Both tenants can be reached.' | translate }}
+            </p>
+          }
+        </c8y-form-group>
       </div>
 
       <div class="device-migration-panes">
         <!-- Where it comes from, and what in it. -->
         <div class="pane-source">
-          <c8y-form-group>
-            <label for="sourceTenant">{{ 'Migrate from' | translate }}</label>
-            <select
-              id="sourceTenant"
-              class="form-control"
-              [ngModel]="v.choices.sourceTenant"
-              (ngModelChange)="chooseSource($event)"
-            >
-              <option [ngValue]="undefined">{{ 'Choose a tenant' | translate }}</option>
-              @for (tenant of v.tenants.source; track tenant.id) {
-                <option [ngValue]="tenant.id" [disabled]="!!tenant.unavailable">
-                  {{ tenant.label
-                  }}{{ tenant.unavailable ? ' — ' + (tenant.unavailable | translate) : '' }}
-                </option>
-              }
-            </select>
-          </c8y-form-group>
-
           <!--
             The platform's own asset selector, reading the source tenant through
             the microservice's proxy. Keyed on the tenant so that choosing a
@@ -92,132 +140,22 @@
           }
         </div>
 
-        <!-- Where it goes, and what comes with it. -->
+        <!-- What comes with it, and how the copies will authenticate. -->
         <div class="pane-scope">
-          <c8y-form-group>
-            <label for="targetTenant">{{ 'Migrate to' | translate }}</label>
-            @if (!remoteMode()) {
-              <select
-                id="targetTenant"
-                class="form-control"
-                [ngModel]="v.choices.targetTenant"
-                (ngModelChange)="chooseTarget($event)"
-              >
-                <option [ngValue]="undefined">{{ 'Choose a tenant' | translate }}</option>
-                @for (tenant of v.tenants.target; track tenant.id) {
-                  <option [ngValue]="tenant.id" [disabled]="!!tenant.unavailable">
-                    {{ tenant.label
-                    }}{{ tenant.unavailable ? ' — ' + (tenant.unavailable | translate) : '' }}
-                  </option>
-                }
-              </select>
+          <!--
+            The chosen object, named again on this side. The two panes are read
+            as a pair - that is chosen over there, this is what comes with it -
+            and without the name the right-hand one is a set of options about
+            nothing in particular.
+          -->
+          <p class="text-medium m-b-16">
+            {{ 'Data to migrate from' | translate }}
+            @if (v.choices.root; as root) {
+              <span class="label label-info m-l-4">{{ root.name }}</span>
+            } @else {
+              <span class="text-muted">{{ '— nothing chosen yet' | translate }}</span>
             }
-
-            @if (v.preflightPassed) {
-              <p class="text-success small m-t-4">
-                {{
-                  'Both tenants can be reached. Nothing has been read from either hierarchy yet.'
-                    | translate
-                }}
-              </p>
-            }
-
-            <!--
-              A target this instance is not subscribed to - a different parent,
-              or a different system. The connection is a certificate: the service
-              mints one, the operator registers the public half on the target,
-              and nobody's password is exposed. See docs/concepts/remote-targets.md.
-            -->
-            <label class="c8y-checkbox m-t-8">
-              <input
-                type="checkbox"
-                [checked]="remoteMode()"
-                (change)="toggleRemote($any($event.target).checked)"
-              />
-              <span></span>
-              <span>{{ 'Target is not listed here (a remote or unsubscribed tenant)' | translate }}</span>
-            </label>
-
-            @if (remoteMode()) {
-              <div class="c8y-list--collapse p-8 m-t-4" style="border: 1px solid var(--c8y-component-border-color, #d6dedd); border-radius: 4px">
-                <label class="text-label-small" for="remoteHost">{{ 'Target host' | translate }}</label>
-                <input
-                  id="remoteHost"
-                  class="form-control m-b-4"
-                  placeholder="t22222.eu-latest.cumulocity.com"
-                  [ngModel]="remoteHost()"
-                  (ngModelChange)="remoteHost.set($event)"
-                />
-                <label class="text-label-small" for="remoteTenant">{{ 'Target tenant id' | translate }}</label>
-                <input
-                  id="remoteTenant"
-                  class="form-control m-b-8"
-                  placeholder="t22222"
-                  [ngModel]="remoteTenant()"
-                  (ngModelChange)="remoteTenant.set($event)"
-                />
-
-                @if (!v.remoteTarget) {
-                  <button
-                    class="btn btn-default btn-sm"
-                    type="button"
-                    [disabled]="!remoteHost().trim() || !remoteTenant().trim() || v.busy"
-                    (click)="establishRemote()"
-                  >
-                    {{ 'Establish connection' | translate }}
-                  </button>
-                } @else {
-                  <p class="text-medium m-b-2">
-                    {{ 'Trust this certificate on the target tenant' | translate }}
-                  </p>
-                  <p class="text-muted small m-b-4">
-                    {{
-                      'In the target tenant, open Device migration and paste the certificate below. A tenant without the migration service opens straight onto that screen. Then check the connection here.'
-                        | translate
-                    }}
-                  </p>
-                  <textarea
-                    class="form-control m-b-4"
-                    rows="5"
-                    readonly
-                    style="font-family: monospace; font-size: 11px"
-                    >{{ v.remoteTarget.caCertificate }}</textarea
-                  >
-                  <div class="d-flex gap-8 a-i-center m-b-4">
-                    <button class="btn btn-default btn-sm" type="button" (click)="copyCertificate()">
-                      {{
-                        certificateCopied() ? ('Copied' | translate) : ('Copy certificate' | translate)
-                      }}
-                    </button>
-                  </div>
-                  <button
-                    class="btn btn-primary btn-sm"
-                    type="button"
-                    [disabled]="v.busy"
-                    (click)="checkRemote()"
-                  >
-                    {{ 'I have registered it — check connection' | translate }}
-                  </button>
-
-                  <!-- The manual path, for a target without the plugin. -->
-                  <details class="m-t-8">
-                    <summary class="text-muted small" style="cursor: pointer">
-                      {{ 'Without Device Migration UI (Advanced)' | translate }}
-                    </summary>
-                    <p class="text-muted small m-t-4 m-b-4">
-                      {{
-                        'Download the certificate and add it under Administration → Device management → Trusted certificates, with auto-registration enabled.'
-                          | translate
-                      }}
-                    </p>
-                    <button class="btn btn-default btn-sm" type="button" (click)="downloadCertificate()">
-                      {{ 'Download certificate' | translate }}
-                    </button>
-                  </details>
-                }
-              </div>
-            }
-          </c8y-form-group>
+          </p>
 
           <!--
             The relationship choice answers a question most people do not have:
@@ -262,7 +200,16 @@
           }
 
           <c8y-form-group class="m-t-24">
-            <label>{{ 'Device data to migrate' | translate }}</label>
+            <label>
+              {{ 'Include the following types of data' | translate }}
+              <c8y-device-migration-help
+                [label]="'Include the following types of data' | translate"
+                [text]="
+                  'If disabled, only the selected object will be migrated. If enabled, also subassets, subdevices and additions including their data — measurements, events and alarms — get migrated.'
+                    | translate
+                "
+              ></c8y-device-migration-help>
+            </label>
             @for (kind of dataTypes; track kind) {
               <label class="c8y-checkbox">
                 <input
@@ -273,6 +220,92 @@
                 <span></span>
                 <span>{{ label(kind) | translate }}</span>
               </label>
+            }
+          </c8y-form-group>
+
+          <!--
+            One field, two ways to fill it in: type the syntax the engine takes,
+            or open the calendar in the button beside it. The text is the value -
+            the picker writes into it - so there is nowhere for the two to
+            disagree.
+
+            Always rendered, even before device data is chosen: a form group that
+            appears when the first box is ticked resizes the dialogue.
+          -->
+          <c8y-form-group [hasError]="!!v.windowError">
+            <label for="dateFrom">{{ 'From`date`' | translate }}</label>
+            <div class="input-group">
+              <input
+                id="dateFrom"
+                class="form-control"
+                aria-describedby="dateFromHelp"
+                [placeholder]="'-14d, or 2026-01-01' | translate"
+                [disabled]="!v.choices.dataTypes"
+                [ngModel]="v.choices.dateFrom"
+                (ngModelChange)="changeScope({ dateFrom: $event })"
+              />
+              <!--
+                btn-dot in an input-group-btn, which is how the platform's own
+                search and filter fields put a button inside a field: a bordered
+                button of its own next to a disabled input is what made this look
+                like two controls that had come apart.
+
+                Only there when the field can be used. A live-looking button
+                beside a disabled field is a mixed message as well as a misaligned
+                one.
+              -->
+              @if (v.choices.dataTypes) {
+                <span class="input-group-btn" dropdown [insideClick]="true">
+                  <button
+                    class="btn btn-dot"
+                    type="button"
+                    [title]="'Pick a date and time' | translate"
+                    dropdownToggle
+                  >
+                    <i c8yIcon="calendar"></i>
+                  </button>
+                  <!--
+                    Keyed on the value so the picker is rebuilt when the field
+                    stops naming a moment: its writeValue ignores an empty string,
+                    so it cannot be cleared, and a picker still showing a date
+                    beside a field that says -14d would be lying about the window.
+                  -->
+                  <div class="dropdown-menu dropdown-menu-right p-16" *dropdownMenu>
+                    @for (moment of [pickedMoment()]; track moment) {
+                      <c8y-date-time-picker
+                        [placeholder]="'Choose a date and time' | translate"
+                        [ngModel]="moment"
+                        (ngModelChange)="pickDate($event)"
+                      ></c8y-date-time-picker>
+                    }
+                  </div>
+                </span>
+              }
+            </div>
+            <!--
+              Through c8y-messages rather than a help-block paragraph, and tied
+              to the field by aria-describedby: that is what makes a screen
+              reader read the help when the control takes focus, which a loose
+              paragraph beside it never does. The codex's field-level help
+              pattern.
+            -->
+            @if (v.windowError; as problem) {
+              <p class="text-danger small m-t-4 m-b-0">
+                {{ problem.text | translate: problem.params }}
+              </p>
+            } @else if (v.choices.dataTypes) {
+              <c8y-messages
+                id="dateFromHelp"
+                [helpMessage]="
+                  'A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the configured default applies.'
+                    | translate
+                "
+              ></c8y-messages>
+            } @else {
+              <c8y-messages
+                id="dateFromHelp"
+                [helpMessage]="'Applies once there is device data to migrate.' | translate"
+              ></c8y-messages>
             }
           </c8y-form-group>
 
@@ -290,7 +323,56 @@
             only names an owner on objects that same token already owns.
           -->
           <c8y-form-group>
-            <label>{{ 'How will the migrated devices authenticate?' | translate }}</label>
+            <!--
+              One help for the four answers, laid out as the four answers rather
+              than run together into a paragraph: a reader is comparing options,
+              and a wall of prose is the one shape that does not let them. It is
+              also four small strings for a translator instead of one enormous
+              one.
+            -->
+            <ng-template #credentialsHelp>
+              <dl class="device-migration-help-list">
+                <dt>{{ 'No credentials' | translate }}</dt>
+                <dd>
+                  {{
+                    'The copies are created, but no device can connect as itself. Right for a rehearsal or a staging tenant.'
+                      | translate
+                  }}
+                </dd>
+
+                <dt>{{ 'New credentials, provided as download' | translate }}</dt>
+                <dd>
+                  {{
+                    'One device user per device. The passwords are downloadable once, from this migration in the list; getting them onto the devices is your own channel.'
+                      | translate
+                  }}
+                </dd>
+
+                <dt>{{ 'Devices collect new credentials' | translate }}</dt>
+                <dd>
+                  {{
+                    'Nothing to hand round. Each device asks for its own, using the credential it already has in the source tenant.'
+                      | translate
+                  }}
+                </dd>
+
+                <dt>{{ 'They keep their existing certificates' | translate }}</dt>
+                <dd>
+                  {{
+                    'Nothing is issued. The devices move once the target tenant trusts their certificate authority.'
+                      | translate
+                  }}
+                </dd>
+              </dl>
+            </ng-template>
+
+            <label>
+              {{ 'How will the migrated devices authenticate?' | translate }}
+              <c8y-device-migration-help
+                [label]="'How will the migrated devices authenticate?' | translate"
+                [content]="credentialsHelp"
+              ></c8y-device-migration-help>
+            </label>
 
             <label class="c8y-radio">
               <input
@@ -302,7 +384,7 @@
                 [ngModelOptions]="{ standalone: true }"
               />
               <span></span>
-              <span>{{ 'Nothing is arranged for them' | translate }}</span>
+              <span>{{ 'No credentials' | translate }}</span>
             </label>
 
             @if (v.canIssueCredentials) {
@@ -316,7 +398,7 @@
                   [ngModelOptions]="{ standalone: true }"
                 />
                 <span></span>
-                <span>{{ 'A device user for each device, downloaded once' | translate }}</span>
+                <span>{{ 'New credentials, provided as download' | translate }}</span>
               </label>
 
               <label class="c8y-radio">
@@ -329,7 +411,7 @@
                   [ngModelOptions]="{ standalone: true }"
                 />
                 <span></span>
-                <span>{{ 'Each device collects its own' | translate }}</span>
+                <span>{{ 'Devices collect new credentials' | translate }}</span>
               </label>
             }
 
@@ -343,43 +425,9 @@
                 [ngModelOptions]="{ standalone: true }"
               />
               <span></span>
-              <span>{{ 'They keep their own certificates' | translate }}</span>
+              <span>{{ 'They keep their existing certificates' | translate }}</span>
             </label>
 
-            <!--
-              One help line per answer, and each says the thing that is easy to
-              get wrong rather than restating the label: what is handed over and
-              once, who has to ask, and that a certificate fleet is only half
-              migrated until its trust anchor moves.
-            -->
-            <p class="help-block m-0">
-              @switch (v.choices.credentials) {
-                @case ('file') {
-                  {{
-                    'A device user is created for each device and the passwords can be downloaded once, from this migration in the list. Getting them onto the devices is your own channel.'
-                      | translate
-                  }}
-                }
-                @case ('self') {
-                  {{
-                    'No file and nothing to distribute: each device asks for its own credential, authenticating with the one it already has in the source tenant. It is issued once per device.'
-                      | translate
-                  }}
-                }
-                @case ('certificate') {
-                  {{
-                    'Nothing is issued - the devices keep the key and certificate they already have. They stay where they are until the target tenant trusts their CA, which you can do from this migration once it has finished.'
-                      | translate
-                  }}
-                }
-                @default {
-                  {{
-                    'The copies are created but no device can connect as itself. Right for a rehearsal or a staging tenant, and for a hierarchy with no devices under it.'
-                      | translate
-                  }}
-                }
-              }
-            </p>
 
             @if (!v.canIssueCredentials) {
               <p class="help-block m-0 text-muted">
@@ -437,205 +485,121 @@
             }
           </c8y-form-group>
 
-          <!--
-            One field, two ways to fill it in: type the syntax the engine takes,
-            or open the calendar in the button beside it. The text is the value -
-            the picker writes into it - so there is nowhere for the two to
-            disagree.
-
-            Always rendered, even before device data is chosen: a form group that
-            appears when the first box is ticked resizes the dialogue.
-          -->
-          <c8y-form-group [hasError]="!!v.windowError">
-            <label for="dateFrom">{{ 'From`date`' | translate }}</label>
-            <div class="input-group">
-              <input
-                id="dateFrom"
-                class="form-control"
-                [placeholder]="'-14d, or 2026-01-01' | translate"
-                [disabled]="!v.choices.dataTypes"
-                [ngModel]="v.choices.dateFrom"
-                (ngModelChange)="changeScope({ dateFrom: $event })"
-              />
-              <!--
-                btn-dot in an input-group-btn, which is how the platform's own
-                search and filter fields put a button inside a field: a bordered
-                button of its own next to a disabled input is what made this look
-                like two controls that had come apart.
-
-                Only there when the field can be used. A live-looking button
-                beside a disabled field is a mixed message as well as a misaligned
-                one.
-              -->
-              @if (v.choices.dataTypes) {
-                <span class="input-group-btn" dropdown [insideClick]="true">
-                  <button
-                    class="btn btn-dot"
-                    type="button"
-                    [title]="'Pick a date and time' | translate"
-                    dropdownToggle
-                  >
-                    <i c8yIcon="calendar"></i>
-                  </button>
-                  <!--
-                    Keyed on the value so the picker is rebuilt when the field
-                    stops naming a moment: its writeValue ignores an empty string,
-                    so it cannot be cleared, and a picker still showing a date
-                    beside a field that says -14d would be lying about the window.
-                  -->
-                  <div class="dropdown-menu dropdown-menu-right p-16" *dropdownMenu>
-                    @for (moment of [pickedMoment()]; track moment) {
-                      <c8y-date-time-picker
-                        [placeholder]="'Choose a date and time' | translate"
-                        [ngModel]="moment"
-                        (ngModelChange)="pickDate($event)"
-                      ></c8y-date-time-picker>
-                    }
-                  </div>
-                </span>
-              }
-            </div>
-            @if (v.windowError; as problem) {
-              <p class="text-danger small m-t-4 m-b-0">
-                {{ problem.text | translate: problem.params }}
-              </p>
-            } @else if (!v.choices.dataTypes) {
-              <p class="help-block m-b-0">
-                {{ 'Applies once there is device data to migrate.' | translate }}
-              </p>
-            } @else {
-              <p class="help-block m-b-0">
-                {{
-                  "A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the service's configured default applies."
-                    | translate
-                }}
-              </p>
-            }
-          </c8y-form-group>
         </div>
       </div>
 
       <!--
-        What would move. The rows are always here, with dashes until the counts
-        arrive, and the block has a floor under its height - so learning how much
-        would move does not resize the dialogue somebody is reading.
-      -->
-      <div class="separator-top p-t-16 m-t-8 device-migration-estimate">
-        <table class="table table-condensed m-b-8">
-          <!--
-            Widths declared rather than left to the content. Without this the
-            columns move sideways as the numbers arrive and as rows change from a
-            figure to "not included" - the table is laid out from whatever is in
-            it, so every cell shifts when any cell does.
-          -->
-          <colgroup>
-            <col class="estimate-what" />
-            <col class="estimate-count" />
-            <col />
-          </colgroup>
-          <tbody>
-            <tr>
-              <td>{{ 'Managed objects' | translate }}</td>
-              <td class="text-right">
-                <strong>{{ v.estimate ? (v.estimate.objects | number) : '—' }}</strong>
-              </td>
-              <td class="text-muted">
-                {{
-                  '{{ allowed }} children allowed'
-                    | translate: { allowed: v.estimate?.limits?.maxChildObjects || '—' }
-                }}
-              </td>
-            </tr>
-            <tr>
-              <td>{{ 'External identities' | translate }}</td>
-              <td class="text-right">
-                <strong>{{ v.estimate ? (v.estimate.identities | number) : '—' }}</strong>
-              </td>
-              <td class="text-muted">{{ 'no limit' | translate }}</td>
-            </tr>
-            <!--
-              Only when an answer other than "nothing" was given. The count is in
-              the estimate either way, but a row about device users in a migration
-              creating none would be noise.
+        What would move, as a named panel rather than a table running the width
+        of the dialogue: it is a preview of the migration, not part of the form,
+        and a fieldset says that without a heading competing with the questions
+        above it.
 
-              The same number means three things, so the label follows the answer:
-              users created, devices able to collect, devices that will own their
-              twins. The note is what makes it honest - it is fewer than the object
-              count for reasons the operator can act on, and for a certificate
-              fleet those devices arrive read-only rather than merely without a
-              password.
-            -->
-            @if (v.choices.credentials !== 'none') {
+        Two columns, because the counts answer two questions - how much of the
+        hierarchy, and how much of its data - and reading one does not require
+        the other. Every row is always here, with a dash until the counts arrive
+        and while a kind is not ticked, so learning how much would move never
+        resizes the dialogue somebody is reading.
+      -->
+      <fieldset class="m-t-24 device-migration-preview">
+        <legend class="legend form-block">{{ 'Data preview' | translate }}</legend>
+        <div class="preview-columns">
+          <table class="table table-condensed m-b-0">
+            <tbody>
               <tr>
-                <td>
-                  @switch (v.choices.credentials) {
-                    @case ('file') {
-                      {{ 'Device users created' | translate }}
-                    }
-                    @case ('self') {
-                      {{ 'Devices able to collect' | translate }}
-                    }
-                    @default {
-                      {{ 'Devices owning their twins' | translate }}
-                    }
-                  }
-                </td>
+                <td>{{ 'Managed objects' | translate }}</td>
                 <td class="text-right">
-                  <strong>{{ v.estimate ? (v.estimate.credentials | number) : '—' }}</strong>
+                  <strong>{{ v.estimate ? (v.estimate.objects | number) : '—' }}</strong>
                 </td>
-                <td class="text-muted">
-                  @if (v.estimate && v.estimate.credentials !== v.estimate.objects) {
-                    @if (v.choices.credentials === 'certificate') {
+                <td class="text-muted text-right">
+                  {{
+                    '(max. {{ allowed }})'
+                      | translate: { allowed: v.estimate?.limits?.maxChildObjects || '—' }
+                  }}
+                </td>
+              </tr>
+              <tr>
+                <td>{{ 'External identities' | translate }}</td>
+                <td class="text-right">
+                  <strong>{{ v.estimate ? (v.estimate.identities | number) : '—' }}</strong>
+                </td>
+                <td class="text-muted text-right">{{ '(no limit)' | translate }}</td>
+              </tr>
+              <!--
+                Only when an answer other than "nothing" was given. The count is
+                in the estimate either way, but a row about device users in a
+                migration creating none would be noise.
+
+                The same number means three things, so the label follows the
+                answer: users created, devices able to collect, devices that will
+                own their twins.
+              -->
+              @if (v.choices.credentials !== 'none') {
+                <tr>
+                  <td>
+                    @switch (v.choices.credentials) {
+                      @case ('file') {
+                        {{ 'Device users created' | translate }}
+                      }
+                      @case ('self') {
+                        {{ 'Devices able to collect' | translate }}
+                      }
+                      @default {
+                        {{ 'Devices owning their twins' | translate }}
+                      }
+                    }
+                  </td>
+                  <td class="text-right">
+                    <strong>{{ v.estimate ? (v.estimate.credentials | number) : '—' }}</strong>
+                  </td>
+                  <td class="text-muted text-right">
+                    @if (v.estimate && v.estimate.credentials !== v.estimate.objects) {
                       {{
-                        'of {{ objects }} objects; the rest are groups or have no usable external identity and would arrive unable to write their own twin'
-                          | translate: { objects: v.estimate.objects | number }
+                        '(of {{ objects }})' | translate: { objects: v.estimate.objects | number }
                       }}
                     } @else {
+                      {{ '(one per device)' | translate }}
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+
+          <table class="table table-condensed m-b-0">
+            <tbody>
+              @for (kind of dataTypes; track kind) {
+                <tr [class.text-muted]="!ticked('dataTypes', kind)">
+                  <td>{{ label(kind) | translate }}</td>
+                  <td class="text-right">
+                    @if (ticked('dataTypes', kind)) {
+                      <strong>{{
+                        v.estimate?.records?.[kind] === undefined
+                          ? '—'
+                          : (v.estimate?.records?.[kind] | number)
+                      }}</strong>
+                    } @else {
+                      <span class="text-muted">—</span>
+                    }
+                  </td>
+                  <td class="text-muted text-right">
+                    @if (!ticked('dataTypes', kind)) {
+                      {{ '(not included)' | translate }}
+                    } @else if (v.estimate?.busiest?.[kind] !== undefined) {
                       {{
-                        'of {{ objects }} objects; the rest are groups or have no usable external identity'
-                          | translate: { objects: v.estimate.objects | number }
+                        '(busiest {{ busiest }} of {{ allowed }})'
+                          | translate
+                              : {
+                                  busiest: v.estimate?.busiest?.[kind] | number,
+                                  allowed: v.estimate?.limits?.perDevice?.[kind] | number
+                                }
                       }}
                     }
-                  } @else {
-                    {{ 'one per device' | translate }}
-                  }
-                </td>
-              </tr>
-            }
-            <!-- Every kind, ticked or not: a row that appears when something is
-                 ticked would resize the dialogue. -->
-            @for (kind of dataTypes; track kind) {
-              <tr [class.text-muted]="!ticked('dataTypes', kind)">
-                <td>{{ label(kind) | translate }}</td>
-                <td class="text-right">
-                  @if (ticked('dataTypes', kind)) {
-                    <strong>{{
-                      v.estimate?.records?.[kind] === undefined
-                        ? '—'
-                        : (v.estimate?.records?.[kind] | number)
-                    }}</strong>
-                  } @else {
-                    <span class="text-muted">—</span>
-                  }
-                </td>
-                <td class="text-muted">
-                  @if (!ticked('dataTypes', kind)) {
-                    {{ 'not included' | translate }}
-                  } @else if (v.estimate?.busiest?.[kind] !== undefined) {
-                    {{
-                      'busiest device {{ busiest }} of {{ allowed }} allowed'
-                        | translate
-                            : {
-                                busiest: v.estimate?.busiest?.[kind] | number,
-                                allowed: v.estimate?.limits?.perDevice?.[kind] | number
-                              }
-                    }}
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
 
         @if (v.busy) {
           <p class="text-muted small m-b-8">
@@ -669,24 +633,41 @@
           </div>
         }
 
-        @if (v.readiness.outstanding.length) {
-          <ul class="list-unstyled text-muted small m-0">
-            @for (item of v.readiness.outstanding; track item) {
-              <li>{{ item | translate }}</li>
-            }
-          </ul>
-        }
-      </div>
+      </fieldset>
+
+      <!--
+        What is still missing, beside the button it is holding back rather than
+        inside the preview panel. It is guidance about the form, not a result of
+        one, and the place somebody looks after finding Start disabled is Start.
+      -->
+      @if (v.readiness.outstanding.length) {
+        <ul class="list-unstyled text-muted small m-t-16 m-b-0">
+          @for (item of v.readiness.outstanding; track item) {
+            <li>{{ item | translate }}</li>
+          }
+        </ul>
+      }
     } @else {
       <c8y-loading />
     }
 </div>
 
 <div class="card-footer separator p-24 text-center">
-  <button class="btn btn-default" type="button" (click)="cancel()">
+  <button
+    class="btn btn-default"
+    type="button"
+    [title]="'Cancel' | translate"
+    (click)="cancel()"
+  >
     {{ 'Cancel' | translate }}
   </button>
-  <button class="btn btn-primary" type="button" [disabled]="blocked()" (click)="submit()">
+  <button
+    class="btn btn-primary"
+    type="button"
+    [title]="'Start migration' | translate"
+    [disabled]="blocked()"
+    (click)="submit()"
+  >
     {{ 'Start migration' | translate }}
   </button>
 </div>

@@ -99,7 +99,7 @@ with, does not offer the action at all.
 The table is **the platform's own data grid**, given rows rather than a
 `serverSideDataCallback` — which is what makes it sort, page and search through
 them itself, and brings its own refresh button and column chooser. Sorting
-defaults to **Timestamp, newest first**, which is the useful order for a list of
+defaults to **Start time, newest first**, which is the useful order for a list of
 things that happened.
 
 **The actions are the one part of the grid this screen does not use.** Cancel,
@@ -138,19 +138,19 @@ description of that.
 **Source and target are columns of their own.** They used to be a phrase in
 *What*; a column can be sorted and read down a page, and a phrase cannot. Each
 shows the tenant's name and id — or its host and id where tenant management is
-not readable — and *Migration root* shows the migrated object by name as well as
+not readable — and *Root object* shows the migrated object by name as well as
 by id, from `rootName` on the record. It is named for what it holds: the root of
 the hierarchy that moved, not a summary of the job.
 
-**The columns read as a sentence, and Status is fourth.** *Migration root*,
-*Source tenant*, *Target tenant*, then *Status*, *Timestamp*, *Duration*, *User*
+**The columns read as a sentence, and Status is fourth.** *Root object*,
+*Source tenant*, *Target tenant*, then *Status*, *Start time*, *Duration*, *User*
 and *Run id*. A row says "this hierarchy, from here to there — and it worked":
 the outcome qualifies the sentence, so it follows it instead of leading it.
 
 **Three columns are narrowed to what they can actually hold.** The grid's default
 track for short text is `minmax(80px, 1.67fr)`, which hands a fixed-length value
 the same room as a tenant name that can run on. *Status* holds one glyph, so it
-is `Icon`, whose own track is `max-content`; *Timestamp* is a date and a time and
+is `Icon`, whose own track is `max-content`; *Start time* is a date and a time and
 no more, so `minmax(120px, 0.8fr)`; *Duration* is `Numeric` — the narrow ratio,
 and figures that line up when read down the page — at `minmax(80px, 0.5fr)`.
 
@@ -161,7 +161,7 @@ prefixes said something the screen already said — the header says Duration, an
 the status column says whether it is still running — so the value is now the bare
 span either way, and only the number moves.
 
-**The list is ordered by Timestamp, newest first — on the raw value, not the
+**The list is ordered by Start time, newest first — on the raw value, not the
 formatted one.** This is worth writing down because getting it wrong looks like
 it works. The grid sorts and searches on whatever a column's `path` points at,
 and nothing else: `doClientSideSorting` reads `get(item, path)` and ignores
@@ -173,6 +173,17 @@ chronologically because it is UTC and fixed-width, and
 [timestamp-cell.component.ts](../ui/src/history/timestamp-cell.component.ts)
 renders the locale-formatted text in its place. The one cost is that the search
 box matches a timestamp in its ISO form rather than the reader's.
+
+*Start time* is **when the run started**, and is empty while a job is only
+queued: one job runs at a time, so a second asked for while the first is going
+has no start time, and showing the moment it was asked for would be a different
+fact under the wrong heading — the Status column already says it is waiting. The
+column nevertheless **orders** on the start time *or*, failing that, on when the
+job was asked for. Both come from
+[`startTime`](../ui/src/history/rows.ts), because the grid sorts on one path and
+nothing else: a row with nothing there sinks to the end of a list whose whole
+point is "newest first", which is exactly where the job somebody just started
+would land.
 
 **Status is one of the platform's tags, and it says one thing.** `.tag` is
 Cumulocity's own tag component — the stylesheet marks the older `.label`
@@ -354,11 +365,25 @@ leaving it to the absence of a menu entry. A row's menu says what can be done,
 not what cannot: the reasons belong in the row's content, where there is room for
 a sentence.
 
-Above the list is an **introduction that stays there**: what this moves, and the
-two facts that reassure a first-time user — nothing is read until a migration is
-started, and nothing is ever deleted from the tenant the devices came from. It is
-not behind a help link because a migration is rare enough that almost everybody
-doing one is doing it for the first time.
+Above the list is an **introduction that stays there**: three bullets saying what
+this moves, what it can carry, and the fact that reassures a first-time user —
+nothing is ever deleted from the tenant the devices came from. It is not behind a
+help link because a migration is rare enough that almost everybody doing one is
+doing it for the first time.
+
+It sits in the platform's own **card**, so it reads as a panel of the screen
+rather than as an alert: it is not a warning and nothing needs dismissing. Both
+`card` and `card-block` are needed and they do different halves of the job —
+`.card` carries the surface and the elevation, `.card-block` only the padding
+inside it, because it is written to sit in a card. The **icon leads**, on the
+left: on the right it read as decoration, and on the left it is what identifies
+the feature.
+
+Each bullet is one translatable sentence carrying its own `<strong>` emphasis,
+rendered through `innerHTML`. The alternative — a bold fragment and a plain one
+per bullet — would hand a translator half-sentences to reassemble, and German
+does not break the clause where English does. The markup inside is the
+catalogue's own and never anything a user supplied.
 
 **One icon, in all four places the feature appears**: the navigator entry, that
 introduction, the empty state, and the microservice's own entry in Administration
@@ -579,6 +604,35 @@ their twins. Its note — *of N objects; the rest are groups or have no usable
 external identity* — is load-bearing for a certificate fleet in a way it is not
 elsewhere: those devices do not merely arrive without a password, they arrive
 unable to write their own twin, and the note says so.
+
+**Field help goes through `c8y-messages`, not a loose paragraph.** The codex's
+field-level help pattern ties the help to its control with `aria-describedby`,
+which is what makes a screen reader announce it when the control takes focus — a
+`help-block` paragraph beside the field is announced by nothing. The From field
+uses it; the remaining help blocks on this screen describe a group rather than a
+single control, which is why they are still paragraphs.
+
+**The From field sits under the data types it qualifies**, not further down the
+pane. It applies only to measurements, events and alarms, and next to them its
+disabled state explains itself.
+
+**What is still outstanding sits beside Start, not inside the preview.** It is
+guidance about the form rather than a result of one, and the place somebody looks
+after finding the button disabled is the button.
+
+**The two tenant fields are the platform's own `c8y-select`**, which brings the
+filter field, the keyboard handling and the look every other select in Cumulocity
+has. It takes `[items]` as `{ label, value }` and its model is the **whole item**
+rather than the value — `writeValue` takes a `SelectableItem` and the change emits
+one — so the dialogue maps between that and the tenant id it keeps.
+
+It has **no per-item disabled state**, which decided a design question: a tenant
+that cannot be chosen is left out rather than shown greyed with a reason. The
+owner tenant is not offered as a source, and the source tenant disappears from
+the target list once it is chosen. The reasons still exist on
+`sourceTenants`/`targetTenants`, which is where the rule is tested;
+`sourceOptions`/`targetOptions` are those same lists filtered, and a test asserts
+nothing offered carries a reason it cannot be used.
 
 **The relationship choice is folded away until it is asked for.** It answers a
 question most people do not have — the default follows assets and devices, which

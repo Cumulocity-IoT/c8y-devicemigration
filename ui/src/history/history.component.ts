@@ -40,6 +40,7 @@ import {
   type Scope,
   scopeOf,
   serviceAbsent,
+  startTime,
   statusTag,
   tagForTone,
   undosDeleted,
@@ -83,14 +84,23 @@ import { TimestampCellComponent } from './timestamp-cell.component';
     `
       /* Running text, kept to a readable measure rather than the width of the
          table below it. */
-      .device-migration-intro .intro-text {
+      .intro-text {
         max-width: 68ch;
       }
+      /* The emblem leads rather than trails, so it does not need pushing to the
+         far edge any more - and at the smaller size it sits beside the text
+         instead of towering over it.
+
+         Drawn at full strength, in the delivered colours. It was muted and set
+         to 0.35 opacity while it sat on the right as a watermark, where fading
+         was the point. Leading a panel it identifies the feature, and both of
+         those washed it out: text-muted recolours the shape, because that layer
+         follows currentColor, and the opacity faded the green accent with it.
+         The shape now takes the card's own text colour, which is what the
+         navigator entry shows too. */
       .device-migration-emblem {
-        font-size: 96px;
-        opacity: 0.35;
-        margin-left: auto;
-        padding-right: 24px;
+        font-size: 56px;
+        flex: 0 0 auto;
       }
 
       /* The platform's .c8y-empty-state sizes its icon through selectors that
@@ -183,7 +193,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
   /**
    * The columns, and how they behave.
    *
-   * Sortable, with "Timestamp" descending to begin with: the useful order for a
+   * Sortable, with "Start time" descending to begin with: the useful order for a
    * list of things that happened is the order they happened in, newest first.
    * Source and target are columns of their own rather than a phrase in "What",
    * because a column can be sorted and read down, and a phrase cannot.
@@ -193,7 +203,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
    * qualifies the sentence, so it comes after it rather than before it.
    */
   readonly columns: Column[] = [
-    text('what', gettext('Migration root')),
+    text('what', gettext('Root object')),
     text('source', gettext('Source tenant')),
     text('target', gettext('Target tenant')),
     {
@@ -205,11 +215,11 @@ export class HistoryComponent implements OnInit, OnDestroy {
       gridTrackSize: 'minmax(120px, 0.8fr)'
     },
     {
-      ...text('askedFor', gettext('Timestamp')),
+      ...text('started', gettext('Start time')),
       // Newest first, and sorted on the raw timestamp rather than the formatted
       // one: the grid sorts on `path`, and a localised date string does not sort
       // chronologically. See timestamp-cell.component.ts.
-      path: 'queuedAt',
+      path: 'startedOrder',
       sortOrder: 'desc',
       cellRendererComponent: TimestampCellComponent,
       // A date and a time, and never more than that. The default track for
@@ -562,9 +572,10 @@ export class HistoryComponent implements OnInit, OnDestroy {
       source: row.source,
       target: row.target,
       // The platform's own date formatting, in the reader's language - what the
-      // cell shows - beside the raw value the column actually orders by.
-      askedFor: this.dates.transform(row.job.queuedAt, 'short') ?? '',
-      queuedAt: row.job.queuedAt ?? '',
+      // cell shows - beside the raw value the column actually orders by. Both
+      // decided by startTime, which is where the rule is written down and tested.
+      started: startTime(row.job, iso => this.dates.transform(iso, 'short') ?? '').shown,
+      startedOrder: startTime(row.job, () => '').order,
       took: row.took ? this.say(row.took) : '',
       by: row.job.requestedBy ?? '',
       runId: row.job.runId ?? '',
