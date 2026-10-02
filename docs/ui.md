@@ -605,6 +605,21 @@ external identity* — is load-bearing for a certificate fleet in a way it is no
 elsewhere: those devices do not merely arrive without a password, they arrive
 unable to write their own twin, and the note says so.
 
+**Field help goes through `c8y-messages`, not a loose paragraph.** The codex's
+field-level help pattern ties the help to its control with `aria-describedby`,
+which is what makes a screen reader announce it when the control takes focus — a
+`help-block` paragraph beside the field is announced by nothing. The From field
+uses it; the remaining help blocks on this screen describe a group rather than a
+single control, which is why they are still paragraphs.
+
+**The From field sits under the data types it qualifies**, not further down the
+pane. It applies only to measurements, events and alarms, and next to them its
+disabled state explains itself.
+
+**What is still outstanding sits beside Start, not inside the preview.** It is
+guidance about the form rather than a result of one, and the place somebody looks
+after finding the button disabled is the button.
+
 **The two tenant fields are the platform's own `c8y-select`**, which brings the
 filter field, the keyboard handling and the look every other select in Cumulocity
 has. It takes `[items]` as `{ label, value }` and its model is the **whole item**

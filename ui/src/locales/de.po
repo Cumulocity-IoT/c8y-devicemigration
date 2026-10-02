@@ -155,9 +155,6 @@ msgstr "Datum und Uhrzeit wählen"
 msgid "Applies once there is device data to migrate."
 msgstr "Gilt, sobald Gerätedaten migriert werden."
 
-msgid "A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the service's configured default applies."
-msgstr "Ein relativer Zeitraum wie -14d ist die bessere Angabe: er bedeutet nächste Woche noch dasselbe. Bleibt das Feld leer, gilt die konfigurierte Vorgabe des Dienstes."
-
 msgid "Use a relative offset like -14d, or a date like 2026-01-01."
 msgstr "Verwenden Sie einen relativen Abstand wie -14d oder ein Datum wie 2026-01-01."
 
@@ -681,3 +678,6 @@ msgstr "Nichts zu verteilen. Jedes Gerät fragt seine eigenen an — mit den Zug
 
 msgid "Nothing is issued. The devices move once the target tenant trusts their certificate authority."
 msgstr "Es wird nichts ausgestellt. Die Geräte wechseln, sobald der Zielmandant ihrer Zertifizierungsstelle vertraut."
+
+msgid "A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the configured default applies."
+msgstr "Ein relatives Fenster wie -14d ist die bessere Antwort: Es bedeutet nächste Woche noch dasselbe. Bleibt das Feld leer, gilt der konfigurierte Standardwert."

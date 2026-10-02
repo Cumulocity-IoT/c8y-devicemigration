@@ -66,6 +66,7 @@
             (ngModelChange)="chooseSourceOption($event)"
             [ngModelOptions]="{ standalone: true }"
             [placeholder]="'Select from where to migrate' | translate"
+            [required]="true"
             [attr.aria-label]="'Source tenant' | translate"
           ></c8y-select>
         </c8y-form-group>
@@ -93,6 +94,7 @@
             (ngModelChange)="chooseTargetOption($event)"
             [ngModelOptions]="{ standalone: true }"
             [placeholder]="'Select to which tenant to migrate' | translate"
+            [required]="true"
             [attr.aria-label]="'Target tenant' | translate"
           ></c8y-select>
 
@@ -218,6 +220,92 @@
                 <span></span>
                 <span>{{ label(kind) | translate }}</span>
               </label>
+            }
+          </c8y-form-group>
+
+          <!--
+            One field, two ways to fill it in: type the syntax the engine takes,
+            or open the calendar in the button beside it. The text is the value -
+            the picker writes into it - so there is nowhere for the two to
+            disagree.
+
+            Always rendered, even before device data is chosen: a form group that
+            appears when the first box is ticked resizes the dialogue.
+          -->
+          <c8y-form-group [hasError]="!!v.windowError">
+            <label for="dateFrom">{{ 'From`date`' | translate }}</label>
+            <div class="input-group">
+              <input
+                id="dateFrom"
+                class="form-control"
+                aria-describedby="dateFromHelp"
+                [placeholder]="'-14d, or 2026-01-01' | translate"
+                [disabled]="!v.choices.dataTypes"
+                [ngModel]="v.choices.dateFrom"
+                (ngModelChange)="changeScope({ dateFrom: $event })"
+              />
+              <!--
+                btn-dot in an input-group-btn, which is how the platform's own
+                search and filter fields put a button inside a field: a bordered
+                button of its own next to a disabled input is what made this look
+                like two controls that had come apart.
+
+                Only there when the field can be used. A live-looking button
+                beside a disabled field is a mixed message as well as a misaligned
+                one.
+              -->
+              @if (v.choices.dataTypes) {
+                <span class="input-group-btn" dropdown [insideClick]="true">
+                  <button
+                    class="btn btn-dot"
+                    type="button"
+                    [title]="'Pick a date and time' | translate"
+                    dropdownToggle
+                  >
+                    <i c8yIcon="calendar"></i>
+                  </button>
+                  <!--
+                    Keyed on the value so the picker is rebuilt when the field
+                    stops naming a moment: its writeValue ignores an empty string,
+                    so it cannot be cleared, and a picker still showing a date
+                    beside a field that says -14d would be lying about the window.
+                  -->
+                  <div class="dropdown-menu dropdown-menu-right p-16" *dropdownMenu>
+                    @for (moment of [pickedMoment()]; track moment) {
+                      <c8y-date-time-picker
+                        [placeholder]="'Choose a date and time' | translate"
+                        [ngModel]="moment"
+                        (ngModelChange)="pickDate($event)"
+                      ></c8y-date-time-picker>
+                    }
+                  </div>
+                </span>
+              }
+            </div>
+            <!--
+              Through c8y-messages rather than a help-block paragraph, and tied
+              to the field by aria-describedby: that is what makes a screen
+              reader read the help when the control takes focus, which a loose
+              paragraph beside it never does. The codex's field-level help
+              pattern.
+            -->
+            @if (v.windowError; as problem) {
+              <p class="text-danger small m-t-4 m-b-0">
+                {{ problem.text | translate: problem.params }}
+              </p>
+            } @else if (v.choices.dataTypes) {
+              <c8y-messages
+                id="dateFromHelp"
+                [helpMessage]="
+                  'A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the configured default applies.'
+                    | translate
+                "
+              ></c8y-messages>
+            } @else {
+              <c8y-messages
+                id="dateFromHelp"
+                [helpMessage]="'Applies once there is device data to migrate.' | translate"
+              ></c8y-messages>
             }
           </c8y-form-group>
 
@@ -397,81 +485,6 @@
             }
           </c8y-form-group>
 
-          <!--
-            One field, two ways to fill it in: type the syntax the engine takes,
-            or open the calendar in the button beside it. The text is the value -
-            the picker writes into it - so there is nowhere for the two to
-            disagree.
-
-            Always rendered, even before device data is chosen: a form group that
-            appears when the first box is ticked resizes the dialogue.
-          -->
-          <c8y-form-group [hasError]="!!v.windowError">
-            <label for="dateFrom">{{ 'From`date`' | translate }}</label>
-            <div class="input-group">
-              <input
-                id="dateFrom"
-                class="form-control"
-                [placeholder]="'-14d, or 2026-01-01' | translate"
-                [disabled]="!v.choices.dataTypes"
-                [ngModel]="v.choices.dateFrom"
-                (ngModelChange)="changeScope({ dateFrom: $event })"
-              />
-              <!--
-                btn-dot in an input-group-btn, which is how the platform's own
-                search and filter fields put a button inside a field: a bordered
-                button of its own next to a disabled input is what made this look
-                like two controls that had come apart.
-
-                Only there when the field can be used. A live-looking button
-                beside a disabled field is a mixed message as well as a misaligned
-                one.
-              -->
-              @if (v.choices.dataTypes) {
-                <span class="input-group-btn" dropdown [insideClick]="true">
-                  <button
-                    class="btn btn-dot"
-                    type="button"
-                    [title]="'Pick a date and time' | translate"
-                    dropdownToggle
-                  >
-                    <i c8yIcon="calendar"></i>
-                  </button>
-                  <!--
-                    Keyed on the value so the picker is rebuilt when the field
-                    stops naming a moment: its writeValue ignores an empty string,
-                    so it cannot be cleared, and a picker still showing a date
-                    beside a field that says -14d would be lying about the window.
-                  -->
-                  <div class="dropdown-menu dropdown-menu-right p-16" *dropdownMenu>
-                    @for (moment of [pickedMoment()]; track moment) {
-                      <c8y-date-time-picker
-                        [placeholder]="'Choose a date and time' | translate"
-                        [ngModel]="moment"
-                        (ngModelChange)="pickDate($event)"
-                      ></c8y-date-time-picker>
-                    }
-                  </div>
-                </span>
-              }
-            </div>
-            @if (v.windowError; as problem) {
-              <p class="text-danger small m-t-4 m-b-0">
-                {{ problem.text | translate: problem.params }}
-              </p>
-            } @else if (!v.choices.dataTypes) {
-              <p class="help-block m-b-0">
-                {{ 'Applies once there is device data to migrate.' | translate }}
-              </p>
-            } @else {
-              <p class="help-block m-b-0">
-                {{
-                  "A relative window such as -14d is the better answer: it still means the same thing next week. Left empty, the service's configured default applies."
-                    | translate
-                }}
-              </p>
-            }
-          </c8y-form-group>
         </div>
       </div>
 
@@ -620,24 +633,41 @@
           </div>
         }
 
-        @if (v.readiness.outstanding.length) {
-          <ul class="list-unstyled text-muted small m-0">
-            @for (item of v.readiness.outstanding; track item) {
-              <li>{{ item | translate }}</li>
-            }
-          </ul>
-        }
       </fieldset>
+
+      <!--
+        What is still missing, beside the button it is holding back rather than
+        inside the preview panel. It is guidance about the form, not a result of
+        one, and the place somebody looks after finding Start disabled is Start.
+      -->
+      @if (v.readiness.outstanding.length) {
+        <ul class="list-unstyled text-muted small m-t-16 m-b-0">
+          @for (item of v.readiness.outstanding; track item) {
+            <li>{{ item | translate }}</li>
+          }
+        </ul>
+      }
     } @else {
       <c8y-loading />
     }
 </div>
 
 <div class="card-footer separator p-24 text-center">
-  <button class="btn btn-default" type="button" (click)="cancel()">
+  <button
+    class="btn btn-default"
+    type="button"
+    [title]="'Cancel' | translate"
+    (click)="cancel()"
+  >
     {{ 'Cancel' | translate }}
   </button>
-  <button class="btn btn-primary" type="button" [disabled]="blocked()" (click)="submit()">
+  <button
+    class="btn btn-primary"
+    type="button"
+    [title]="'Start migration' | translate"
+    [disabled]="blocked()"
+    (click)="submit()"
+  >
     {{ 'Start migration' | translate }}
   </button>
 </div>
