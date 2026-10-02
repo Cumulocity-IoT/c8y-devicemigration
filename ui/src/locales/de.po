@@ -10,23 +10,11 @@ msgstr ""
 msgid "Device migration"
 msgstr "Gerätemigration"
 
-msgid "Migrate devices to another tenant"
-msgstr "Geräte in einen anderen Mandanten migrieren"
-
-msgid "Devices can be moved between the sub-tenants of this tenant — out of an onboarding or test tenant into a customer's, or from one customer to another."
-msgstr "Geräte können zwischen den Untermandanten dieses Mandanten verschoben werden — aus einem Onboarding- oder Testmandanten in den eines Kunden oder von einem Kunden zu einem anderen."
-
-msgid "A single device can move, or a whole hierarchy of them, with or without their measurements, events and alarms."
-msgstr "Es kann ein einzelnes Gerät verschoben werden oder eine ganze Hierarchie, mit oder ohne deren Messwerte, Ereignisse und Alarme."
-
 msgid "Before you begin, both tenants need to be ready:"
 msgstr "Bevor Sie beginnen, müssen beide Mandanten vorbereitet sein:"
 
 msgid "the tenant the devices are in now, subscribed to the migration microservice"
 msgstr "der Mandant, in dem die Geräte jetzt sind, mit abonniertem Migrations-Microservice"
-
-msgid "Choose New migration. Nothing is read from either tenant until then, and nothing is ever deleted from the tenant the devices came from — they are copied, and every copy can be undone from the list below."
-msgstr "Wählen Sie „Neue Migration“. Bis dahin wird aus keinem der beiden Mandanten gelesen, und aus dem Mandanten, aus dem die Geräte kommen, wird nie etwas gelöscht — sie werden kopiert, und jede Kopie kann in der Liste unten rückgängig gemacht werden."
 
 msgid "Migrations"
 msgstr "Migrationen"
@@ -43,12 +31,6 @@ msgstr "Was migriert wird, erscheint hier — mit der Ausführungs-ID, mit der e
 
 msgid "Status"
 msgstr "Status"
-
-msgid "Migration root"
-msgstr "Migrationsursprung"
-
-msgid "Timestamp"
-msgstr "Zeitstempel"
 
 msgid "User"
 msgstr "Benutzer"
@@ -671,3 +653,18 @@ msgstr "Migrationszertifikat vertrauen"
 
 msgid "In the target tenant, open Device migration and paste the certificate below. A tenant without the migration service opens straight onto that screen. Then check the connection here."
 msgstr "Öffnen Sie im Zielmandanten Gerätemigration und fügen Sie das Zertifikat unten ein. In einem Mandanten ohne den Migrationsdienst öffnet sich direkt diese Ansicht. Prüfen Sie anschließend hier die Verbindung."
+
+msgid "Start time"
+msgstr "Startzeit"
+
+msgid "<strong>Move devices between sub-tenants of this tenant,</strong> such as from a test tenant to a customer tenant or between customer tenants."
+msgstr "<strong>Verschieben Sie Geräte zwischen Untermandanten dieses Mandanten</strong>, etwa von einem Testmandanten zu einem Kundenmandanten oder zwischen Kundenmandanten."
+
+msgid "<strong>You can migrate single devices or full hierarchies</strong> with their measurements, events and alarms."
+msgstr "<strong>Sie können einzelne Geräte oder ganze Hierarchien migrieren</strong> — mit ihren Messwerten, Ereignissen und Alarmen."
+
+msgid "<strong>Original devices are copied rather than deleted,</strong> and every migration can be undone from the table below."
+msgstr "<strong>Die ursprünglichen Geräte werden kopiert und nicht gelöscht</strong>, und jede Migration lässt sich über die Tabelle unten zurücknehmen."
+
+msgid "Root object"
+msgstr "Stammobjekt"

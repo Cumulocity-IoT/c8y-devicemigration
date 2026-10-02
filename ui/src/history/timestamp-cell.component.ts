@@ -28,6 +28,6 @@ export class TimestampCellComponent {
   constructor(private readonly context: CellRendererContext) {}
 
   formatted(): string {
-    return (this.context.item as GridRow | undefined)?.askedFor ?? '';
+    return (this.context.item as GridRow | undefined)?.started ?? '';
   }
 }
