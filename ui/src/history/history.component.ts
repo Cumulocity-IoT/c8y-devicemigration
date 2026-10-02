@@ -89,10 +89,17 @@ import { TimestampCellComponent } from './timestamp-cell.component';
       }
       /* The emblem leads rather than trails, so it does not need pushing to the
          far edge any more - and at the smaller size it sits beside the text
-         instead of towering over it. */
+         instead of towering over it.
+
+         Drawn at full strength, in the delivered colours. It was muted and set
+         to 0.35 opacity while it sat on the right as a watermark, where fading
+         was the point. Leading a panel it identifies the feature, and both of
+         those washed it out: text-muted recolours the shape, because that layer
+         follows currentColor, and the opacity faded the green accent with it.
+         The shape now takes the card's own text colour, which is what the
+         navigator entry shows too. */
       .device-migration-emblem {
         font-size: 56px;
-        opacity: 0.35;
         flex: 0 0 auto;
       }
 
