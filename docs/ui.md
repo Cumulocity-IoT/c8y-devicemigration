@@ -403,7 +403,10 @@ and `::after` from `dlt-filled/<name>.svg` out of theme variables, and a mask
 keeps only the alpha. A two-colour icon therefore cannot travel as one file
 through that mechanism, which is why this one is two layers and why the plugin
 draws them rather than masking them. The dark layer is `currentColor`, so
-`text-muted` mutes it exactly as it mutes a real duocolor icon.
+`text-muted` mutes it exactly as it mutes a real duocolor icon. In the navigator
+the accent is `currentColor` too: every other entry there is single-colour and
+follows its link through hover and active, so this one does the same, and the
+duocolor version is kept for the page.
 
 The empty state is the awkward one. `c8y-ui-empty-state` renders
 `<i [c8yIcon]="icon">` unconditionally, takes an icon **name** and nothing else,

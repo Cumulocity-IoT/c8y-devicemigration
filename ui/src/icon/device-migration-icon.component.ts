@@ -101,12 +101,12 @@ import { Component } from '@angular/core';
         fill: var(--device-migration-icon-accent, #a5daa5);
       }
 
-      /* In the navigator, the delivered colours. A navigator entry should look
-         like the icon as drawn, rather than taking the colour of whatever state
-         the surrounding link happens to be in - hover and active both change
-         it. */
-      :host-context(.navigator) .shape {
-        fill: var(--device-migration-icon-shape, #212121);
+      /* In the navigator, one colour. Every other entry there is single-colour
+         and follows its link through hover and active, so both layers take the
+         text colour and the accent drops out - the duocolor version is for the
+         page, where it is the only icon of its kind. */
+      :host-context(.navigator) .accent {
+        fill: currentColor;
       }
     `
   ]
