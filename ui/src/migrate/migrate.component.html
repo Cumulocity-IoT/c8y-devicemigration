@@ -71,11 +71,15 @@
           ></c8y-select>
         </c8y-form-group>
 
-        <c8y-form-group class="m-b-0">
+        <c8y-form-group
+          class="m-b-0"
+          [hasSuccess]="!!(v.choices.remoteTargetId && v.choices.targetTenant) || v.preflightPassed"
+        >
           <label>
             {{ 'Target tenant' | translate }}
             <c8y-device-migration-help
               [label]="'Target tenant' | translate"
+              placement="bottom"
               [text]="
                 'Only tenants with the same parent tenant are listed. If your tenant is under a different parent tenant or system, select Connect a different tenant and generate a trusted certificate to establish another connection.'
                   | translate
@@ -98,17 +102,24 @@
             [attr.aria-label]="'Target tenant' | translate"
           ></c8y-select>
 
-          @if (v.choices.remoteTargetId && v.choices.targetTenant) {
-            <p class="text-success small m-t-4 m-b-0">
-              {{
-                'Connected to {{ tenant }} by certificate.' | translate: { tenant: v.choices.targetTenant }
-              }}
-            </p>
-          }
-          @if (v.preflightPassed) {
-            <p class="text-success small m-t-4 m-b-0">
-              {{ 'Both tenants can be reached.' | translate }}
-            </p>
+          <!--
+            The platform's success state for a field: has-success on the form
+            group and the sentences in c8y-messages, styled the same way the
+            platform styles a field's error or warning.
+          -->
+          @if ((v.choices.remoteTargetId && v.choices.targetTenant) || v.preflightPassed) {
+            <c8y-messages>
+              @if (v.choices.remoteTargetId && v.choices.targetTenant) {
+                <div class="d-block">
+                  {{
+                    'Connected to {{ tenant }} by certificate.' | translate: { tenant: v.choices.targetTenant }
+                  }}
+                </div>
+              }
+              @if (v.preflightPassed) {
+                <div class="d-block">{{ 'Both tenants can be reached.' | translate }}</div>
+              }
+            </c8y-messages>
           }
         </c8y-form-group>
       </div>

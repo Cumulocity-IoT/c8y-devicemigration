@@ -37,6 +37,7 @@ import { PopoverModule } from 'ngx-bootstrap/popover';
       [attr.aria-label]="label"
       [popover]="content || text"
       [triggers]="'focus'"
+      [placement]="placement"
       container="body"
     ></button>
   `
@@ -65,4 +66,11 @@ export class HelpComponent {
    * sentence and nothing else.
    */
   @Input({ required: true }) label!: string;
+
+  /**
+   * Which side of the button the popover opens on. Above by default, as the
+   * platform's own do; below where the field sits high in a dialogue and a
+   * long sentence above it would cover the button and lose its pointer.
+   */
+  @Input() placement: 'top' | 'bottom' | 'left' | 'right' = 'top';
 }
