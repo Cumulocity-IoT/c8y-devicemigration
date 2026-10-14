@@ -1,6 +1,6 @@
 # c8y-devicemigration
 
-Tool for migrating a Cumulocity device hierarchy from one
+Tool for migrating a [Cumulocity](https://www.cumulocity.com) device hierarchy from one
 tenant to another.
 
 It exports a hierarchy — managed objects, their parent and child relationships,
@@ -431,7 +431,7 @@ This project is licensed under the Apache 2.0 license - see <https://www.apache.
 
 ______________________
 
-These tools are provided as-is and without warranty or support. They do not constitute part of the Cumulocity product suite. Users are free to use, fork and modify them, subject to the license agreement. While Cumulocity GmbH welcomes contributions, we cannot guarantee to include every contribution in the master project.
+These tools are provided as-is and without warranty or support. They do not constitute part of the [Cumulocity](https://www.cumulocity.com) product suite. Users are free to use, fork and modify them, subject to the license agreement. While [Cumulocity GmbH](https://www.cumulocity.com) welcomes contributions, we cannot guarantee to include every contribution in the master project.
 
 ______________________
 
