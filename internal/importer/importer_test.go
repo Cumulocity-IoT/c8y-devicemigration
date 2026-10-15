@@ -188,9 +188,8 @@ func TestMappingIsWrittenAfterEveryObject(t *testing.T) {
 	}
 }
 
-func TestMappingFileMatchesTheBashFormat(t *testing.T) {
-	// Pretty-printed, two-space indent, insertion order, trailing newline - the
-	// same bytes jq's write_mapping produces.
+func TestMappingFileFormat(t *testing.T) {
+	// Pretty-printed, two-space indent, insertion order, trailing newline.
 	_, mappingPath, _ := exportThenImport(t, importer.Options{})
 
 	raw, err := os.ReadFile(mappingPath)
@@ -200,10 +199,10 @@ func TestMappingFileMatchesTheBashFormat(t *testing.T) {
 	text := string(raw)
 
 	if !strings.HasPrefix(text, "{\n  \"") {
-		t.Errorf("mapping does not start like jq's output:\n%q", text[:min(40, len(text))])
+		t.Errorf("mapping does not start like pretty-printed JSON:\n%q", text[:min(40, len(text))])
 	}
 	if !strings.HasSuffix(text, "\n}\n") {
-		t.Errorf("mapping does not end like jq's output:\n%q", text[max(0, len(text)-10):])
+		t.Errorf("mapping does not end like pretty-printed JSON:\n%q", text[max(0, len(text)-10):])
 	}
 	// glob order: 1, 10, 11, 2, ...
 	first := strings.Index(text, `"1":`)
@@ -386,9 +385,9 @@ func sortStrings(s []string) {
 }
 
 func TestTheMappingIsCompleteWhenAnImportDiesPartWay(t *testing.T) {
-	// The property that makes a partial import revertable, and a real bug once:
-	// the mapping used to be written only at the end, so an import that died
-	// half way stranded everything it had already created with no record of it.
+	// The property that makes a partial import revertable: a mapping written
+	// only at the end would leave an import that died half way with everything
+	// it had already created stranded, and no record of it.
 	//
 	// Asserting the final mapping proves nothing, because the closing write
 	// would produce it anyway. The only way to see the difference is to

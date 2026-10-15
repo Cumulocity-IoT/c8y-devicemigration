@@ -35,9 +35,8 @@ func (e *Exporter) wantsData(kind DataType) bool {
 // exportDeviceData writes one device's records and returns the progress-line
 // fragment describing them.
 //
-// The order of the clauses is the order the bash implementation reports them in,
-// which is measurements, events, attachments, alarms - attachments after the
-// events they belong to rather than at the end.
+// The clauses are reported in the order measurements, events, attachments,
+// alarms - attachments after the events they belong to rather than at the end.
 func (e *Exporter) exportDeviceData(ctx context.Context, deviceID, outputDirectory string) (string, error) {
 	if len(e.opts.DataTypes) == 0 {
 		return "", nil
@@ -318,8 +317,8 @@ func (e *Exporter) countRecords(ctx context.Context, kind DataType, deviceID str
 	return 0, fmt.Errorf("unknown data type %q", kind)
 }
 
-// totalFrom prefers totalElements and falls back to totalPages, as the bash
-// count does: not every version reports the first.
+// totalFrom prefers totalElements and falls back to totalPages: not every
+// version reports the first.
 func totalFrom(err error, totalElements, totalPages int64, kind DataType, deviceID string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("cannot count %s of %s: %w", kind, deviceID, err)

@@ -150,7 +150,7 @@ export interface MigrationApi {
    * How many objects in a tenant carry **all** of these fragments.
    *
    * Counted through the inventory proxy with pageSize=1, so the page count *is*
-   * the object count and nothing but statistics crosses the wire. Used to ask how
+   * the object count and nothing but statistics crosses the wire. It answers how
    * far a device-self-service migration has got, which is the only signal that
    * tells a working one from an ignored one.
    *

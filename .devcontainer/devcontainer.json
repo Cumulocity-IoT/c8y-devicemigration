@@ -71,9 +71,9 @@
 	"remoteUser": "node",
 
 	// Firewall FIRST, then dependency priming THROUGH it - so the first start
-	// doubles as a live test of the allowlist: bats clones exercise github.com,
-	// npm exercises registry.npmjs.org, go exercises proxy.golang.org.
-	"postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && make bootstrap ui-install && go mod download",
+	// doubles as a live test of the allowlist: npm exercises registry.npmjs.org,
+	// go exercises proxy.golang.org.
+	"postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && make ui-install && go mod download",
 
 	// iptables state dies with the container's network namespace, so every
 	// start re-applies it. The script is idempotent.

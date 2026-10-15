@@ -1,11 +1,10 @@
 // Package jsonraw edits JSON documents without re-serialising them.
 //
 // This is not a style preference. Go's encoding/json renders float64(600) as
-// "600" and cannot tell an absent field from an explicit null, and
-// tests/fixtures/export-9object - captured from a real tenant - contains both
-// 600.0 and explicit nulls. Round-tripping a managed object through
-// map[string]any would silently rewrite a customer's data on its way into the
-// target tenant.
+// "600" and cannot tell an absent field from an explicit null, and real managed
+// objects contain both 600.0 and explicit nulls. Round-tripping a managed object
+// through map[string]any would silently rewrite a customer's data on its way
+// into the target tenant.
 //
 // sjson edits the raw text instead, so every byte it does not touch survives.
 package jsonraw
@@ -21,8 +20,6 @@ import (
 // ServerManagedProperties are the fields the platform owns. They are stripped
 // before a managed object is recreated, because the target tenant assigns its
 // own and sending them back is either rejected or silently ignored.
-//
-// Mirrors STRIP_PROPERTIES in commands/import:126.
 var ServerManagedProperties = []string{
 	"id", "self", "lastUpdated", "creationTime", "owner",
 	"childDevices", "childAssets", "childAdditions",

@@ -1,8 +1,8 @@
 // Package reverter deletes the managed objects an import created.
 //
-// It works in two phases, as commands/revert does: build a plan and print it,
-// then delete. Nothing is deleted before the plan has been shown, because the
-// plan is the only chance anyone gets to notice that it is wrong.
+// It works in two phases: build a plan and print it, then delete. Nothing is
+// deleted before the plan has been shown, because the plan is the only chance
+// anyone gets to notice that it is wrong.
 package reverter
 
 import (
@@ -73,8 +73,7 @@ func (p *Plan) Empty() bool { return len(p.Entries) == 0 }
 
 // ReadMapping loads an id mapping file, in the order it was written.
 //
-// Order matters because the plan reads in the order the import created things,
-// which is what makes it comparable with the bash implementation's.
+// Order matters because the plan reads in the order the import created things.
 func ReadMapping(path string) (pairs [][2]string, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -164,12 +163,9 @@ func ownedByDeviceUser(owner string) bool {
 // parameter is present, and paging the inventory adds one - the library ANDs an
 // "_id gt '<last>'" keyset into the query to walk pages in order. Setting
 // fragmentType alongside it means the filter is silently dropped and the search
-// returns the whole tenant.
-//
-// That is not hypothetical: it planned to delete 811 objects for a nine-object
-// import. Putting the condition inside the query is also what
-// `c8y inventory find --fragmentType` does, so both implementations now send the
-// same thing.
+// returns the whole tenant, so a revert would plan to delete everything in it.
+// Putting the condition inside the query is also what
+// `c8y inventory find --fragmentType` does.
 func MarkerQuery(fragment string) string {
 	return "$filter=has(" + fragment + ")"
 }

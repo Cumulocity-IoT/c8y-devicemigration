@@ -70,8 +70,7 @@ func readSpec(t *testing.T) spec {
 
 // Every credential form the service accepts has to be declared, or a caller
 // reads the document, sees no cookie scheme, and concludes that a browser
-// session cannot work - which is exactly the confusion this whole change came
-// out of.
+// session cannot work.
 func TestTheDocumentDeclaresEveryCredentialFormAccepted(t *testing.T) {
 	parsed := readSpec(t)
 

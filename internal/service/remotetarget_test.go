@@ -153,9 +153,9 @@ func TestRevertingARemoteTargetGetsPastValidationWhileTheCertificateLives(t *tes
 	}
 }
 
-// The bug this pins: Enqueue used to fill in targetTenant from the remote target
-// before the pre-flight, so the pre-flight saw both a tenant and a remote id and
-// refused with "exactly one". A migration to a remote target must get past that
+// Enqueue must not fill in targetTenant from the remote target before the
+// pre-flight, or the pre-flight sees both a tenant and a remote id and refuses
+// with "exactly one". A migration to a remote target must get past that
 // validation - it may fail later reaching the target, but not on this.
 func TestStartingAMigrationToARemoteTargetGetsPastValidation(t *testing.T) {
 	p := twoTenants(t)

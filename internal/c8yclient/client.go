@@ -1,9 +1,8 @@
 // Package c8yclient builds a go-c8y v2 client from a go-c8y-cli session file.
 //
-// Two tenants means two clients, each with its own base URL and credentials.
-// That is the whole reason this port exists: the bash implementation had one
-// ambient process environment to express both sides with, which is how a
-// migration ended up reading and writing the same tenant.
+// Two tenants means two clients, each with its own base URL and credentials, so
+// a migration cannot end up reading and writing the same tenant through one
+// shared environment.
 package c8yclient
 
 import (

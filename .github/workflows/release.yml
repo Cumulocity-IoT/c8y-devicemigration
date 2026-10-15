@@ -1,9 +1,7 @@
 name: release
 
-# Releases the two things that are built: the standalone command line tool and
-# the microservice. The go-c8y-cli extension is deliberately not released - it is
-# installed straight from the repository with `c8y extension install`, so there
-# is no artefact for it.
+# Releases what is built: the standalone command line tool, the microservice and
+# its user interface plugin.
 #
 # A tag publishes; a manual run builds everything and publishes nothing, which is
 # how to find out whether a release would work before making one.
@@ -89,9 +87,8 @@ jobs:
 
           echo "version $version, publish $publish, prerelease $prerelease" >> "$GITHUB_STEP_SUMMARY"
 
-  # Nothing is built for a release until the tests that cover it pass. The
-  # extension-only checks - shellcheck, the docopt parsers, the command
-  # reference - stay in ci.yml, which runs on the commit this tag points at.
+  # Nothing is built for a release until the tests that cover it pass. Lint and
+  # the UI checks stay in ci.yml, which runs on the commit this tag points at.
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -102,15 +99,8 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      # jq for the bash commands the differential tests run, parallel for bats.
-      - name: Install test dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq parallel
-
       - name: Go checks
         run: make go-lint go-build go-test
-
-      - name: Bats suite
-        run: make test JOBS="$(getconf _NPROCESSORS_ONLN)"
 
   # The command line tool, for every platform a release covers.
   cli:
@@ -266,9 +256,8 @@ jobs:
 
       # Downloaded by name into a directory each, rather than everything into
       # one: a glob over a shared directory can resolve to a subdirectory, and
-      # `gh release create` ignores directory arguments without saying so - which
-      # is how a release came out holding the microservice and none of the
-      # command line archives.
+      # `gh release create` ignores directory arguments without saying so, which
+      # would publish a release missing some of its archives.
       - uses: actions/download-artifact@v7
         with:
           name: cli
@@ -335,7 +324,7 @@ jobs:
           image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/microservice"
 
           cat > notes.md <<NOTES
-          **EXPERIMENTAL.** Migrating a device hierarchy between Cumulocity tenants.
+          Migrating a device hierarchy between Cumulocity tenants.
 
           ### The command line tool
 
@@ -364,14 +353,6 @@ jobs:
           Ecosystem → Extensions**, then add it to Administration. Whoever should
           use it needs \`ROLE_DEVICE_MIGRATION_ADMIN\` in the tenant the
           microservice is deployed on.
-
-          ### The go-c8y-cli extension
-
-          Not part of a release - install it from the repository:
-
-          \`\`\`sh
-          c8y extension install ${{ github.repository }}
-          \`\`\`
           NOTES
 
           # From the checked list, and only files: a directory argument here is

@@ -3,9 +3,9 @@
  *
  * This shape is the platform's, and it is not the obvious one: `onSelected`
  * emits an envelope - the whole selection under `items`, and what just changed
- * under `change` - rather than the selected object. Reading it as the object is
- * how a working picker looked broken: every click was ignored and the dialogue
- * went on asking for a device.
+ * under `change` - rather than the selected object. Reading it as the object
+ * makes a working picker look broken: every click is ignored and the dialogue
+ * goes on asking for a device.
  *
  * From @c8y/ngx-components/assets-navigator, AssetSelectorBase.emitChange:
  *

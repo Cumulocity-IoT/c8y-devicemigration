@@ -6,9 +6,10 @@ application), it adds a **Device migration** screen: a list of everything that h
 been migrated, and a dialogue that starts the next one.
 
 A migration copies managed objects, their children and their
-external identities, and optionally their measurements, events and alarms. Nothing
-is ever deleted from the tenant the devices came from — they are copied — and every
-copy carries a marker that lets the whole run be reverted from the same screen.
+external identities, and optionally their measurements, events and alarms. The
+devices and their data are never deleted from the tenant they came from — they are
+copied — and every copy carries a marker that lets the whole run be reverted from
+the same screen.
 
 The plugin holds no credentials and talks to no tenant directly. It drives the
 **device migration microservice**, which must be deployed on this tenant and
@@ -18,8 +19,8 @@ user for each side, so no personal credential is involved in a migration.
 ## Before you begin
 
 - The **microservice is deployed** on this tenant and subscribed to it.
-- The **source tenant is subscribed** to the microservice — the *Migrate from*
-  dropdown offers subscribed tenants only.
+- The **source tenant is subscribed** to the microservice — the *Source tenant*
+  list offers subscribed tenants only.
 - The **target tenant is subscribed** as well, or — for a tenant under a different
   parent, or on another Cumulocity instance — trusted with a certificate, which the
   dialogue sets up for you (see [Migrating somewhere this instance is not
@@ -28,9 +29,9 @@ user for each side, so no personal credential is involved in a migration.
   entry is hidden, because every call the screen makes would be refused.
 
 The plugin is usable in the tenant the microservice is deployed on. Opened in a
-subtenant, it shows the *Trust a migration certificate* page instead — that is the
-one thing a target tenant does here, and it needs no migration role, so the
-navigator entry is shown to everybody there.
+tenant the microservice is not subscribed to, it shows the *Trust a migration
+certificate* page instead — that is the one thing a target tenant does here, and
+it needs no migration role, so the navigator entry is shown to everybody there.
 
 Either way there is **one entry, called Device migration**. Which of the two
 screens it opens is worked out from whether the microservice answers in that
@@ -43,21 +44,32 @@ first, because the useful question on opening this is what happened last time.
 
 - **The platform's own data grid**, so it sorts, pages, searches, refreshes and
   chooses columns exactly like every other list in Cumulocity.
-- **Columns read as a sentence**: *Migration root* (the migrated object, by name and
-  id), *Source tenant*, *Target tenant*, *Status*, *Timestamp*, *Duration*, *User*
-  and *Run id*.
-- **One status per row**, as a platform tag: *Running*, *Completed*, *Failed*,
-  *Reverting*, *Reverted*, *Revert failed*. What merely qualifies it — how many
-  devices are through, or a caveat about a run that was cut short — is in the tag's
-  tooltip.
-- **A migration and the undo that cancelled it are one row.** Expand it for the full
-  run id, which relationships were followed, which device data was included and over
-  what window, whether the target was reached with a certificate — and, when there
-  is one, the undo: its outcome, when it ran, who ran it, its own run id and its own
-  log.
+- **Columns read as a sentence**: *Root object* (the migrated object, by name and
+  id), *Source tenant*, *Target tenant*, *Status*, *Start time*, *Duration*,
+  *User* and *Run id*.
+- **One status per row**, as a platform tag: *Waiting*, *Running*, *Succeeded*,
+  *Failed*, *Cancelled*, *Interrupted*, *Reverting*, *Reverted*, *Revert failed*.
+  What merely qualifies it — how many devices are through, or a caveat about a
+  run that was cut short — is in the tag's tooltip.
+- **A migration and the undo that cancelled it are one row.** Expand it for the
+  full run id, which relationships were followed, which device data was included
+  and over what window, how the devices got credentials (and, where they collect
+  their own, how many have), whether the target was reached with a certificate —
+  and, when there is one, the undo: its outcome, when it ran, who ran it, its own
+  run id and its own log.
 - **One menu per row**, in the same place on every one of them, holding whatever
-  that row offers: *Cancel* while a migration runs, *Revert*, *Migration log* and
-  *Remove migration record*.
+  that row offers: *Cancel* while a migration runs, *Download device
+  credentials*, *Move trust anchor*, *Revert* (or *Undo no longer possible*),
+  *Migration log* and *Remove migration record*.
+- **Download device credentials**, for a migration that issued them: the file of
+  device users and their passwords. The service keeps no other copy: it hands
+  the file over once, to whoever started the migration, and only within an hour,
+  so the entry disappears once it has been downloaded.
+- **Move trust anchor**, for a succeeded migration whose devices kept their
+  certificates: moves the trusted certificate of the authority that issued them
+  from the source tenant to the target, which is what brings the fleet across.
+  It is confirmed first, and the confirmation says what that costs — until the
+  move finishes, no device chained to that certificate can reach either tenant.
 - **Migration log**: the engine's own output for that run, which is the way to
   diagnose a failure.
 - **Remove migration record** per row, to tidy up a history that has served its
@@ -67,9 +79,10 @@ first, because the useful question on opening this is what happened last time.
   confirmation says which of those two things is about to happen. Records can also
   expire on their own: see *Housekeeping*.
 - **Live progress.** The list re-reads itself every 30 seconds, and every second
-  while something is running, with a progress bar counting devices as they are done.
-  Closing the dialogue or reloading the page loses nothing, and a migration started
-  from another session or from the API shows up here too.
+  while something is running; meanwhile the status tooltip says roughly which
+  device the migration has reached. Closing the dialogue or reloading the page
+  loses nothing, and a migration started from another session or from the API
+  shows up here too.
 
 ## Starting a migration
 
@@ -89,13 +102,22 @@ underneath.
   as an absolute date, or chosen from the calendar in the field. The syntax is
   checked as you type, against exactly what the engine accepts, so a typo is a
   message under the field rather than a failed migration.
+- **Say how the migrated devices will authenticate.** Their credentials belong to
+  the source tenant, so the dialogue asks *How will the migrated devices
+  authenticate?*: *No credentials* (the default, right for a rehearsal), *New
+  credentials, provided as download* (a device user per device, the passwords
+  downloadable once from the list), *Devices collect new credentials* (each
+  device fetches its own with the credential it already has) or *They keep their
+  existing certificates* (nothing is issued; the fleet follows once its trust
+  anchor is moved).
 - **See what would move before it moves.** A live estimate counts managed objects,
-  external identities and each kind of device data, names the busiest device, and
-  says plainly when a limit would be exceeded. Change anything that changes what
-  would move and the estimate is discarded rather than left describing a different
-  migration.
-- **Nothing is gated.** Every choice updates the summary, and the summary lists what
-  is still outstanding instead of disabling **Start migration** without saying why.
+  external identities and each kind of device data, sets the busiest device
+  against the per-device limit, and says plainly when a limit would be exceeded.
+  Change anything that changes what would move and the estimate is discarded
+  rather than left describing a different migration.
+- **Nothing is left unexplained.** Every choice is on the one screen, and beside
+  **Start migration** is a list of what is still outstanding, so the button is
+  never disabled without saying why.
 - **Both tenants are checked** before anything is written, and choosing a
   different target re-runs that check rather than carrying the old verdict over.
 
@@ -107,15 +129,19 @@ move.
 ## Undoing a migration
 
 Every migration is marked with `c8y_DeviceMigration_<runId>`, and **Revert** deletes
-everything carrying that marker in the target tenant and nothing else.
+everything carrying that marker in the target tenant, with the device users the
+migration created for those devices, and nothing else.
 
 - **It is confirmed first**, and the confirmation names the root, the tenant it
   deletes from, when the migration ran, what it included, and the marker itself — so
   the promise is checkable: paste that marker into an inventory query and see the
   objects for yourself before agreeing.
 - **It states the ways a result can still surprise you**: deleting a group
-  propagates to its subgroups, a run that was cut short cannot be believed about what
-  it created, and an earlier failed undo may already have removed some of it.
+  propagates to its subgroups, credentials the migration issued stop working, a
+  certificate fleet whose trust anchor has already moved does not go back but
+  registers fresh, empty objects, a run that was cut short cannot be believed
+  about what it created, and an earlier failed undo may already have removed
+  some of it.
 - **A migration that has already been undone is not offered again.** One that failed
   part way through still is, because running it again finds whatever the first
   attempt left.
@@ -140,9 +166,11 @@ by age alone, so a migration and a much later undo of it expire separately.
 ## Migrating somewhere this instance is not subscribed
 
 The target can be a tenant under a different parent, or on another Cumulocity
-system. Tick *Target is not listed here*, enter its host and tenant id, and the
-microservice mints a certificate for the connection. The private half never leaves
-the service.
+system. Choose *Connect a different tenant…* in the *Target tenant* list, enter
+its host and tenant id, and the microservice mints a certificate for the
+connection. The private half never leaves the service. No credential can be
+issued into such a target, so the dialogue offers only *No credentials* and *They
+keep their existing certificates* for it.
 
 Registering the public half on the target is a page in this same plugin: **Trust a
 migration certificate**, opened in the target tenant by that tenant's own
@@ -159,10 +187,9 @@ possible*, which explains what still would work.
 
 ## What is not migrated
 
-Operations, device protocols, device credentials (so migrated devices do not
-reconnect on their own), audit logs, binaries attached to managed objects (event
-attachments *are* migrated), anything offloaded to the data lake, and applications,
-tenant options or user and role assignments.
+Operations, device protocols, audit logs, binaries attached to managed objects
+(event attachments *are* migrated), anything offloaded to the data lake, and
+applications, tenant options or user and role assignments.
 
 Two platform behaviours are worth handling on the target tenant before migrating
 device data: **smart rules and EPL apps fire on imported data** — no processing mode
@@ -171,11 +198,11 @@ operation* — and **retention rules will delete it**, the documented default re
 historical data after 60 days.
 
 Existing objects in the target are never matched or updated: every migration creates
-new objects, so migrating the same hierarchy twice produces two copies.#
+new objects, so migrating the same hierarchy twice produces two copies.
 
 ## Plugin versions
 
->= 0.5.0
+Plugin versions 0.5.0 and later are built with:
 
 | | |
 | --- | --- |
@@ -221,9 +248,9 @@ npm run deploy
 ## Useful links
 
 📘 Explore the Knowledge Base
-Dive into a wealth of Cumulocity IoT tutorials and articles in our [Tech Community Knowledge Base](https://techcommunity.cumulocity.com/).
+Dive into a wealth of Cumulocity tutorials and articles in the [Cumulocity Community](https://community.cumulocity.com/).
 
 ✍️ Share Your Feedback
 Your input drives our innovation. If you find a bug, please create an issue in the [repository](https://github.com/Cumulocity-IoT/c8y-devicemigration).
 
-These tools are provided as-is and without warranty or support. They do not constitute part of the Cumulocity GmbH product suite. Users are free to use, fork and modify them, subject to the license agreement. While Cumulocity GmbH welcomes contributions, we cannot guarantee to include every contribution in the master project.
+These tools are provided as-is and without warranty or support. They do not constitute part of the Cumulocity product suite. Users are free to use, fork and modify them, subject to the license agreement. While Cumulocity GmbH welcomes contributions, we cannot guarantee to include every contribution in the master project.

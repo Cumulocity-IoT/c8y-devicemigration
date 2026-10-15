@@ -19,19 +19,10 @@ ARG TARGETARCH
 # `make check` can use is baked in deliberately: the Makefile skips gracefully
 # when one is absent, and a sandbox whose check is quieter than CI is a trap.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-	parallel zip unzip xz-utils pipx \
+	zip unzip xz-utils \
 	dnsmasq ipset iptables dnsutils iproute2 procps \
 	sudo less \
 	&& rm -rf /var/lib/apt/lists/*
-
-# jq pinned from upstream, NOT bookworm's 1.6: jq 1.6 reformats JSON numbers,
-# and the differential test - bash implementation diffed against Go - caught
-# the bash exporter's jq-piped records differing from Go's verbatim ones the
-# first time this image ran the suite. 1.7.1 matches the host and CI's ubuntu.
-ARG JQ_VERSION=1.7.1
-RUN curl -fsSL -o /usr/local/bin/jq \
-	"https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
-	&& chmod 755 /usr/local/bin/jq
 
 # Go, the exact version go.mod names. GOTOOLCHAIN=local in the container env
 # forbids auto-downloading a newer one through the firewall, so what is here is
@@ -41,9 +32,8 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
 	| tar -C /usr/local -xz
 ENV PATH=$PATH:/usr/local/go/bin:/home/node/go/bin
 
-# shellcheck, the exact version CI pins (Makefile: SHELLCHECK_VERSION) - older
-# ones flood the generated docopt parsers with SC2317 and a missing one would
-# make `make lint` silently skip.
+# shellcheck, the exact version CI pins (Makefile: SHELLCHECK_VERSION) - a
+# missing one would make `make lint` silently skip.
 ARG SHELLCHECK_VERSION=0.11.0
 RUN arch=$([ "$TARGETARCH" = "arm64" ] && echo aarch64 || echo x86_64) \
 	&& curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.${arch}.tar.xz" \
@@ -52,16 +42,12 @@ RUN arch=$([ "$TARGETARCH" = "arm64" ] && echo aarch64 || echo x86_64) \
 	&& rm -rf /tmp/shellcheck-v${SHELLCHECK_VERSION}
 
 # actionlint for workflow-lint. Pinned like everything else; the Makefile only
-# suggests brew, which does not exist here. 1.7.12 and not older: 1.7.7 did not
-# yet tell shellcheck about `env:` keys, so it flagged SC2153 on a workflow the
-# real toolchain accepts - found the first time this image ran `make check`.
+# suggests brew, which does not exist here. 1.7.12 and not older: 1.7.7 does not
+# yet tell shellcheck about `env:` keys, so it flags SC2153 on a workflow the
+# real toolchain accepts.
 ARG ACTIONLINT_VERSION=1.7.12
 RUN curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${TARGETARCH}.tar.gz" \
 	| tar -xz -C /usr/local/bin actionlint
-
-# docopt-sh regenerates the embedded bash parsers (make parser-freshness), the
-# same pin CI installs. PIPX_BIN_DIR so it lands on everyone's PATH.
-RUN PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install docopt-sh==2.0.3
 
 # The agent itself. Updates arrive by rebuilding this image (the runtime env
 # sets DISABLE_AUTOUPDATER=1, and the updater's hosts are not in the allowlist).

@@ -80,10 +80,10 @@ func TestACertificateFleetIsRefusedWithEitherCredentialRoute(t *testing.T) {
 	}
 }
 
-// The pre-existing hole this closes. provisionCredentials was already refused for
-// a remote target and deviceSelfCredentials was not - so the combination was
-// accepted, ran, and then answered every asking device "no succeeded migration
-// carried this device", with the cause recorded nowhere.
+// provisionCredentials is refused for a remote target, and so is
+// deviceSelfCredentials. Accepted, the combination would run and then answer
+// every asking device "no succeeded migration carried this device", with the
+// cause recorded nowhere.
 func TestDeviceSelfCredentialsIsRefusedForARemoteTarget(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)

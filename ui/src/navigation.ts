@@ -7,11 +7,11 @@ import { DeviceMigrationNavigatorIconComponent } from './icon/navigator-icon.com
 /**
  * One entry, always called the same thing.
  *
- * There used to be two - a migration entry and a "trust a migration certificate"
- * entry - which put the plugin's internals in the navigator: the second exists
- * only because a target tenant has no microservice, which is not something a
- * person browsing a menu should have to know. What they want is the feature, and
- * the feature is called Device migration wherever it appears.
+ * Not two - a migration entry and a "trust a migration certificate" entry -
+ * because that would put the plugin's internals in the navigator: the second
+ * would exist only because a target tenant has no microservice, which is not
+ * something a person browsing a menu should have to know. What they want is the
+ * feature, and the feature is called Device migration wherever it appears.
  *
  * So the node is single and fixed, and *what it opens* is decided by the tenant.
  * See DeviceMigrationComponent.

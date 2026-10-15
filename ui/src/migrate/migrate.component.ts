@@ -124,13 +124,10 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
   host: { class: 'd-contents' },
   styles: [
     `
-      /* No sizing here any more. This used to carry the modal-dialog's width,
-         its margins, a breakpoint, and a fixed height for the scrolling body -
-         all of it arithmetic against the viewport, and all of it unencapsulated,
-         because the element being sized was an ancestor this component could not
-         otherwise reach. The bottom drawer is that size by definition, and
-         card-header / inner-scroll / card-footer decide what scrolls, so every
-         one of those rules is gone and so is ViewEncapsulation.None. */
+      /* No sizing here. The bottom drawer is the right size by definition, and
+         card-header / inner-scroll / card-footer decide what scrolls - so there
+         is no width, margin, breakpoint or fixed body height to work out against
+         the viewport, and no ViewEncapsulation.None to reach an ancestor with. */
 
       /* A floor under what would move, so the list of what is still outstanding
          appearing and disappearing does not push the rest around. The rows
@@ -177,9 +174,8 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
         gap: 24px;
         align-items: flex-start;
       }
-      /* Equal halves. They were 3:2 when the left one carried the tenant select
-         as well as the picker; now the tenants have a row of their own, the two
-         panes carry one question each. */
+      /* Equal halves: the tenants have a row of their own, so the two panes
+         carry one question each. */
       .device-migration-panes > .pane-source,
       .device-migration-panes > .pane-scope {
         flex: 1 1 360px;
@@ -187,17 +183,17 @@ const DATA_TYPES = MigrationFlow.DATA_TYPES;
       }
 
       /* The two tenants, same width whatever is in them: a wider box for one of
-         them read as the more important half of one question asked twice. */
+         them would read as the more important half of one question asked
+         twice. */
       .device-migration-tenants {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 24px;
         align-items: start;
       }
-      /* Nothing here aligns the two labels any more. @c8y/style already does it
-         for a label holding the platform's help button - label:has(.btn-help)
-         is a flex row, and label .btn-help is 14px square - which is what this
-         used to reimplement by hand after the two selects came out of line. */
+      /* Nothing here aligns the two labels: @c8y/style already does it for a
+         label holding the platform's help button - label:has(.btn-help) is a
+         flex row, and label .btn-help is 14px square. */
       @media (max-width: 767px) {
         .device-migration-tenants {
           grid-template-columns: 1fr;
@@ -300,7 +296,7 @@ export class MigrateComponent implements OnInit {
    *
    * A sentinel in the same list rather than a control beside it: it answers the
    * same question - which tenant - so it belongs among the answers. As a
-   * checkbox it read as a mode the whole dialogue was in.
+   * checkbox it would read as a mode the whole dialogue is in.
    */
   readonly REMOTE = '__remote__';
 

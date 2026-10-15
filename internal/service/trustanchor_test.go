@@ -108,10 +108,9 @@ func TestACutoverMovesTheCertificate(t *testing.T) {
 	if entry["autoRegistrationEnabled"] != true {
 		t.Errorf("the target's copy has autoRegistration %v", entry["autoRegistrationEnabled"])
 	}
-	// This assertion was the opposite until the routing was measured: the answer
-	// used to have to say the fleet still needed pointing at the target's
-	// hostname. It does not - the certificate moves the device - and saying so
-	// would send an operator after a device-side change that does not exist.
+	// The answer must not say the fleet needs pointing at the target's hostname.
+	// It does not - the certificate moves the device - and saying so would send
+	// an operator after a device-side change that does not exist.
 	answer := fmt.Sprint(body["message"])
 	if !strings.Contains(answer, "nothing to change on the device") {
 		t.Errorf("the answer does not say the fleet moves by itself: %v", answer)
@@ -262,10 +261,9 @@ func TestACutoverNeedsTheMigrationRole(t *testing.T) {
 // What a CA may do in the tenant it arrives in is carried across, not decided
 // here.
 //
-// This endpoint used to create every certificate with status ENABLED and
-// autoRegistrationEnabled true whatever the source said, so a tenant that had
-// trusted a CA *without* auto-registration got it switched on by a cutover, with
-// nothing saying so. Both now follow the source unless somebody asks otherwise.
+// Status and autoRegistrationEnabled both follow the source unless somebody asks
+// otherwise. Forcing them to ENABLED and true would switch auto-registration on
+// for a tenant that had trusted a CA *without* it, with nothing saying so.
 
 func TestAutoRegistrationIsCarriedAcrossRatherThanForced(t *testing.T) {
 	p := twoTenants(t)

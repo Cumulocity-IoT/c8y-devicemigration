@@ -1,13 +1,12 @@
-# The standalone binary
+# The command line tool
 
-A single Go binary built on the **go-c8y v2** library, talking to the REST API
-directly instead of shelling out to `c8y`. Same commands as
-[the extension](extension.md) and the same behaviour — a differential test diffs
-their output on every build — plus a `preflight` command of its own.
+A single Go binary built on the **go-c8y v2** library, talking to the Cumulocity
+REST API directly. It needs no `c8y` binary at runtime.
 
 What it migrates, and the limits it enforces, is in
-[the main README](../README.md). Why it exists is in
-[docs/internals.md](internals.md#why-there-are-two-implementations).
+[the main README](../README.md). Why it talks to the API rather than to `c8y` is
+in [docs/internals.md](internals.md#why-it-talks-to-the-api-directly). Every
+command and option is in the [command reference](#command-reference) below.
 
 It reads the same session files `go-c8y-cli` writes, including encrypted ones —
 `C8Y_PASSPHRASE` is used exactly as `c8y` uses it. Unlike `c8y` it does not need
@@ -22,12 +21,13 @@ archive for your platform from the
 check it against `SHA256SUMS`, and put the binary on your `PATH`:
 
 ```sh
+shasum -a 256 -c --ignore-missing SHA256SUMS
 tar -xzf c8y-devicemigration-<version>-darwin-arm64.tar.gz
-shasum -a 256 -c SHA256SUMS
 ```
 
-`c8y-devicemigration --version` then says which build it is, which is worth
-knowing before reporting anything about it.
+`--ignore-missing` because `SHA256SUMS` lists every platform's archive and only
+yours was downloaded. `c8y-devicemigration --version` then says which build it
+is, which is worth knowing before reporting anything about it.
 
 Or from source:
 
@@ -36,9 +36,9 @@ make go-build   # -> bin/c8y-devicemigration
 make install    # -> $(INSTALL_DIR), default ~/.local/bin
 ```
 
-```sh
-make go-build      # -> bin/c8y-devicemigration
+## Usage
 
+```sh
 # --session is optional: without it the active go-c8y-cli session is used
 eval "$(c8y sessions set --sessionFilter source-tenant)"
 ./bin/c8y-devicemigration export --rootId 12345 --output-directory ./my-export
@@ -52,31 +52,23 @@ eval "$(c8y sessions set --sessionFilter source-tenant)"
     --session 'source.eu-latest.cumulocity.com-me.json'
 ```
 
-It reads the same session files go-c8y-cli writes, including encrypted ones —
-`C8Y_PASSPHRASE` is used exactly as `c8y` uses it. Unlike `c8y`, it does not need
-a session to be active first, and it refuses a `--session` glob that matches more
-than one file rather than silently taking the first.
-
-**The port is complete**: `preflight`, `export`, `register`, `import`, `revert`
-and `migrate`, covering the hierarchy, its external identities, its
-relationships, the run marker fragment, device data — measurements, events,
-alarms and event attachments — and `migrate`'s `--incremental` and `--resume`.
+`migrate` is the whole round trip in one command — the hierarchy, its external
+identities, its relationships, the run marker fragment and, on request, device
+data — with each side pointed at its own session:
 
 ```sh
-eval "$(c8y sessions set --sessionFilter source-tenant)"   # any session will do
-
 ./bin/c8y-devicemigration migrate --rootId 12345 \
     --sourceSession source.json --targetSession target.json \
     --dataTypes measurements,events,alarms --incremental --force
 ```
 
-Because migrate calls the export and import in-process rather than shelling out,
-there is no session plumbing between phases and no subprocess boundary to lose an
-exit code across.
+`--dataTypes all` is a shortcut for `measurements,events,alarms`. It cannot be
+combined with named types: `all,events` is refused rather than guessed at,
+because either reading of it is plausible.
 
-`--dataTypes all` is a shortcut for `measurements,events,alarms` in both
-implementations. It cannot be combined with named types: `all,events` is refused
-rather than guessed at, because either reading of it is plausible.
+Dates are parsed by the binary itself: a relative offset like `-30d`, `-12h` or
+`-2w`, or an absolute time. It **refuses** a form it does not understand rather
+than guessing at a window.
 
 ## Device credentials
 
@@ -268,7 +260,9 @@ it.
 
 One question rather than c8y's per-request dialog: `revert` has already printed
 its whole plan by then, and asking once about that is clearer than asking N
-times.
+times. It then establishes what actually happened by re-reading every object
+rather than trusting the delete responses, so propagation from a parent group and
+a declined confirmation are both reported correctly.
 
 ## Shell completion
 
@@ -328,15 +322,273 @@ for an authenticated round trip is worse than one that completes nothing. That i
 the one place `c8y` goes further, and it can afford to because it already has a
 session loaded.
 
-Dates work as they do in the extension, including relative forms like `-30d`,
-with one difference worth knowing: the bash version handed them to `c8y` to
-parse, so this one parses them itself and **refuses** a form it does not
-understand rather than guessing at a window.
+## Command reference
 
-`revert` prints its plan and asks once before deleting anything, where the bash
-version leans on c8y's own per-request dialog; `--force` skips the question in
-both. It establishes what actually happened by re-reading every object rather
-than trusting the delete responses, so propagation from a parent group and a
-declined confirmation are both reported correctly.
-`docs/go-port/BEHAVIOUR-CONTRACT.md` records what the two implementations have to
-agree on, down to the trailing newline.
+What the commands do beyond their options — the files they write and the lines
+they print — is in [behaviour-contract.md](behaviour-contract.md).
+
+<!-- BEGIN COMMAND REFERENCE -->
+
+Generated from the binary's own help by `tools/gen-command-docs.sh`.
+Run `make docs` after changing a command or an option, or `make check` will say so.
+
+```
+Migrate a device hierarchy between Cumulocity tenants.
+
+Sessions are the ones go-c8y-cli writes. A --session value is a path, a
+full file name including its extension, or a glob matched against the
+session home. A bare name without .json does not resolve, and a glob
+matching more than one file is refused rather than guessed at.
+
+Usage:
+  c8y-devicemigration [flags]
+  c8y-devicemigration [command]
+
+Available Commands:
+  completion  Generate the autocompletion script for the specified shell
+  export      Write a device hierarchy and its external identities to disk
+  help        Help about any command
+  import      Recreate an exported hierarchy in a tenant
+  migrate     Migrate a device hierarchy from one tenant to another in one command
+  preflight   Check that two sessions resolve, authenticate and are different tenants
+  register    Provision device users for an export, before importing it
+  revert      Delete the managed objects an import created
+
+Flags:
+  -h, --help                 help for c8y-devicemigration
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+  -v, --version              version for c8y-devicemigration
+
+Use "c8y-devicemigration [command] --help" for more information about a command.
+```
+
+### `migrate`
+
+```
+Migrate a device hierarchy from one tenant to another in one command.
+
+Each side is pointed at its own session, so nothing has to be staged by hand
+or switched between. Both are resolved and their credentials proved before
+anything is created, and two sessions naming the same tenant are refused.
+
+With --incremental the hierarchy moves first and then the data one device at
+a time, so the staging directory never holds more than one device's worth.
+That is also the only form that can be resumed: --resume needs the journal an
+incremental run writes beside the mapping file.
+
+Usage:
+  c8y-devicemigration migrate [flags]
+
+Flags:
+      --childTypes string        Comma separated child relationship types to follow: asset, device, addition (default "asset,device")
+      --credentials              Provision a device user for every migrated device, so the devices can reconnect to the target. Needs --credentialsFile
+      --credentialsFile string   File to write the device credentials to. Required with --credentials, and never stdout: the file holds working device passwords
+      --dataTypes string         Comma separated device data to include: measurements, events, alarms, or all
+      --dateFrom string          Only include data at or after this time. Measurements default to the last 14 days
+      --dateTo string            Only include data at or before this time
+      --force                    Do not ask for confirmation
+  -h, --help                     help for migrate
+      --identityType string      External identity type to register each device under, or to derive a stamped owner from (default "c8y_Serial")
+      --ignoreLimits             Migrate even if an export limit is exceeded
+      --incremental              Move the hierarchy first and then the data one device at a time, so the staging directory only ever holds a single device's data
+      --keepStaging              Keep the staging directory instead of removing it
+      --mapping string           File to write the old ID to new ID mapping to (default "id_mapping.json")
+      --no-children              Migrate only the root device
+      --noFlag                   Do not mark created managed objects with the run fragment
+      --resume string            Continue the run with this id, skipping the devices whose data already arrived. Implies --incremental
+      --rootId string            ID of the root device to migrate (required)
+      --sourceSession string     Session to read from (required)
+      --stampDeviceOwner         Make each migrated device the owner of its own managed object, so it can write to it once it has credentials issued by some other means. Not needed with --credentials, which already leaves each object owned by its device user
+      --targetSession string     Session to write to (required)
+
+Global Flags:
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+```
+
+### `preflight`
+
+```
+Resolve both sessions, report the tenants they name, refuse two sessions
+that point at the same tenant, and prove the credentials work with an
+authenticated call.
+
+The identity comes from reading the session files: host and tenant are
+plaintext even when the credentials are encrypted, so that part needs no
+passphrase, no network and no active session.
+
+Usage:
+  c8y-devicemigration preflight [flags]
+
+Flags:
+  -h, --help                   help for preflight
+      --sourceSession string   Session to read from (required)
+      --targetSession string   Session to write to (required)
+
+Global Flags:
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+```
+
+### `export`
+
+```
+Write a device hierarchy and its external identities to disk.
+
+The migration includes all properties and fragments of the concerned managed
+objects and all external identities. Device protocols are not migrated.
+
+Without --session the active go-c8y-cli session is used, so this works
+straight after:
+
+  eval "$(c8y sessions set --sessionFilter my-tenant)"
+
+That route needs no C8Y_PASSPHRASE, because an activated session exports its
+credentials already decrypted. With --session the session file is read
+directly and the ambient C8Y_* variables are ignored.
+
+Usage:
+  c8y-devicemigration export [flags]
+
+Flags:
+      --childTypes string         Comma separated child relationship types to follow: asset, device, addition (default "asset,device")
+      --dataOnly                  Export the data only, skipping external identities
+      --dataTypes string          Comma separated device data to include: measurements, events, alarms, or all
+      --dateFrom string           Only export data at or after this time, absolute or relative, e.g. 2026-01-01T00:00:00Z or -30d. Measurements default to the last 14 days; events and alarms default to the whole history
+      --dateTo string             Only export data at or before this time
+  -h, --help                      help for export
+      --ignoreLimits              Export even if a limit is exceeded
+      --metadataOnly              Export managed objects and external identities only, skipping the data itself. The limits are still checked against whatever --dataTypes selects
+      --no-children               Export only the root device
+      --output-directory string   Output directory for the export (required)
+      --rootId string             ID of the root device to export (required)
+      --session string            Session to read from: a path, a full file name including its extension, or a glob. Defaults to the active session
+
+Global Flags:
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+```
+
+### `register`
+
+```
+Provision device users for an export, before importing it.
+
+This is the middle step of a migration that carries credentials, and it has
+to run BEFORE the import. Bulk registration creates each managed object
+owned by the device user it creates alongside it, and `import
+--adoptRegistered` then fills that object in. Registering after an import
+cannot give a device ownership of an object that already exists, so it only
+rotates a password and leaves the object alone.
+
+A device is registered under its c8y_Serial external identity, or under its
+only identity when it has no c8y_Serial. A device with several identities and
+no c8y_Serial is reported and skipped rather than guessed at; --identityType
+chooses for the whole run. Groups and other non-device objects are skipped:
+they have no device user.
+
+The credentials are written to --credentialsFile and exist nowhere else.
+Registering the same device again ROTATES its password, which invalidates any
+file handed out earlier.
+
+Every identity is resolved against the target first, and the whole run is
+REFUSED if the target already has a device under one of them: registering such
+an identity creates nothing and replaces the password of the device already
+using it. There is no flag to proceed anyway. --dry-run runs the same check.
+
+Pass the same --runId to the import, so it can tell the objects this
+registration created from anything else the target already holds.
+
+Without --session the active go-c8y-cli session is used.
+
+Usage:
+  c8y-devicemigration register [flags]
+
+Flags:
+      --credentialsFile string   File to write the credentials to (required). Never stdout: the file holds working device passwords
+      --dry-run                  Report which devices would be registered and which would be skipped, without registering anything or generating a password
+  -h, --help                     help for register
+      --identityType string      External identity type to register each device under (default "c8y_Serial")
+      --input-directory string   Directory holding the export (required)
+      --noFlag                   Do not stamp the run marker. The import then cannot recognise these objects and will create its own, so this is only useful for registering devices without importing anything
+      --runId string             Stamp the run marker onto every registered object, so the import can recognise them. Letters, digits and underscores only. One is generated and reported if this is not given
+      --session string           Session to register in: a path, a full file name including its extension, or a glob. Defaults to the active session
+
+Global Flags:
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+```
+
+### `import`
+
+```
+Recreate an exported hierarchy in a tenant.
+
+The migration includes all properties and fragments of the concerned managed
+objects and all external identities. Device protocols are not migrated.
+
+Existing objects are never matched or updated: every import creates new
+managed objects, so importing the same export twice produces two copies.
+The one exception is --adoptRegistered, which updates the objects a prior
+`register` created for the same --runId, and only those.
+
+A migrated device cannot write to its own managed object until it owns it,
+because ROLE_DEVICE carries writes only together with ownership. Pass
+--stampDeviceOwner to name each device as the owner of its own object up
+front, which works even though the device user does not exist yet.
+Importing back into the tenant the export came from is refused unless
+--allowSameTenant is given.
+
+Every created object is marked with an empty c8y_DeviceMigration_<runId>
+fragment, and the run id is reported, so the objects of one import can be
+found again with a single --fragmentType query even if the mapping is lost.
+Pass --runId to choose it, or --noFlag to mark nothing.
+
+Without --session the active go-c8y-cli session is used.
+
+Usage:
+  c8y-devicemigration import [flags]
+
+Flags:
+      --adoptRegistered register   Update the objects register created for this run instead of creating new ones. Needs the same --runId, and only ever updates an object carrying that run's marker
+      --allowSameTenant            Import even when the export came from this same tenant
+  -h, --help                       help for import
+      --identityType string        External identity type the stamped owner is derived from (default "c8y_Serial")
+      --input-directory string     Directory holding the export (required)
+      --mapping string             File to write the old ID to new ID mapping to (default "id_mapping.json")
+      --noFlag                     Do not mark created managed objects at all. Without a marker the objects can only be found again through the mapping file
+      --runId string               Mark every created managed object with an empty c8y_DeviceMigration_<id> fragment. Letters, digits and underscores only. One is generated and reported if this is not given
+      --session string             Session to write to: a path, a full file name including its extension, or a glob. Defaults to the active session
+      --stampDeviceOwner           Make each migrated device the owner of its own managed object, so it can write to it once it has credentials. Needed when credentials are issued after the import; not needed with --adoptRegistered, which already creates each object owned by its device user
+
+Global Flags:
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+```
+
+### `revert`
+
+```
+Delete the managed objects an import created.
+
+Everything to be deleted is listed first, and nothing is touched until that
+list has been confirmed. --force skips the question.
+
+Deleting a managed object takes its external identities and its parent and
+child references with it, so those are not deleted separately. Cumulocity also
+propagates a deletion to subgroups when the object is a group, which can
+remove objects this import never created; the plan says so before you confirm.
+
+--runId finds the objects by their marker fragment instead of a mapping file,
+for when the mapping was lost. It only finds objects that were marked.
+
+Usage:
+  c8y-devicemigration revert [flags]
+
+Flags:
+      --force            Delete without asking for confirmation
+  -h, --help             help for revert
+      --mapping string   ID mapping file written by import
+      --runId string     Find the objects by their c8y_DeviceMigration_<id> marker fragment instead
+      --session string   Session to delete from: a path, a full file name including its extension, or a glob. Defaults to the active session
+
+Global Flags:
+      --sessionHome string   Directory to resolve session names against (default $C8Y_SESSION_HOME, or ~/.cumulocity)
+```
+
+<!-- END COMMAND REFERENCE -->

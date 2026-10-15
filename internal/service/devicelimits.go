@@ -8,12 +8,12 @@ import (
 
 // What the one endpoint outside the owner tenant costs, and how that is bounded.
 //
-// A device asks on a timer - a thin-edge device every few minutes - and every
-// ask used to list the owner tenant's whole job record collection and then, per
-// candidate migration, resolve an external identity and read a managed object in
-// the target tenant. All of it with this service's own service users, so the
-// work is charged to the platform rather than to the caller, and a device with
-// nothing to do paid the full search before being told so.
+// A device asks on a timer - a thin-edge device every few minutes. Answered
+// naively, every ask would list the owner tenant's whole job record collection
+// and then, per candidate migration, resolve an external identity and read a
+// managed object in the target tenant. All of it with this service's own service
+// users, so the work is charged to the platform rather than to the caller, and a
+// device with nothing to do would pay the full search before being told so.
 //
 // Three things bound it, and none of them changes what the endpoint answers:
 //

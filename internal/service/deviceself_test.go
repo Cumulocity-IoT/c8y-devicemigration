@@ -283,10 +283,10 @@ func TestTheAnswerIsNotCacheable(t *testing.T) {
 
 // What a device asking on a timer costs this service.
 //
-// Every ask used to list the owner tenant's job records and then, per candidate
-// migration, resolve an identity and read an object in the target tenant - all
-// with this service's own service users, so a caller asking in a loop spends the
-// platform's budget rather than its own.
+// Answered naively, every ask would list the owner tenant's job records and then,
+// per candidate migration, resolve an identity and read an object in the target
+// tenant - all with this service's own service users, so a caller asking in a
+// loop would spend the platform's budget rather than its own.
 
 func TestTheJobRecordsAreNotReReadForEveryDevice(t *testing.T) {
 	p, svc, _ := migratedDevice(t)

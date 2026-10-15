@@ -62,13 +62,13 @@ func TestTheCallerNameIsSpelledOneWay(t *testing.T) {
 // migration and collecting its credentials cannot lock somebody out of their own
 // run.
 func TestTheUsernameComesFromThePlatform(t *testing.T) {
-	user := []byte(`{"userName":"Harald.Meyer","effectiveRoles":[]}`)
-	if got := usernameOf(user, "harald.meyer"); got != "Harald.Meyer" {
+	user := []byte(`{"userName":"Jane.Doe","effectiveRoles":[]}`)
+	if got := usernameOf(user, "jane.doe"); got != "Jane.Doe" {
 		t.Errorf("usernameOf is %q, want the platform's own spelling", got)
 	}
 	// And a platform that says nothing leaves the caller as they presented
 	// themselves, which is what every other message already quotes.
-	if got := usernameOf([]byte(`{}`), "harald.meyer"); got != "harald.meyer" {
+	if got := usernameOf([]byte(`{}`), "jane.doe"); got != "jane.doe" {
 		t.Errorf("usernameOf is %q, want the presented name as a fallback", got)
 	}
 }

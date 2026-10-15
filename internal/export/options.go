@@ -1,9 +1,7 @@
 // Package export walks a device hierarchy and writes it to disk.
 //
-// The artefact layout is a contract, not an implementation detail: the bash
-// implementation in commands/export writes the same files, and
-// docs/go-port/BEHAVIOUR-CONTRACT.md records exactly what "the same" means down
-// to the trailing newline. A differential test diffs the two.
+// The artefact layout is a contract, not an implementation detail:
+// docs/behaviour-contract.md records it down to the trailing newline.
 package export
 
 import (
@@ -13,7 +11,7 @@ import (
 )
 
 // Limits are checked before anything is written, so a refusal leaves nothing
-// behind. Values mirror commands/export:147.
+// behind.
 const (
 	MaxChildObjects = 25
 
@@ -41,7 +39,7 @@ func AllDataTypes() []DataType {
 	return []DataType{DataMeasurements, DataEvents, DataAlarms}
 }
 
-// DefaultChildTypes matches the bash default of "asset,device": additions are
+// DefaultChildTypes is "asset,device": additions are
 // left out because they reach configuration and firmware objects that are not
 // part of a device hierarchy.
 var DefaultChildTypes = []ChildType{ChildAsset, ChildDevice}
@@ -76,8 +74,7 @@ type Options struct {
 
 // ResolveChildTypes parses a --childTypes value.
 //
-// Mirrors commands/export:326 including its error messages, which are part of
-// the contract.
+// Its error messages are part of the contract.
 func ResolveChildTypes(value string, noChildren bool) ([]ChildType, error) {
 	if noChildren {
 		return nil, nil
@@ -158,8 +155,8 @@ func ResolveDataTypes(value string) ([]DataType, error) {
 	return resolved, nil
 }
 
-// plural mirrors the bash helper of the same name, because every count in the
-// output reads as prose.
+// plural picks the singular or plural form, because every count in the output
+// reads as prose.
 func plural(n int, singular, many string) string {
 	if n == 1 {
 		return singular
@@ -178,7 +175,7 @@ func plural(n int, singular, many string) string {
 //
 // Deliberately narrow rather than "digits only": the id is passed to the
 // platform's own resolver, which also accepts forms like `name:My Device`, and
-// refusing those would remove something the bash implementation can do.
+// refusing those would remove something the platform supports.
 func ValidateRootID(id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("No root id given")

@@ -8,10 +8,6 @@ holding the repository's whole toolchain, a `devcontainer.json` that mounts
 the repository and nothing else of the host, and `init-firewall.sh`, the
 egress filter the other two exist to run.
 
-The design was chosen against three alternatives in what is now this page;
-the losing options and the scoring are preserved in the git history of
-`docs/concepts/devcontainer.md`.
-
 ## The threat, and the three boundaries
 
 An agent's mistakes execute, and so does anything a prompt injection in
@@ -33,8 +29,7 @@ a directory and an allowlist:
   mechanism (below).
 - **Host-only stays host-only.** `make service-deploy` / `ui-deploy` need
   the `~/.cumulocity` sessions, `service-build`/`service-image` need a
-  docker daemon, `test-bash3` needs macOS bash 3.2 — none of that runs
-  inside, and nothing inside can. CI covers the bash-3.2 suite.
+  docker daemon — none of that runs inside, and nothing inside can.
 
 ## How the filter works
 
@@ -86,7 +81,7 @@ annotations:
 | `cumulocity.com` | every tenant; the per-session `--url` of the UI dev server |
 | `registry.npmjs.org` | npm packages, and Claude Code's own distribution |
 | `proxy.golang.org`, `sum.golang.org` | Go modules |
-| `github.com` + `api.`/`codeload.`/`objects.`/`raw.` | `make bootstrap`'s bats clones, release tarballs |
+| `github.com` + `api.`/`codeload.`/`objects.`/`raw.` | release tarballs, the gh CLI |
 | `api.anthropic.com`, `claude.ai`, `platform.claude.com` | the agent's API and its headless login |
 | four VS Code hosts | the server and extensions VS Code downloads *inside* the container on attach; removable if only the devcontainer CLI is used |
 
@@ -119,7 +114,7 @@ surface stays one line.
 ## Daily flow
 
 1. `colima start`, then VS Code **Reopen in Container** (or `devcontainer
-   up`). The first start primes bats, `ui/node_modules` and the Go module
+   up`). The first start primes `ui/node_modules` and the Go module
    cache *through* the firewall — day one doubles as a live test of the
    allowlist.
 2. Run the agent from a clean shell: `docker exec -it <container> bash`, then
@@ -134,13 +129,11 @@ surface stays one line.
    Code window; `devcontainer up` and `docker exec` sessions get the CLI and
    nothing else, which is where the long autonomous runs belong anyway (see
    the SSH-agent gotcha below).
-3. The checks all run inside: `make check JOBS=$(nproc)` — on Linux `make`
-   *is* GNU make. Every tool the Makefile can use is baked into the image at
-   CI's own pins (shellcheck 0.11.0, docopt-sh 2.0.3, actionlint 1.7.12,
-   jq 1.7.1, parallel), deliberately: the Makefile skips gracefully when a
-   tool is absent, and a sandbox whose `check` is quieter — or merely
-   *different* — than CI would be a trap. Three of those pins were set by
-   in-container failures on day one (see below), which is the system working.
+3. The checks all run inside: `make check` — on Linux `make` *is* GNU make.
+   Every tool the Makefile can use is baked into the image at CI's own pins
+   (shellcheck 0.11.0, actionlint 1.7.12), deliberately: the Makefile skips
+   gracefully when a tool is absent, and a sandbox whose `check` is quieter —
+   or merely *different* — than CI would be a trap.
 4. The UI dev server, inside the container:
    `cd ui && npm start -- --url https://<tenant>.cumulocity.com --host
    0.0.0.0` — `--host` is mandatory, the server binds localhost by default
@@ -149,7 +142,7 @@ surface stays one line.
    [docs/ui.md](ui.md) describes. It must be `localhost`: the dev proxy
    rewrites tenant auth cookies with `cookieDomainRewrite: 'localhost'`,
    which is also why `appPort` pins the publish to the host's loopback.
-5. Host-only, as before: deploys, image builds, `test-bash3`, tagging.
+5. Host-only, as before: deploys, image builds, tagging.
 
 Three named volumes keep state across rebuilds: the agent's `~/.claude`, the
 Go module cache, and `ui/node_modules` — the last both for speed (784 MB
@@ -159,10 +152,9 @@ host-side one, so host runs and container runs cannot corrupt each other).
 
 ## Why image builds stay outside
 
-`make service-build` / `service-image` are on the host-only list above, and an
-attempt to move them in is worth recording so nobody spends the afternoon
-twice. Rootless podman and buildah were installed in the image, which needs no
-daemon and no socket — and the container cannot run them:
+`make service-build` / `service-image` are on the host-only list above because
+they cannot run inside. Rootless podman and buildah need no daemon and no
+socket, but the container cannot run them either:
 
 - `unshare(CLONE_NEWUSER)` is refused by docker's default seccomp profile.
   That part is fixable, with `--security-opt seccomp=unconfined` in `runArgs`.
@@ -206,9 +198,9 @@ here, and keep `docker/Dockerfile` as what CI builds, pinned to it by a test.
   attribution, not secrets, and a `credential.helper = osxkeychain` line is
   inert on Linux. Commits and pushes stay host-side anyway.
 - **No GPG in the image**, so VS Code's GPG-agent forwarding never activates.
-- One untracked file rides along in the bind mount: `id_mapping.json`, a
-  real tenant's object-id mapping. Ids, not credentials — accepted, but
-  worth knowing it is visible inside.
+- **Untracked files ride along in the bind mount.** Anything in the working
+  tree is visible inside, including export output and mapping files the
+  `.gitignore` keeps out of commits — keep credentials files elsewhere.
 
 ## Residual risks, accepted knowingly
 
@@ -223,56 +215,5 @@ here, and keep `docker/Dockerfile` as what CI builds, pinned to it by a test.
   channels do not exist unless the agent is handed a token.
 - **A startup gap of seconds:** the network is open between container start
   and `postStartCommand`. The agent is not running yet; an entrypoint-based
-  close is possible and deliberately not done in the first version, for
-  debuggability.
+  close is possible and deliberately not done, for debuggability.
 
-## Verified when this was built
-
-Run on Colima (arm64) the day this shipped, all inside the container:
-
-- `init-firewall.sh` self-verification: **`FIREWALL OK`** — which proves in
-  one line that the Colima VM kernel autoloads `ip_set`/`xt_set`, that
-  Debian bookworm's dnsmasq honors `ipset=` as packaged, that off-list DNS
-  is REFUSED, and that the allowlist path carries traffic.
-- An arbitrary tenant, `https://eu-latest.cumulocity.com/tenant/loginOptions`
-  → HTTP 401: the wildcard admits a host it was never told about, and the
-  connection reaches the platform.
-- `curl https://example.com` fails in **5 ms** (the REFUSED resolver answers
-  before iptables is even consulted).
-- The upstream resolver, queried directly by uid 1000: *no servers could be
-  reached* — the owner match holds, so the agent's only resolver is dnsmasq.
-- `sudo -l` lists exactly the firewall script; `sudo iptables -L` is denied.
-- `SSH_AUTH_SOCK` is unset in a login shell.
-- Toolchain as pinned: go1.25.1, Node 22, shellcheck 0.11.0, actionlint
-  1.7.12, docopt.sh, parallel, claude present.
-- `make bootstrap ui-install`, `go mod download` and the full
-  `make check JOBS=$(nproc)` — through the firewall, green, with no
-  "skipping" lines.
-- The first in-container `make check` also demonstrated why the pins matter,
-  by failing: the image initially carried actionlint 1.7.7, which predates
-  actionlint telling shellcheck about `env:` keys and flagged SC2153 on a
-  workflow the real toolchain accepts. A drifted linter makes `check` say
-  something different inside than outside — in either direction — which is
-  exactly the trap the pinning exists to close. The image now pins 1.7.12,
-  matching what the repository develops against.
-- And one refusal that proved a boundary: a test harness ran `sudo chown`
-  inside the container and was denied — the single sudoers line really does
-  admit only the firewall script.
-- The differential test earned its keep across *tool* versions, not just
-  implementations: with bookworm's jq 1.6 in the image, the bash exporter's
-  jq-piped records differed from Go's verbatim ones — jq 1.6 reformats JSON
-  numbers — and `TestDifferentialExportWithData` failed exactly there. The
-  image pins jq 1.7.1 from upstream, matching the host and CI's ubuntu.
-- A second first-run finding: the bind mount keeps the host uid (501 under
-  Colima) while the container user is 1000 — writable, but git refuses the
-  mismatch as "dubious ownership", which kills `go build`'s VCS stamping and
-  silently degrades the Makefile's git-derived version. The image bakes
-  `git config --system safe.directory '*'`: the ownership check defends
-  multi-user machines from repos owned by somebody else, and in a
-  single-user sandbox whose repo is by construction owned by a foreign uid
-  it can only misfire.
-
-Still to be proven by use, having no substitute for a real session: the
-browser login end-to-end through the loopback publish, the headless
-`claude` login's paste-code flow, and the SSH-agent socket residual while a
-VS Code window is attached.

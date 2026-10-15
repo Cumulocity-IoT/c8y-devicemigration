@@ -19,7 +19,7 @@ export function translatable(root = join(__dirname, '..')): string[] {
 
     // '...' | translate, in a template file or in a template inside a .ts file -
     // a component with an inline template is still a template, and reading only
-    // .html files quietly lost every string in one.
+    // .html files would quietly lose every string in one.
     for (const match of text.matchAll(/(['"])((?:(?!\1).)*?)\1\s*\|\s*translate/gs)) {
       found.add(match[2]);
     }

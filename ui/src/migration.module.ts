@@ -16,9 +16,9 @@ import { DeviceMigrationNavigationFactory } from './navigation';
  * tenant rather than a choice a reader should be asked to make: where the
  * microservice is subscribed this is the migration tool, and where it is not it
  * is the one thing such a tenant can usefully do - trust a migration
- * certificate, which is a plain platform call. The navigator used to carry both
- * as separate entries, which put that distinction in front of people who have no
- * way to know what it means.
+ * certificate, which is a plain platform call. Two separate navigator entries
+ * would put that distinction in front of people who have no way to know what it
+ * means.
  */
 @NgModule({
   imports: [CoreModule, DeviceMigrationComponent],

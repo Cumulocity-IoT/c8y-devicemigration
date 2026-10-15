@@ -86,10 +86,10 @@ func (e *Exporter) Run(ctx context.Context) error {
 
 // exportRecursive writes one device and then descends.
 //
-// The order is deliberate and mirrors commands/export:727: object, identities,
-// then all child index files for all requested child types, then the progress
-// line, and only then the children. That way a device's line is complete before
-// its children start reporting, so the output reads top down.
+// The order is deliberate: object, identities, then all child index files for
+// all requested child types, then the progress line, and only then the
+// children. That way a device's line is complete before its children start
+// reporting, so the output reads top down.
 func (e *Exporter) exportRecursive(ctx context.Context, id, dir string) error {
 	if e.visited[id] {
 		return nil

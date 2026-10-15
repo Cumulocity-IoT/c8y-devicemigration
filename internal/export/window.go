@@ -25,11 +25,10 @@ type Window struct {
 	To   time.Time
 }
 
-// ParseDate accepts the forms the bash implementation passes through to c8y:
-// a relative offset like -14d or -30d, or an absolute timestamp.
+// ParseDate accepts a relative offset like -14d or -30d, or an absolute
+// timestamp.
 //
-// The bash version never parsed these - it handed them to c8y, which did. The
-// library takes a time.Time, so the parsing is ours now, and it is deliberately
+// The library takes a time.Time, so the parsing is ours, and it is deliberately
 // narrow: a value it does not understand is refused rather than guessed at,
 // because quietly exporting the wrong window is worse than not starting.
 func ParseDate(value string, now time.Time) (time.Time, error) {
@@ -61,7 +60,7 @@ func ParseDate(value string, now time.Time) (time.Time, error) {
 }
 
 // parseRelative understands -N followed by a unit, which is the form the help
-// text advertises and the one the limit suggestion produces.
+// text advertises.
 func parseRelative(value string) (time.Duration, bool) {
 	if !strings.HasPrefix(value, "-") || len(value) < 3 {
 		return 0, false

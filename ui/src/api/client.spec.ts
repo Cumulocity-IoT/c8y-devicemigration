@@ -103,7 +103,7 @@ describe('failures', () => {
 
   it('reads the service\'s own message rather than paraphrasing it', async () => {
     const message =
-      'h.meyer does not hold ROLE_DEVICE_MIGRATION_ADMIN, which is required to migrate';
+      'j.doe does not hold ROLE_DEVICE_MIGRATION_ADMIN, which is required to migrate';
     const error = await failing(403, { error: 'security/Forbidden', message })
       .tenants()
       .catch((e: ApiError) => e);

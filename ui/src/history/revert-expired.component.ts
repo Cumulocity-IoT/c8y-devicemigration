@@ -10,7 +10,7 @@ import type { GridRow } from './rows';
  * This is the other half of the muted *Undo no longer possible* action. The
  * action alone says that it cannot be done; somebody who wanted to do it needs
  * to know why, and whether anything else would work — an explanation nobody can
- * get from an action that has simply disappeared, which is what happened before.
+ * get from an action that has simply disappeared.
  *
  * The reason is a deadline, not a rule about the migration: a device token
  * deletes only what it owns, the objects are owned by the identity that created

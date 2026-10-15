@@ -266,8 +266,8 @@ func TestCredentialsWithoutATenantAreRejected(t *testing.T) {
 
 // The subscription refresh runs on its own goroutine for the whole life of the
 // container, so anything it touches is touched concurrently with request
-// handling. Reading the SDK's ServiceUsers field directly here was a data race
-// until this test found it, and -race is the only thing that would.
+// handling. Reading the SDK's ServiceUsers field directly here would be a data
+// race, and -race is the only thing that would find it.
 func TestRefreshingSubscriptionsRacesNothing(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)

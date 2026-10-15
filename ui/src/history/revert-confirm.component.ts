@@ -9,10 +9,9 @@ import { explain, type Failure, type GridRow } from './rows';
 /**
  * Asking before undoing a migration, and saying what that would mean.
  *
- * A revert deletes things in somebody's tenant and the old flow did it on one
- * click, from a menu item two pixels from *Migration log*. It is the one
- * destructive thing this screen can do, and it is the only one that was never
- * confirmed.
+ * A revert deletes things in somebody's tenant, and the menu entry that asks
+ * for it sits two pixels from *Migration log* - so it is confirmed here rather
+ * than done on one click.
  *
  * The summary cannot promise a number. The service keeps no plan to ask for -
  * there is no dry run, and the record carries no count of what the migration
@@ -83,7 +82,7 @@ import { explain, type Failure, type GridRow } from './rows';
           No padding utility on these. The alert class draws its icon as an
           absolutely positioned ::before in a 44px gutter, and the padding it
           ships with is what keeps the text out of it - overriding that with p-8
-          put the words underneath the warning triangle.
+          would put the words underneath the warning triangle.
         -->
         @for (warning of row.revertWarnings; track warning) {
           <div class="alert alert-warning m-b-8">{{ warning }}</div>

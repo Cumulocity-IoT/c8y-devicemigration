@@ -10,9 +10,8 @@
 // included, so the device would arrive unable to write its own twin. Registering
 // first is what makes ownership correct by construction.
 //
-// docs/platform-behaviour.md records how that was established and what it
-// costs; the constraints encoded here are the platform behaviours that pass
-// silently if they are got wrong.
+// The constraints encoded here are the platform behaviours that pass silently
+// if they are got wrong.
 package registration
 
 import (
@@ -28,9 +27,8 @@ import (
 // The marker's name identifies the run; this says how far the run got with this
 // object. It matters because a target id now exists from registration, so the
 // mapping file can no longer mean "the import finished this object" - and its
-// format cannot grow a field to say so, being compared byte for byte against the
-// shell implementation's. An object still reading "registered" is one the import
-// never reached.
+// format, a plain map of old to new ids, has no room for a field to say so. An
+// object still reading "registered" is one the import never reached.
 const PhaseRegistered = "registered"
 
 // AuthTypeBasic is the only authentication type this package registers.
@@ -43,13 +41,13 @@ const AuthTypeBasic = "BASIC"
 // reads.
 //
 // Comma-separated, which is this tool's choice rather than the endpoint's
-// requirement: retested 2026-09-09, the platform reads tabs and commas alike,
-// including go-c8y's own tab-separated output. Commas because the file is handed
-// to an operator who will open it in a spreadsheet, and because the generated
-// passwords already exclude a comma for that reason.
+// requirement: the platform reads tabs and commas alike, including go-c8y's own
+// tab-separated output. Commas because the file is handed to an operator who
+// will open it in a spreadsheet, and because the generated passwords already
+// exclude a comma for that reason.
 //
-// The reason this package writes the file itself survives that correction, and
-// it was never the delimiter. model.BulkRegistrationRecord has a fixed column
+// The reason this package writes the file itself is not the delimiter.
+// model.BulkRegistrationRecord has a fixed column
 // list with no way to add the dotted marker column, and its SetBasicAuth forces
 // com_cumulocity_model_Agent.active, which is exactly the column that has to be
 // absent rather than false.
@@ -192,9 +190,8 @@ func WriteCredentialsFile(w io.Writer, credentials []Credential) error {
 
 // unencodable is the characters no field of the registration file can carry.
 //
-// Measured 2026-10-01, against the endpoint rather than against RFC 4180, and
-// the result is that the file has no escaping at all - see
-// docs/platform-behaviour.md:
+// Measured against the endpoint rather than against RFC 4180, and the result is
+// that the file has no escaping at all:
 //
 //   - **A comma always separates a field**, including inside a quoted one. A row
 //     whose quoted external id held a comma was split there, putting the rest of

@@ -16,9 +16,9 @@ func records() []registration.Record {
 }
 
 // Commas are this tool's choice, not the endpoint's requirement - it reads
-// either, retested 2026-09-09. Still pinned: the file goes to an operator who
-// opens it in a spreadsheet, and the generated passwords exclude a comma on the
-// strength of this format.
+// either. Pinned anyway: the file goes to an operator who opens it in a
+// spreadsheet, and the generated passwords exclude a comma on the strength of
+// this format.
 func TestRegistrationFileIsCommaSeparated(t *testing.T) {
 	var out bytes.Buffer
 	if err := registration.WriteRegistrationFile(&out, "", records()); err != nil {
@@ -121,16 +121,14 @@ func TestRegistrationFileRefusesAnUnusableMarker(t *testing.T) {
 	}
 }
 
-// A comma in a device name is entirely ordinary, and this used to assert that
-// encoding/csv quoting carried it. Measured 2026-10-01, it does not: the endpoint
-// splits on every comma, quoted or not, and the row that results is *accepted*
-// whenever the shift starts after the password column - the device arriving under
-// a different external id type, with nothing said. See
-// docs/platform-behaviour.md.
+// A comma in a device name is entirely ordinary, and encoding/csv quoting does not
+// carry it: the endpoint splits on every comma, quoted or not, and the row that
+// results is *accepted* whenever the shift starts after the password column - the
+// device arriving under a different external id type, with nothing said.
 //
-// So the row is refused instead. The test is kept pointing at the same case,
-// because the case is the ordinary one and the old expectation is the thing most
-// likely to be reintroduced by somebody reasoning from the RFC.
+// So the row is refused instead. The test points at this case because it is the
+// ordinary one, and expecting quoting to carry it is the mistake most likely to
+// be made by somebody reasoning from the RFC.
 func TestRegistrationFileRefusesCommasInSourceText(t *testing.T) {
 	in := records()
 	in[0].Name = "Pump, north"
@@ -214,7 +212,7 @@ func TestCredentialsFile(t *testing.T) {
 	var out bytes.Buffer
 	err := registration.WriteCredentialsFile(&out, []registration.Credential{{
 		ExternalID: "MIGTEST-001",
-		Tenant:     "t1186848933",
+		Tenant:     "t1234567890",
 		Username:   registration.DeviceUsername("MIGTEST-001"),
 		Password:   "aB3xY7zQ2tR5wK8",
 	}})
@@ -228,7 +226,7 @@ func TestCredentialsFile(t *testing.T) {
 	if want := []string{"EXTERNAL_ID", "TENANT", "USERNAME", "PASSWORD"}; !equal(rows[0], want) {
 		t.Fatalf("header is %v, want %v", rows[0], want)
 	}
-	want := []string{"MIGTEST-001", "t1186848933", "device_MIGTEST-001", "aB3xY7zQ2tR5wK8"}
+	want := []string{"MIGTEST-001", "t1234567890", "device_MIGTEST-001", "aB3xY7zQ2tR5wK8"}
 	if !equal(rows[1], want) {
 		t.Fatalf("row is %v, want %v", rows[1], want)
 	}

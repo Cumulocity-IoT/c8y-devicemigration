@@ -20,12 +20,12 @@ describe('reading another tenant through the microservice', () => {
   it('sends a platform path to that tenant s proxy', async () => {
     const { client, urls } = session();
     const proxy = new TenantPlatformClient(client);
-    proxy.for('t11106993');
+    proxy.for('t87654321');
 
     await proxy.fetch('/inventory/managedObjects?pageSize=10');
 
     expect(urls).toEqual([
-      '/service/devicemigration/tenants/t11106993/platform/inventory/managedObjects?pageSize=10'
+      '/service/devicemigration/tenants/t87654321/platform/inventory/managedObjects?pageSize=10'
     ]);
   });
 

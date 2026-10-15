@@ -277,10 +277,10 @@ paths:
       tags: [tenants]
       summary: One object, and what is under it
       description: |
-        Confirms a choice, and answers whether an id exists at all — which was
-        otherwise discovered when the migration ran, minutes later. Child counts
-        come from the platform, so a group holding four hundred devices costs the
-        same to look at as one holding two.
+        Confirms a choice, and answers whether an id exists at all — rather than
+        a wrong id being discovered when the migration runs, minutes later. Child
+        counts come from the platform, so a group holding four hundred devices
+        costs the same to look at as one holding two.
       operationId: getInventoryObject
       parameters:
         - $ref: "#/components/parameters/TenantID"
@@ -889,12 +889,12 @@ paths:
 
         **The fleet moves by itself, and nothing has to change on any device.**
         Within one platform instance a connection is routed by the certificate it
-        presents rather than by the hostname it dials — measured, after this
-        endpoint was first written on the opposite assumption — so a device still
-        configured with the source host arrives in the target. Devices that are
-        connected move when they reconnect; devices that are offline move when
-        they return. Both tenants are on this instance by construction, since a
-        tenant elsewhere cannot be subscribed to this service.
+        presents rather than by the hostname it dials — measured, not assumed —
+        so a device still configured with the source host arrives in the target.
+        Devices that are connected move when they reconnect; devices that are
+        offline move when they return. Both tenants are on this instance by
+        construction, since a tenant elsewhere cannot be subscribed to this
+        service.
       operationId: cutOverCertificate
       requestBody:
         required: true
@@ -1176,7 +1176,7 @@ components:
       description: A tenant subscribed to this microservice.
       schema:
         type: string
-      example: t11106993
+      example: t87654321
 
     ObjectID:
       name: id
@@ -1623,9 +1623,9 @@ components:
 
             Give it only to change that deliberately. Which devices a CA may bring
             into a tenant is a decision somebody takes, not a side effect of
-            moving the certificate — this endpoint used to force it on, and a
-            tenant that had trusted a CA *without* auto-registration got it
-            enabled with nothing saying so.
+            moving the certificate — forcing it on would enable auto-registration,
+            with nothing saying so, for a tenant that had trusted a CA *without*
+            it.
       example:
         sourceTenant: t11111
         targetTenant: t22222
@@ -1815,7 +1815,7 @@ components:
         dateTo:
           type: string
       example:
-        sourceTenant: t11106993
+        sourceTenant: t87654321
         rootId: "1399229"
         dataTypes: measurements
 
@@ -1867,7 +1867,7 @@ components:
         limits:
           $ref: "#/components/schemas/EstimateLimits"
       example:
-        tenant: t11106993
+        tenant: t87654321
         rootId: "1399229"
         objects: 9
         identities: 4

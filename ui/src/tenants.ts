@@ -3,7 +3,7 @@ import type { components } from "./api/types";
 /**
  * Naming a tenant.
  *
- * `t11106993` identifies a tenant and describes nothing. What somebody choosing
+ * `t87654321` identifies a tenant and describes nothing. What somebody choosing
  * between two of them reads is the company name; what tells two similarly named
  * ones apart is the host. The service supplies whichever it could read - the name
  * needs a role the tenant may not have granted, the host needs only the tenant's

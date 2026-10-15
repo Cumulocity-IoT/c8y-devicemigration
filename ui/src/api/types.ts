@@ -213,10 +213,10 @@ export interface paths {
         };
         /**
          * One object, and what is under it
-         * @description Confirms a choice, and answers whether an id exists at all — which was
-         *     otherwise discovered when the migration ran, minutes later. Child counts
-         *     come from the platform, so a group holding four hundred devices costs the
-         *     same to look at as one holding two.
+         * @description Confirms a choice, and answers whether an id exists at all — rather than
+         *     a wrong id being discovered when the migration runs, minutes later. Child
+         *     counts come from the platform, so a group holding four hundred devices
+         *     costs the same to look at as one holding two.
          */
         get: operations["getInventoryObject"];
         put?: never;
@@ -686,12 +686,12 @@ export interface paths {
          *
          *     **The fleet moves by itself, and nothing has to change on any device.**
          *     Within one platform instance a connection is routed by the certificate it
-         *     presents rather than by the hostname it dials — measured, after this
-         *     endpoint was first written on the opposite assumption — so a device still
-         *     configured with the source host arrives in the target. Devices that are
-         *     connected move when they reconnect; devices that are offline move when
-         *     they return. Both tenants are on this instance by construction, since a
-         *     tenant elsewhere cannot be subscribed to this service.
+         *     presents rather than by the hostname it dials — measured, not assumed —
+         *     so a device still configured with the source host arrives in the target.
+         *     Devices that are connected move when they reconnect; devices that are
+         *     offline move when they return. Both tenants are on this instance by
+         *     construction, since a tenant elsewhere cannot be subscribed to this
+         *     service.
          */
         post: operations["cutOverCertificate"];
         delete?: never;
@@ -1206,9 +1206,9 @@ export interface components {
              *
              *     Give it only to change that deliberately. Which devices a CA may bring
              *     into a tenant is a decision somebody takes, not a side effect of
-             *     moving the certificate — this endpoint used to force it on, and a
-             *     tenant that had trusted a CA *without* auto-registration got it
-             *     enabled with nothing saying so.
+             *     moving the certificate — forcing it on would enable auto-registration,
+             *     with nothing saying so, for a tenant that had trusted a CA *without*
+             *     it.
              */
             autoRegistrationEnabled?: boolean;
         };
@@ -1356,7 +1356,7 @@ export interface components {
          *     migration's own and are resolved the same way, so what is counted is
          *     what would move.
          * @example {
-         *       "sourceTenant": "t11106993",
+         *       "sourceTenant": "t87654321",
          *       "rootId": "1399229",
          *       "dataTypes": "measurements"
          *     }
@@ -1375,7 +1375,7 @@ export interface components {
         };
         /**
          * @example {
-         *       "tenant": "t11106993",
+         *       "tenant": "t87654321",
          *       "rootId": "1399229",
          *       "objects": 9,
          *       "identities": 4,
@@ -1659,7 +1659,7 @@ export interface components {
     parameters: {
         /**
          * @description A tenant subscribed to this microservice.
-         * @example t11106993
+         * @example t87654321
          */
         TenantID: string;
         /**
@@ -1872,7 +1872,7 @@ export interface operations {
             path: {
                 /**
                  * @description A tenant subscribed to this microservice.
-                 * @example t11106993
+                 * @example t87654321
                  */
                 tenant: components["parameters"]["TenantID"];
             };
@@ -1901,7 +1901,7 @@ export interface operations {
             path: {
                 /**
                  * @description A tenant subscribed to this microservice.
-                 * @example t11106993
+                 * @example t87654321
                  */
                 tenant: components["parameters"]["TenantID"];
                 /**
@@ -1942,7 +1942,7 @@ export interface operations {
             path: {
                 /**
                  * @description A tenant subscribed to this microservice.
-                 * @example t11106993
+                 * @example t87654321
                  */
                 tenant: components["parameters"]["TenantID"];
                 /**
@@ -1976,7 +1976,7 @@ export interface operations {
             path: {
                 /**
                  * @description A tenant subscribed to this microservice.
-                 * @example t11106993
+                 * @example t87654321
                  */
                 tenant: components["parameters"]["TenantID"];
             };
@@ -2006,7 +2006,7 @@ export interface operations {
             path: {
                 /**
                  * @description A tenant subscribed to this microservice.
-                 * @example t11106993
+                 * @example t87654321
                  */
                 tenant: components["parameters"]["TenantID"];
                 /**
@@ -2041,7 +2041,7 @@ export interface operations {
             path: {
                 /**
                  * @description A tenant subscribed to this microservice.
-                 * @example t11106993
+                 * @example t87654321
                  */
                 tenant: components["parameters"]["TenantID"];
                 /**

@@ -40,7 +40,7 @@ func TestRevertDeletesTheDeviceUsersRegistrationCreated(t *testing.T) {
 	if _, err := registration.New(client, &stderr, registration.Options{
 		InputDirectory: out,
 		Marker:         importer.MarkerPrefix + runID,
-		Tenant:         "t1186848933",
+		Tenant:         "t1234567890",
 	}).Run(context.Background()); err != nil {
 		t.Fatalf("registration failed: %v\n%s", err, stderr.String())
 	}
@@ -86,8 +86,7 @@ func TestRevertDeletesTheDeviceUsersRegistrationCreated(t *testing.T) {
 	}
 }
 
-// The regression the flag introduced, as a test: a migration that provisioned
-// nothing must still revert completely. Every one of its devices is owned by an
+// A migration that provisioned nothing must still revert completely. Every one of its devices is owned by an
 // ordinary user, and the platform answers withDeviceUser=true on those with a
 // 409 - so a reverter that sets it unconditionally deletes none of them.
 func TestRevertWithoutCredentialsStillDeletesEverything(t *testing.T) {

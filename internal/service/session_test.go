@@ -17,9 +17,9 @@ import (
 //
 // The Cumulocity UI - and the API documentation application's "Try it out" -
 // sends no Authorization header. The credential is a JWT in the "authorization"
-// cookie, and a write is accompanied by the X-XSRF-TOKEN header. None of the
-// existing tests looked like that, which is why a 401 for every browser caller
-// went unnoticed until it was deployed.
+// cookie, and a write is accompanied by the X-XSRF-TOKEN header. Without tests
+// shaped like that, a 401 for every browser caller would go unnoticed until it
+// was deployed.
 
 // claims is the part of a session token these tests care about.
 type claims struct {
@@ -193,7 +193,7 @@ func TestACookieHoldingBasicCredentialsWorks(t *testing.T) {
 }
 
 // A bearer token in the header, which is how a programmatic OAuth caller
-// arrives. It worked before this change and has to keep working.
+// arrives. Reading cookies must not get in its way.
 func TestABearerTokenStillWorks(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -210,8 +210,8 @@ func TestABearerTokenStillWorks(t *testing.T) {
 }
 
 // The platform's words: a tfatoken "always must be included in the request to
-// /user/currentUser". Without forwarding it, a two-factor session fails
-// verification for the same reason a cookie session used to.
+// /user/currentUser". Without forwarding it, the platform refuses to verify a
+// two-factor session.
 func TestATwoFactorTokenIsForwardedToThePlatform(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)

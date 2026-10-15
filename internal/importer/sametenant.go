@@ -49,11 +49,11 @@ func (e *SameTenantError) Error() string {
 // type and creation time is the same object - and therefore the same tenant.
 //
 // It deliberately does NOT compare the export's `self` host against the
-// session's host. That was the first design and it was wrong: `self` carries
-// whatever host the platform felt like using - a tenant-id domain rather than a
-// friendly one, a custom domain, or in an anonymised export something that was
-// never real - so a mismatch says nothing, and gating the check on a match made
-// it silently pass on exactly the imports it exists to stop.
+// session's host: `self` carries whatever host the platform felt like using - a
+// tenant-id domain rather than a friendly one, a custom domain, or in an
+// anonymised export something that was never real - so a mismatch says nothing,
+// and gating the check on a match would make it silently pass on exactly the
+// imports it exists to stop.
 func (i *Importer) CheckNotSameTenant(ctx context.Context, target *session.Session) error {
 	if i.opts.AllowSameTenant {
 		return nil

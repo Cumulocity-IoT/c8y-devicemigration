@@ -42,12 +42,7 @@ the confirmation. `export`, `register`, `import` and `revert` are the same round
 trip as separate steps, and `preflight` checks a migration without running it.
 Add `--credentials` to provision a device user per device so the fleet can
 reconnect — see [Device credentials](#device-credentials). Every command and
-option is in **[docs/cli.md](docs/cli.md)**. The port is complete but has not yet
-been run against a live tenant.
-
-The same commands are also packaged as a **go-c8y-cli extension** that runs as
-`c8y devicemigration …`, behaviour-identical to the binary, for anyone already
-working in `c8y` — see **[docs/extension.md](docs/extension.md)**.
+option is in **[docs/cli.md](docs/cli.md)**.
 
 ### In the platform: the microservice and its UI
 
@@ -73,17 +68,13 @@ Install that UI zip under **Administration → Ecosystem → Extensions** and ad
 to an application. Then, in order: subscribe the parent tenant to the
 microservice, subscribe the source and target tenants, and grant
 `ROLE_DEVICE_MIGRATION_ADMIN` to whoever should migrate. Open the plugin under
-Administration and start one with **New migration**. Both the microservice and
-the UI are complete but have not yet been run against a live tenant.
+Administration and start one with **New migration**.
 
-Why the command line and the microservice share one engine, and how the two
-command line builds are kept in step, is in
-**[docs/internals.md](docs/internals.md)**. What the platform was measured to
-actually do — including the several assumptions that turned out to be wrong, and
-what in this repository depends on each finding — is in
-**[docs/platform-behaviour.md](docs/platform-behaviour.md)**. For working *on*
-this repository with an autonomous coding agent, there is a network-restricted
-sandbox in **[docs/devcontainer.md](docs/devcontainer.md)**.
+Why the command line and the microservice share one engine, and how the
+tooling is built, tested and released, is in
+**[docs/internals.md](docs/internals.md)**. For working *on* this repository
+with an autonomous coding agent, there is a network-restricted sandbox in
+**[docs/devcontainer.md](docs/devcontainer.md)**.
 
 ## What gets migrated
 
@@ -136,9 +127,8 @@ many were refused, so a partial result is never silent.
 `--dataTypes` takes a comma separated list of `measurements`, `events` and
 `alarms`. It defaults to empty, so no device data is collected unless asked for —
 measurement volumes make that the only sensible default. `--dateFrom` and
-`--dateTo` bound the window and accept the same absolute and relative forms as
-`c8y` itself, e.g. `-30d`. See [Limits](#limits) for the defaults and the caps
-that apply.
+`--dateTo` bound the window and accept a relative offset such as `-30d` or an
+absolute time. See [Limits](#limits) for the defaults and the caps that apply.
 
 Data lands in per-device folders as newline-delimited JSON, one record per line,
 which is what `c8y` emits and what its create commands consume:
@@ -156,27 +146,25 @@ record and is what makes event attachments correlatable.
 
 On import:
 
-- **Measurements** go through `c8y measurements createBulk`, which posts a
-  measurement collection rather than one request per record. Batches are
-  deliberately small — a migration should not be the reason a tenant starts
-  throttling.
+- **Measurements** are posted as measurement collections of 50 rather than one
+  request per record. Batches are deliberately small — a migration should not be
+  the reason a tenant starts throttling.
 - **Server managed properties are stripped** from every record before it is
-  sent, including `source.self`, which points at the source tenant. `source`
-  itself is kept, because `--device` overwrites `source.id` and needs the field
-  to be there.
+  sent, and `source` is replaced by a reference to the new managed object: the
+  exported one names a device in the source tenant, `source.self` included.
 - **Alarms** keep their `status` and `severity`, which are settable at creation.
   `count`, `firstOccurrenceTime` and the audit `history` are dropped: that is
   the "current status, not the full history" intent, and none of them are
   settable through the API anyway.
-- **Events** with an attachment are created one at a time so their new ID is
-  known before the file is uploaded; the rest go through the fast piped path.
+- **Events** are created one at a time, so an event's new ID is known before
+  its attachment is uploaded.
 - **Records are sent oldest first.** Two reasons: `c8y_LatestMeasurements` on
   the managed object holds the last value *received*, not the newest by
   timestamp, so an out-of-order backfill would leave a device showing a stale
   reading as its latest; and Cumulocity de-duplicates alarms on source and type
   while one is ACTIVE or ACKNOWLEDGED, so a still-open alarm has to be created
   after the cleared history of its type or it absorbs it.
-- **`--processingMode QUIESCENT`** is used for measurements and events, which
+- **The `QUIESCENT` processing mode** is used for measurements and events, which
   persists the record while suppressing realtime notifications. It is
   documented as applying to those two only — alarm creation is always
   PERSISTENT whatever the header says.
@@ -201,43 +189,33 @@ The limits are counted **before anything is written**, using one cheap count
 query per device per type rather than fetching the records, so a refusal leaves
 nothing behind at all. Every limit is checked for every device before anything
 is reported — the run does not stop at the first problem — and the report shows
-what was found against what is allowed, with a suggested limit alongside:
+what was found against what is allowed:
 
 ```
 Export limits exceeded:
 
-  limit                   devices        highest        allowed      suggested
-  ---------------------- -------- -------------- -------------- --------------
-  child objects                 -             30             25             50
-  measurements                 31        2400000        1000000        3000000
-  alarms                       31           1200           1000           2000
+  limit                   devices        highest        allowed
+  ---------------------- -------- -------------- --------------
+  child objects                 -             30             25
+  measurements                 31        2400000        1000000
+  alarms                       31           1200           1000
 
-  measurements: highest on device 7874377868
-  alarms: highest on device 4074377869
-
-Suggested values are the current limit scaled up to the smallest whole
-multiple that would allow this export.
-
-Measurements are windowed, so --dateFrom -5d would bring them within
-the current limit of 1000000 instead (currently -14d).
+  measurements: highest on device 12347
+  alarms: highest on device 12351
 
 Nothing was exported. Narrow the export with --childTypes, --dataTypes
 or --dateFrom, or pass --ignoreLimits to export regardless.
 ```
 
 The report is one row per limit rather than per device: a wide hierarchy would
-otherwise produce hundreds of near-identical lines, and the worst count is what
-decides the suggestion anyway. The device holding that worst count is named
-underneath.
+otherwise produce hundreds of near-identical lines. The device holding the worst
+count is named underneath.
 
-Measurements get a second suggestion because they are the only windowed type:
-the same linear scaling applied to the window instead of the limit. It is only
-offered when the window is expressed in whole days or weeks — an absolute date
-cannot be scaled, so no guess is made.
-
-`--dateFrom` and `--dateTo` are passed to `c8y` untouched, so every form it
-accepts works: `-30d`, `-14d`, `-6months`, `-2w`, `-30h+30min`, `0s`, or an
-absolute `2026-01-01T00:00:00Z`.
+`--dateFrom` and `--dateTo` accept a relative offset in seconds, minutes, hours,
+days or weeks — `-30d`, `-14d`, `-2w`, `-12h` — or an absolute
+`2026-01-01T00:00:00Z`. A form that is not understood is refused rather than
+guessed at, because quietly exporting the wrong window is worse than not
+starting.
 
 If a limit is breached anyway — data can grow between the count and the fetch —
 the export stops and deletes what it wrote. It removes only the files it
@@ -369,16 +347,14 @@ not arrive. A zero exit code means every record landed, which is what lets
 ## Output
 
 Every command reports its own progress on stderr, one line per managed
-object, naming it and putting IDs in brackets. The raw responses from `c8y` are
-not printed: `export` writes them to the export directory, and `revert` only
-needs them to build its plan. This keeps the output the same regardless of a
-user's `output` and `view` settings, which otherwise decide whether a full
-managed object is rendered for every device the commands touch.
+object, naming it and putting IDs in brackets. The raw API responses are not
+printed: `export` writes them to the export directory, and `revert` only needs
+them to build its plan.
 
 ## Tenant options
 
-These
-are **tenant options** in the category `devicemigration`that can be used to change the default behavior of the microservice. They are held on the tenant the
+These are **tenant options** in the category `devicemigration` that change the
+default behaviour of the microservice. They are held on the tenant the
 microservice is deployed on, and the manifest declares them — which is what makes
 them appear under **Administration → Settings** on that tenant, editable without a
 redeployment. They are read when the container starts and re-read hourly, so a

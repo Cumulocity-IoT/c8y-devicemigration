@@ -1,9 +1,6 @@
 // Package cli wires the commands together.
 //
-// Every command writes its progress to stderr and nothing to stdout, matching
-// the bash implementation: that keeps the output identical regardless of a
-// user's c8y output and view settings, which otherwise decide whether a whole
-// managed object is rendered for every device touched.
+// Every command writes its progress to stderr and nothing to stdout.
 package cli
 
 import (
@@ -18,8 +15,7 @@ import (
 
 // Main runs the CLI and returns the process exit code.
 //
-// Exit codes mirror the bash commands: 0 on success, 1 for a usage error or a
-// refusal. There is no equivalent of the docopt digest mismatch (70).
+// Exit codes: 0 on success, 1 for a usage error or a refusal.
 func Main(args []string, stdout, stderr io.Writer) int {
 	root := newRootCommand(stdout, stderr)
 	root.SetArgs(args)

@@ -21,8 +21,7 @@ import (
 // which devices that CA may bring into a tenant.
 //
 // Everything awkward about it is platform behaviour, measured rather than
-// assumed (docs/platform-behaviour.md), and each piece is
-// commented where it bites:
+// assumed, and each piece is commented where it bites:
 //
 //   - A fingerprint can exist in only one tenant per instance, and **disabling
 //     it in the source does not free it**. So this is delete-then-create, with a
@@ -96,11 +95,11 @@ type TrustAnchorCutoverRequest struct {
 	// presenting this chain for the first time. Omitted means whatever the source
 	// tenant had.
 	//
-	// A field, and a pointer, because this used to be forced to true: a tenant
-	// that trusted a certificate *without* auto-registration had that turned on
-	// by a cutover, and nothing said so. Which devices a CA may bring into a
-	// tenant is a decision somebody takes, not a side effect of moving it - so
-	// the default is the source's answer, and changing it has to be asked for.
+	// A field, and a pointer, rather than forced to true: that would turn
+	// auto-registration on for a tenant that trusted a certificate *without* it,
+	// and nothing would say so. Which devices a CA may bring into a tenant is a
+	// decision somebody takes, not a side effect of moving it - so the default
+	// is the source's answer, and changing it has to be asked for.
 	//
 	// Turning it off is a real answer too: a fleet whose objects a migration has
 	// already created can be bound to them by hand. The response says plainly
@@ -217,10 +216,11 @@ func assess(raw []byte, now time.Time) TrustedCertificateView {
 
 // withStatus adds the source's status to a certificate body, or leaves it out.
 //
-// Carried across rather than set, because this used to write ENABLED whatever
-// the source said. Omitted when the source reported none: a platform that
-// answers without a status has a default for it, and inventing one here - in
-// either direction - would be this service deciding whether a CA is in use.
+// Carried across rather than set, so moving a certificate the source had
+// disabled does not enable it. Omitted when the source reported none: a
+// platform that answers without a status has a default for it, and inventing
+// one here - in either direction - would be this service deciding whether a CA
+// is in use.
 func withStatus(status string, body map[string]any) map[string]any {
 	if status != "" {
 		body["status"] = status
@@ -360,7 +360,7 @@ func (s *Service) cutOver(ctx context.Context, request TrustAnchorCutoverRequest
 			"name":            view.Name,
 			"certInPemFormat": pem,
 			// What the source had, or what the caller asked for instead. Forcing
-			// this to true is what made a cutover quietly grant a CA the run of a
+			// this to true would let a cutover quietly grant a CA the run of a
 			// tenant it had only been trusted in; see the request field.
 			"autoRegistrationEnabled": autoRegistration,
 		}))
@@ -397,7 +397,7 @@ func (s *Service) cutOver(ctx context.Context, request TrustAnchorCutoverRequest
 	// devices this CA may bring into that tenant.
 	//
 	// The second read is for a disagreement rather than for a false: the create
-	// response does not always carry the field, and now that false can be the
+	// response does not always carry the field, and since false can be the
 	// answer somebody asked for, reading an absent field as "wrong" would send a
 	// deliberate choice back for confirmation every time.
 	inTargetNow := gjson.GetBytes([]byte(created.Data.Raw()), "autoRegistrationEnabled").Bool()
@@ -412,12 +412,12 @@ func (s *Service) cutOver(ctx context.Context, request TrustAnchorCutoverRequest
 		}
 	}
 
-	// This used to tell the operator that the fleet still had to be pointed at the
-	// target's hostname, on the belief that the platform resolves the tenant from
-	// the hostname first. Measured false within one instance: a device dialling the
-	// source host with a chain only the target trusted arrived in the target. Both
-	// tenants here are on this instance by construction - a tenant elsewhere cannot
-	// be subscribed to this service - so there is no device-side half to warn about.
+	// The fleet does not have to be pointed at the target's hostname. Within one
+	// instance the platform routes a connection by the certificate it presents,
+	// not by the hostname it dials - measured: a device dialling the source host
+	// with a chain only the target trusts arrives in the target. Both tenants
+	// here are on this instance by construction - a tenant elsewhere cannot be
+	// subscribed to this service - so there is no device-side half to warn about.
 	message := fmt.Sprintf(
 		"%s now trusts this certificate and %s no longer does. The devices chained to it "+
 			"arrive in %s on their next connection, with nothing to change on the device: "+

@@ -77,7 +77,7 @@ type MigrationRequest struct {
 	// Registration runs before the import, which is what makes each object
 	// belong to its own device user. The passwords are never written to this
 	// record - they are held in memory keyed by the job and collected once from
-	// GET /migrations/{id}/credentials.
+	// POST /migrations/{id}/credentials.
 	ProvisionCredentials bool `json:"provisionCredentials,omitempty"`
 
 	// DeviceSelfCredentials lets the migrated devices collect their own
@@ -158,7 +158,7 @@ type Job struct {
 	Revert  *RevertRequest    `json:"revert,omitempty"`
 
 	// RunID marks everything the run created in the target tenant, and is what
-	// a revert needs. Learned from the engine's own output.
+	// a revert needs. Read from the engine's own output.
 	RunID string `json:"runId,omitempty"`
 
 	RequestedBy string `json:"requestedBy,omitempty"`
@@ -218,9 +218,9 @@ func (j *Job) Finished() bool {
 //
 // The Job inside it is written by the worker and by the progress reporter, and
 // read by every request that asks after it, so it is guarded and only ever
-// handed out as a copy. Sharing the Job itself is what made a freshly queued
-// job report itself as already running: the response was being serialised while
-// the worker was starting on the very same struct.
+// handed out as a copy. Sharing the Job itself would let a freshly queued job
+// report itself as already running: the response would be serialised while the
+// worker starts on the very same struct.
 type queuedJob struct {
 	mu     sync.Mutex
 	job    Job
@@ -239,9 +239,9 @@ func (q *queuedJob) with(change func(*Job)) Job {
 //
 // The pair with publish exists for one reason: a job must not report itself
 // finished before its record says so. The API answers from the running job while
-// there is one, so publishing a terminal status first meant a caller could poll
-// until a migration was done, act on it, and be refused by a record that still
-// said RUNNING with no run id - which is a migration nobody can undo.
+// there is one, so publishing a terminal status first would mean a caller could
+// poll until a migration was done, act on it, and be refused by a record that
+// still says RUNNING with no run id - which is a migration nobody can undo.
 func (q *queuedJob) pending(change func(*Job)) Job {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -341,7 +341,7 @@ func (s *Service) Enqueue(ctx context.Context, request MigrationRequest, caller 
 	// remote target is reached with a device access token obtained from a
 	// certificate, whose effective roles are the device ones. It cannot
 	// bulk-register anything, which is exactly what both routes need to create a
-	// device user. See docs/platform-behaviour.md for what that token can do.
+	// device user.
 	//
 	// certificateFleet is deliberately *not* refused here. It creates no user -
 	// only an owner on objects that same token creates and therefore already
@@ -460,7 +460,7 @@ func (s *Service) Cancel(ctx context.Context, jobID string) error {
 
 	if ok {
 		// Outside the service lock: stopping takes the job's own lock, and
-		// holding both at once is how lock orders get learned the hard way.
+		// holding both at once risks a deadlock on lock order.
 		running.stop()
 		return nil
 	}
@@ -468,8 +468,7 @@ func (s *Service) Cancel(ctx context.Context, jobID string) error {
 	// Not running here. Either it finished between the screen being drawn and
 	// the button being pressed, or its container was replaced and the record was
 	// left saying RUNNING. Both deserve better than "running job X does not
-	// exist", which is what this used to answer: the first is over, and the
-	// second is settled by asking.
+	// exist": the first is over, and the second is settled by asking.
 	job, err := s.Record(ctx, jobID)
 	if err != nil {
 		return err
@@ -564,8 +563,9 @@ func (s *Service) run(parent context.Context, queued *queuedJob) {
 	s.record(closing, &finished)
 
 	// Only now. Until this line the API answers RUNNING from memory, which is
-	// merely out of date; the other order was wrong - it said SUCCEEDED while
-	// the record, which is what everything else reads, said nothing of the kind.
+	// merely out of date; the other order would be wrong - it would say
+	// SUCCEEDED while the record, which is what everything else reads, says
+	// nothing of the kind.
 	queued.publish(finished)
 
 	// A migration that just succeeded may be one its devices can collect a
@@ -768,15 +768,15 @@ const stagingRootPrefix = "c8y-devicemigration-"
 // pointed at it so the engine's own os.MkdirTemp("") lands inside.
 //
 // The alternative - sweeping the shared temporary directory for anything with
-// the prefix above - looked equivalent and was not: it deletes staging
-// directories belonging to any other process doing the same work, which is
-// exactly what happened the first time the test suites of two packages ran at
-// once and one of them lost its export mid-write. Owning a root makes the sweep
-// incapable of reaching anybody else's files.
+// the prefix above - is not equivalent: it deletes staging directories
+// belonging to any other process doing the same work, such as another
+// package's test suite running at the same time, which then loses its export
+// mid-write. Owning a root makes the sweep incapable of reaching anybody else's
+// files.
 //
 // The environment is changed once, here, before anything else runs. Doing it per
-// job from a worker goroutine - which an earlier version did - moves the whole
-// process's temporary directory around underneath everything else in it.
+// job from a worker goroutine would move the whole process's temporary directory
+// around underneath everything else in it.
 func (s *Service) prepareStaging() error {
 	// Beside an existing root of ours, never inside it. os.TempDir() reads
 	// TMPDIR, which this function sets - so a second service in one process

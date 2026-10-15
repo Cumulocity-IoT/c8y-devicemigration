@@ -18,9 +18,9 @@ import { DeviceMigrationIconComponent } from './device-migration-icon.component'
  * A component supplied through `NavigatorNode.iconComponent` replaces the
  * platform's own `c8y-navigator-icon`, and Angular names the host element after
  * that component's selector - so a differently named host matches none of those
- * rules. The entry then sits flush against the rail with its label crowding it,
- * which is exactly what it did. `.icon` inside carries the size, the same way
- * the platform's own component does (`<i class="icon" [c8yIcon]="icon">`).
+ * rules. The entry then sits flush against the rail with its label crowding it.
+ * `.icon` inside carries the size, the same way the platform's own component
+ * does (`<i class="icon" [c8yIcon]="icon">`).
  *
  * Sharing the selector with the platform's component is safe because this one is
  * only ever created dynamically, by the navigator, through `createComponent` -

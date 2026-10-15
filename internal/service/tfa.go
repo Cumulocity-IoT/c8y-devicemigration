@@ -14,8 +14,8 @@ import (
 // The library has no way to add a header to a single request - api.WithAuth
 // carries credentials and nothing else - so this adds the one seam it does
 // offer: a request middleware on the exported resty client, reading a value the
-// caller put on the context. Without it a two-factor session fails verification
-// for the same reason a cookie session did before this change.
+// caller put on the context. Without it the platform refuses to verify a
+// two-factor session, because the verifying request lacks the token it requires.
 
 // tfaTokenKey is the context key the middleware reads.
 type tfaTokenKey struct{}

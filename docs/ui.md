@@ -7,12 +7,6 @@ It drives [the microservice](microservice.md), which means the microservice has 
 be deployed and subscribed first — the UI holds no credentials of its own and
 talks to no tenant directly.
 
-> **Status: increments B, C and D.** The plugin, the generated API client, the
-> list of past migrations with revert, the dialogue that starts a new one, and
-> live progress. None of it has been opened in a browser against a real tenant
-> yet. The design it was built to is in the
-> [UI design](https://claude.ai/code/artifact/42204d1b-d968-4030-b1e9-aeca0cb8c8cd).
-
 ## Installing it
 
 ```sh
@@ -74,10 +68,10 @@ Two things are deliberate about that shape.
 
 **The types are generated, and staleness fails the build.** `make check` runs
 `ui-types-freshness`, which regenerates from the document and refuses to pass if
-the committed file differs — the same treatment the docopt parsers and the
-command reference already get. It earned its place immediately: with `default:`
-values in the document, the generator made `childTypes` a *required* field, so
-calling the API the way the API actually allows would not have compiled.
+the committed file differs. The generator runs with
+`--default-non-nullable=false`, because otherwise a `default:` value in the
+document makes the field — `childTypes` among them — *required*, and calling the
+API the way the API actually allows would not compile.
 
 **The logic is not in Angular.** Everything worth testing — which failure means
 what, whether a progress line can be believed, whether a run can still be undone,
@@ -89,10 +83,11 @@ tested without a browser or a dependency injector. The Angular pieces are wiring
 **The list is the screen.** Migrations are occasional, and the useful question on
 opening this is what happened last time — not what to do next. So `/device-migration`
 is the history: migrations and reverts together, newest first, with the run id,
-who asked, and either **Cancel** or **Revert**. **New migration** opens the
-dialogue over it, from the shell's own **action bar** rather than a button placed
-over the list — that is where Cumulocity puts a screen's actions, so it is where
-somebody looks for them. It is registered inside the migrations branch of the
+who asked, and a menu of what can be done with each row — **Cancel** while it
+runs, **Revert** once it has finished, and the others described below. **New
+migration** opens the dialogue over it, from the shell's own **action bar**
+rather than a button placed over the list — that is where Cumulocity puts a
+screen's actions, so it is where somebody looks for them. It is registered inside the migrations branch of the
 template, so a target tenant, which has no microservice to start a migration
 with, does not offer the action at all.
 
@@ -102,19 +97,18 @@ them itself, and brings its own refresh button and column chooser. Sorting
 defaults to **Start time, newest first**, which is the useful order for a list of
 things that happened.
 
-**The actions are the one part of the grid this screen does not use.** Cancel,
-Revert, Migration log and Remove migration record were its **row actions** to
-begin with, which is the right thing to reach for and was fine while there were
-two of them: the grid renders two as icons in the row, and three or more as one
-icon plus a `⋮` menu holding the rest. That threshold is written into its template —
-`| slice: 0 : (length > 2 ? 1 : 2)` — and there is no input for it. So the third
-action made the *affordance itself* depend on what had happened to a migration:
-a run nobody had undone wore a menu, the reverted row under it wore two buttons,
-and *Remove migration record* was in a different place on adjacent rows.
+**The actions are the one part of the grid this screen does not use.** The grid's
+**row actions** are the right thing to reach for while there are two of them: the
+grid renders two as icons in the row, and three or more as one icon plus a `⋮`
+menu holding the rest. That threshold is written into its template —
+`| slice: 0 : (length > 2 ? 1 : 2)` — and there is no input for it. So a third
+action makes the *affordance itself* depend on what has happened to a migration:
+a row offering three wears a menu, the row under it offering two wears two
+buttons, and the same action is in a different place on adjacent rows.
 
-There are now six of them — Cancel, Download device credentials, Move trust
-anchor, Revert, Migration log and Remove migration record — and no row offers all
-six, so under the grid's own rule the layout would differ on almost every line.
+There are six of them — Cancel, Download device credentials, Move trust anchor,
+Revert, Migration log and Remove migration record — and no row offers all six, so
+under the grid's own rule the layout would differ on almost every line.
 
 The last column is therefore ours: **one `⋮` menu, on every row, holding whatever
 that row offers** — the grid's own markup, classes and placement, rendered by
@@ -135,8 +129,8 @@ fine. For tens of thousands it would not be, and the answer then is either the
 paged listing in the service. There is none today, and this is the honest
 description of that.
 
-**Source and target are columns of their own.** They used to be a phrase in
-*What*; a column can be sorted and read down a page, and a phrase cannot. Each
+**Source and target are columns of their own** rather than a phrase beside the
+root: a column can be sorted and read down a page, and a phrase cannot. Each
 shows the tenant's name and id — or its host and id where tenant management is
 not readable — and *Root object* shows the migrated object by name as well as
 by id, from `rootName` on the record. It is named for what it holds: the root of
@@ -149,26 +143,25 @@ the outcome qualifies the sentence, so it follows it instead of leading it.
 
 **Three columns are narrowed to what they can actually hold.** The grid's default
 track for short text is `minmax(80px, 1.67fr)`, which hands a fixed-length value
-the same room as a tenant name that can run on. *Status* holds one glyph, so it
-is `Icon`, whose own track is `max-content`; *Start time* is a date and a time and
-no more, so `minmax(120px, 0.8fr)`; *Duration* is `Numeric` — the narrow ratio,
-and figures that line up when read down the page — at `minmax(80px, 0.5fr)`.
+the same room as a tenant name that can run on. *Status* holds one tag, so
+`minmax(120px, 0.8fr)` — wide enough for the longest, *Revert failed*, and no
+wider; *Start time* is a date and a time and no more, so the same; *Duration* is
+`Numeric` — the narrow ratio, and figures that line up when read down the page —
+at `minmax(80px, 0.5fr)`.
 
-That last one needed the values shortened before the column could shrink. A
-duration used to read *took 1 h 30 min* when finished and *running for 1 h 30
-min* while going, and the second was the widest thing the column could hold. Both
-prefixes said something the screen already said — the header says Duration, and
-the status column says whether it is still running — so the value is now the bare
-span either way, and only the number moves.
+That last one relies on the values being short. A duration is the bare span —
+*1 h 30 min* — whether the run has finished or is still going, with no *took* or
+*running for* in front of it: the header says Duration, and the status column
+says whether it is still running, so only the number moves.
 
 **The list is ordered by Start time, newest first — on the raw value, not the
 formatted one.** This is worth writing down because getting it wrong looks like
 it works. The grid sorts and searches on whatever a column's `path` points at,
 and nothing else: `doClientSideSorting` reads `get(item, path)` and ignores
 `sortingConfig`, which only ever reaches a server-side query. Pointed at the
-locale-formatted date, it sorted a *string* — so `01/09/26` came before
-`28/08/26` and "newest first" quietly meant "alphabetically first". The column's
-path is therefore the ISO timestamp the service recorded, which sorts
+locale-formatted date, it would sort a *string* — so `01/09/26` would come
+before `28/08/26` and "newest first" would quietly mean "alphabetically first".
+The column's path is therefore the ISO timestamp the service recorded, which sorts
 chronologically because it is UTC and fixed-width, and
 [timestamp-cell.component.ts](../ui/src/history/timestamp-cell.component.ts)
 renders the locale-formatted text in its place. The one cost is that the search
@@ -187,14 +180,14 @@ would land.
 
 **Status is one of the platform's tags, and it says one thing.** `.tag` is
 Cumulocity's own tag component — the stylesheet marks the older `.label`
-deprecated in its favour — so *Completed* is the light green on dark green the
+deprecated in its favour — so *Succeeded* is the light green on dark green the
 platform means by success, and this list looks like the screens around it.
 
-The important half is *one* status. A migration that had been undone used to read
-"Succeeded — already undone": two facts joined by a dash that the reader had to
-combine, and a wrong one, because the objects of a migration that was reverted are
-not in the target tenant any more. The row now says **Reverted**. The full set is
-the job's own status until an undo exists, and then the undo's: **Reverting**
+The important half is *one* status. A migration that has been undone reads
+**Reverted**, not "Succeeded — already undone": that would be two facts joined by
+a dash for the reader to combine, and a wrong one, because the objects of a
+migration that was reverted are not in the target tenant any more. The full set
+is the job's own status until an undo exists, and then the undo's: **Reverting**
 while one is going, **Reverted** when one succeeded, and **Revert failed** when
 one did not — that last said out loud rather than left in the expansion, because
 a half-deleted migration reading *Succeeded* would be the most misleading thing
@@ -203,14 +196,14 @@ about what cannot be believed — is the tag's tooltip. The decision is
 [`outcome`](../ui/src/history/rows.ts) with tests;
 [status-cell.component.ts](../ui/src/history/status-cell.component.ts) is wiring.
 
-**A migration and the undo that cancelled it are one row.** The undo used to be a
-row of its own, elsewhere in the list, naming its migration by run id and nothing
-else — so learning what had been undone meant matching ids by eye, and the two
-rows need not even be adjacent. Now every migration is expandable
+**A migration and the undo that cancelled it are one row.** An undo listed as a
+row of its own would name its migration by run id and nothing else — so learning
+what had been undone would mean matching ids by eye, across two rows that need
+not even be adjacent. Instead every migration is expandable
 (`expandableRows="SYNC"`, with the panel projected through the grid's own
-`[c8yExpandableRow]`), and the expansion carries everything the undo's row
-carried: its outcome as a tag, when it ran, who ran it, how long it took, its own
-run id and its own **Migration log**. Including when it failed — which is the
+`[c8yExpandableRow]`), and the expansion carries everything such a row would: its
+outcome as a tag, when it ran, who ran it, how long it took, its own run id and
+its own **Migration log**. Including when it failed — which is the
 case that matters most, and the reason the undo is not simply folded away into
 the migration's status. Several undos of one migration are listed newest first,
 which happens when a first attempt failed and a second finished the job.
@@ -232,10 +225,10 @@ an omitted `dataTypes` really does mean none.
 **The credentials line is said even when it says "None"**, which is the whole
 reason it exists. *Download device credentials* is offered only while the file is
 still there to collect — the service hands it over once and forgets it — so as
-soon as somebody had downloaded it, a migration that provisioned a device user
-per device was indistinguishable from one that never did. The count comes from
-`credentialsIssued` on the job record rather than from the service's memory, so
-it survives the download and a restart.
+soon as somebody has downloaded it, a migration that provisioned a device user
+per device would otherwise be indistinguishable from one that never did. The
+count comes from `credentialsIssued` on the job record rather than from the
+service's memory, so it survives the download and a restart.
 
 The other two answers say so as well. A migration whose devices **collect their
 own** carries a live count beside it —
@@ -254,7 +247,7 @@ are across and the devices are not, until the trust anchor moves.
 
 **An expanded row survives the refresh.** The grid remembers which rows are open
 in a `Map` keyed by the **row object itself**, so handing it a fresh array every
-few seconds silently collapsed whatever the reader had open.
+few seconds would silently collapse whatever the reader had open.
 [`keepingIdentity`](../ui/src/history/rows.ts) hands back the previous object for
 any row whose content is unchanged, so those keys still match; only a row that
 genuinely changed becomes a new object, and only that row closes — which is
@@ -268,10 +261,9 @@ the records is a real thing, and a job with no parent to sit under must not beco
 a job that is nowhere.
 
 **The expansion is laid out as definition lists on a two-column grid.** Labels on
-one axis, values on the other. It was a flex row of a tag, a date and a username
-to begin with, which lined up on none of them: `.tag` carries
-`align-self: flex-start` and a smaller font than the text beside it, so it rode
-up above its own line.
+one axis, values on the other. A flex row of a tag, a date and a username would
+line up on none of them: `.tag` carries `align-self: flex-start` and a smaller
+font than the text beside it, so it rides up above its own line.
 
 **A migration that has already been undone is not offered for undoing again.** A
 successful revert for its run id is what says so; one that failed or was cut
@@ -279,10 +271,11 @@ short leaves the offer standing, because a revert deletes what carries the marke
 and running it again finds whatever the first one left — which the status says as
 *Revert failed*, with the half-deleted caveat in its tooltip.
 
-**An undo is confirmed before it runs.** It is the one destructive thing this
-screen does, and it used to happen on a single click of a menu item sitting two
-pixels from *Migration log*. The dialogue names the root, the tenant it deletes
-from, when the migration ran, what it included, and the run marker itself —
+**An undo is confirmed before it runs**, as are the other two actions that change
+something for good: *Remove migration record* and *Move trust anchor*. Without a
+confirmation, deleting what a migration created would be a single click on a menu
+item sitting next to *Migration log*. The dialogue names the root, the tenant it
+deletes from, when the migration ran, what it included, and the run marker itself —
 `c8y_DeviceMigration_<runId>` — because that is the part that makes the promise
 checkable: it is what somebody pastes into an inventory query to see the objects
 for themselves before agreeing.
@@ -350,10 +343,10 @@ decides which devices the certificate may bring into the target — with it on,
 anything presenting a chain to that authority registers itself there, including
 devices no migration covered. Starting it where the source has it means moving
 the certificate changes nothing by itself, and turning it on is a decision
-somebody takes; the service used to force it on, and a tenant that had
-deliberately trusted a CA without it got it switched on with nothing saying so. A
-line under the box says what the current setting means, and which of the three
-things it is: unchanged, widened, or off.
+somebody takes; forcing it on would switch it on, with nothing saying so, for a
+tenant that had deliberately trusted a CA without it. A line under the box says
+what the current setting means, and which of the three things it is: unchanged,
+widened, or off.
 
 On success the dialogue shows `autoRegistrationEnabled` **read back from the
 target**, and distinguishes the two things a `false` can mean — what was asked
@@ -376,7 +369,7 @@ rather than as an alert: it is not a warning and nothing needs dismissing. Both
 `card` and `card-block` are needed and they do different halves of the job —
 `.card` carries the surface and the elevation, `.card-block` only the padding
 inside it, because it is written to sit in a card. The **icon leads**, on the
-left: on the right it read as decoration, and on the left it is what identifies
+left: on the right it reads as decoration, and on the left it is what identifies
 the feature.
 
 Each bullet is one translatable sentence carrying its own `<strong>` emphasis,
@@ -433,7 +426,7 @@ true before a migration can run — the source subscribed, the target subscribed
 trusted with a certificate — is stated at the top of **New migration** instead,
 because that is where somebody acts on it: the source dropdown offers only
 subscribed tenants, and the certificate is set up a few fields below. On the list
-page it was advice with nothing to do about it.
+page it would be advice with nothing to do about it.
 
 Whether a run can be undone is decided in one place and pinned by tests, because
 three separate things make it impossible: a revert creates nothing, so there is
@@ -444,7 +437,7 @@ and a run still going has not finished creating what an undo would delete.
 **A row can be removed from the list, which is not the same as undoing it.**
 *Remove migration record* deletes the service's record of a run —
 `DELETE /migrations/{id}` — and nothing else: both tenants are untouched, and
-whatever the migration created stays where it is. Two destructive actions now sit
+whatever the migration created stays where it is. Two destructive actions sit
 in one menu and they destroy opposite things, so the confirmation leads with the
 difference rather than with "this cannot be undone", which is true of either.
 
@@ -472,11 +465,10 @@ being pressed leaves the dialogue open carrying the service's own words instead 
 half a deletion.
 
 **The engine's own log is offered per row**, on the rows that have any, as
-*Migration log* — which is what it is; *Output* named neither whose nor of what.
-It is the only account of what a run actually did and the only way to diagnose a
-failure, and since the dialogue is gone by the time a job runs, the list is where
-it has to be. The dialogue it opens carries the same name, so the action and the
-window agree.
+*Migration log* — which is what it is. It is the only account of what a run
+actually did and the only way to diagnose a failure, and since the dialogue is
+gone by the time a job runs, the list is where it has to be. The dialogue it
+opens carries the same name, so the action and the window agree.
 
 **A running migration is followed in the list, not in the dialogue.** The list
 reads itself again every **30 seconds** normally and every **second** while
@@ -488,11 +480,11 @@ quietly out of date.
 The gap between the two numbers is the whole point. Every read costs the service
 three calls and a round trip to the platform to verify the caller, so idling is
 deliberately slow; but a migration is the one thing on this screen worth
-watching, and at ten seconds it did not look like anything was happening — the
-device counter and the progress bar moved in jumps, which reads as a stuck job
-rather than a working one. The fast cadence is bounded in two ways: it lasts only
-as long as a job does, and the next read is scheduled in `load`'s `finally`, so it
-is a gap *between* reads rather than a rate. A slow answer stretches the cycle
+watching, and at ten seconds it would not look like anything was happening — the
+device counter and the progress bar would move in jumps, which reads as a stuck
+job rather than a working one. The fast cadence is bounded in two ways: it lasts
+only as long as a job does, and the next read is scheduled in `load`'s `finally`,
+so it is a gap *between* reads rather than a rate. A slow answer stretches the cycle
 instead of queueing another request behind it.
 
 It also depends on [`keepingIdentity`](../ui/src/history/rows.ts) to be bearable:
@@ -502,12 +494,10 @@ row a second after it was opened.
 **Starting one is a bottom drawer, not a modal.** `BottomDrawerService.openDrawer`
 with the platform's own `c8y-bottom-drawer` — the component Cumulocity provides
 for exactly this, a wide scrolling workspace over the page you came from. It
-arrives at the right size by definition, which is the point: the modal it
-replaced carried a hand-written width, a mobile breakpoint and a fixed body
-height, all arithmetic against the viewport, and all of it unencapsulated because
-the element being sized (`.modal-dialog`) was an ancestor the component could not
-otherwise reach. Every one of those rules is gone, and so is
-`ViewEncapsulation.None`.
+arrives at the right size by definition, which is the point: a modal would need
+a hand-written width, a mobile breakpoint and a fixed body height, all arithmetic
+against the viewport, and all of it unencapsulated because the element being
+sized (`.modal-dialog`) is an ancestor the component cannot otherwise reach.
 
 The drawer hosts its content in a full-height flex column, so the dialogue is the
 three parts the platform's own drawers use: a `card-header` that stays, an
@@ -519,8 +509,7 @@ not throw that away.
 
 **It settles a promise rather than emitting an event.** `result` resolves with the
 new job's id and rejects when the operator backs out — the convention the
-platform's drawers use, and what the list awaits to decide whether to reload. The
-`started` output it used to carry said the same thing twice and is gone.
+platform's drawers use, and what the list awaits to decide whether to reload.
 
 **The dialogue has no steps.** Source on the left, target and scope on the right,
 what would move underneath. There is room for all of it, and hiding the target
@@ -547,15 +536,14 @@ ignores an empty string and could not otherwise be cleared. The help text says
 which form to prefer.
 
 **The estimate's columns are declared, not inferred.** A table is laid out from
-whatever is in it, so a row reading *not included* where another has a figure made
-every column shift sideways as the numbers arrived. The widths are in a
-`colgroup` with `table-layout: fixed`, and the value column stays numeric — a kind
-that is not included says so in the notes column beside it.
+whatever is in it, so a row reading *not included* where another has a figure
+would make every column shift sideways as the numbers arrived. The widths are in
+a `colgroup` with `table-layout: fixed`, and the value column stays numeric — a
+kind that is not included says so in the notes column beside it.
 
-**The dialogue does not change size.** The drawer's own geometry sees to that
-now: it is the same panel whatever is in it, and the body scrolls. A dialogue that
-grows while somebody is reading it moves the button they were about to press,
-which is what the fixed height used to be defending against by hand.
+**The dialogue does not change size.** The drawer's own geometry sees to that:
+it is the same panel whatever is in it, and the body scrolls. A dialogue that
+grows while somebody is reading it moves the button they were about to press.
 
 Inside it, the same rule applies to the parts that would otherwise jump: the
 estimate has a row for every data kind whether or not it is ticked — reading
@@ -649,10 +637,10 @@ The sentence **stays on screen while they are open**, and is **derived from the
 choices** rather than fixed, so it reads back what each tick just did and folding
 the controls away never hides a choice somebody has just made. It is also why
 there is no separate hint about unticking everything: with nothing ticked the
-sentence says *only this object is migrated, without any children*, which is the
-same thing the hint used to say and is now said in the one place that is always
-true. Unticking everything and asking for no children are the same request, which
-is how it is built as well.
+sentence says *only this object is migrated, without any children*, which is what
+such a hint would say, said in the one place that is always true. Unticking
+everything and asking for no children are the same request, which is how it is
+built as well.
 
 It is assembled in [`hierarchy.ts`](../ui/src/migrate/hierarchy.ts) from whole
 sentences rather than fragments, so a translator gets grammar rather than a list
@@ -696,11 +684,11 @@ tenant rather than by the reader:
 | the microservice **is** subscribed | the migration list — the feature proper |
 | it is **not** | the trust-a-certificate page, which is the one useful thing such a tenant can do |
 
-The navigator used to carry both as separate entries. That put the plugin's
-internals in front of people with no way to read them: *Trust a migration
-certificate* exists as a separate screen only because a target tenant has no
-microservice, which is not something somebody browsing a menu should have to
-know. What they want is the feature, and the feature has one name.
+Two separate entries would put the plugin's internals in front of people with no
+way to read them: *Trust a migration certificate* exists as a separate screen
+only because a target tenant has no microservice, which is not something somebody
+browsing a menu should have to know. What they want is the feature, and the
+feature has one name.
 
 The question behind it is asked once, of the platform, by
 [`serviceReachable`](../ui/src/api/availability.ts): a `GET` on the microservice's
@@ -739,12 +727,12 @@ that chain — `InventorySearchService`, `AssetNodeService`, `GroupNodeService`,
 `DeviceGroupService` — so each of them resolves the proxied client rather than the
 application's own.
 
-One more thing about that component is worth writing down, because it looked
-exactly like a broken picker: `onSelected` does not emit the selected object. It
-emits an envelope — `{ items, change }` — where `items` is the selection *after*
-the change, one object in single-select and an array in multi. Reading it as the
-object meant every click was silently dropped and the dialogue went on asking for
-a device. The reading of it lives in
+One more thing about that component is worth writing down, because getting it
+wrong looks exactly like a broken picker: `onSelected` does not emit the selected
+object. It emits an envelope — `{ items, change }` — where `items` is the
+selection *after* the change, one object in single-select and an array in multi.
+Reading it as the object means every click is silently dropped and the dialogue
+goes on asking for a device. The reading of it lives in
 [selection.ts](../ui/src/migrate/selection.ts) with tests, and clearing the
 selection needs no special case: it arrives as a selection with nothing in it.
 
@@ -758,15 +746,14 @@ choosing a different source destroys it and builds a new one — the selector an
 its services cache what they have fetched, and a cache filled from one tenant
 must never be shown for another.
 
-This replaced a `c8y-data-grid` fed from our own inventory endpoints. That
-worked, and it had neither real paging nor real search — both of which the
-selector has, along with the rest of what a picker eventually needs. Those
-endpoints are still there and still documented: they are a reasonable way to
-script the same question, and they are what any client that is not a Cumulocity
-UI would use.
+The microservice's own inventory endpoints are not what the picker reads: a
+`c8y-data-grid` fed from them would have neither real paging nor real search —
+both of which the selector has, along with the rest of what a picker eventually
+needs. Those endpoints are still there and still documented: they are a
+reasonable way to script the same question, and they are what any client that is
+not a Cumulocity UI would use.
 
-Two rules are worth stating because they are easy to get wrong and were tested
-first:
+Two rules are worth stating because they are easy to get wrong:
 
 - **Changing anything that changes what would move voids the estimate.** A new
   data window, different child types, a different root. An estimate that
@@ -783,15 +770,15 @@ worse than no bar.
 
 It is shown **only while a job is running**, which is not the same as "whenever a
 line can be found": the line stays in the log after the job is over, and reading
-it from there left finished migrations wearing a full bar for good. A finished job
-has an outcome, not progress. What every row does carry is how long it has been
-going, or how long it took.
+it from there would leave finished migrations wearing a full bar for good. A
+finished job has an outcome, not progress. What every row does carry is how long
+it has been going, or how long it took.
 
 ### The credentials download
 
-A migration can provision a device user per device — the dialogue's **Device
-credentials** box — and the passwords are then downloadable from the migration's
-row, once.
+A migration can provision a device user per device — the dialogue's **New
+credentials, provided as download** answer — and the passwords are then
+downloadable from the migration's row, once.
 
 Once is not a figure of speech. The service holds the file in memory and drops it
 as it serves it, so the action disappears after the download and there is no way
@@ -814,9 +801,9 @@ would spend the one read on nothing. The object URL is revoked in a `finally`, s
 the blob does not keep a list of working passwords reachable for the life of the
 page.
 
-The box is **hidden** for a remote target rather than disabled: that target is
-reached with a device access token, which cannot register devices at all, so
-there is nothing to explain about a control that could never be used.
+That answer is **hidden** for a remote target rather than disabled, with a line
+saying why: that target is reached with a device access token, which cannot
+register devices at all.
 
 ## Languages
 
@@ -848,10 +835,10 @@ Three things about the arrangement are worth knowing:
   Capitalisation is not translation: `device` is `Gerät`, and no amount of it
   would have got there.
 - **A sentence with a number in it is one string**, not fragments concatenated:
-  `took {{ minutes }} min` is a key a translator can rearrange, and German needs
-  to (`dauerte {{ minutes }} Min.`). That is why durations come back from
-  [rows.ts](../ui/src/history/rows.ts) as a key and its parameters rather than as
-  finished text.
+  `{{ hours }} h {{ minutes }} min` is a key a translator can rework, and German
+  needs to (`{{ hours }} Std. {{ minutes }} Min.`). That is why durations come
+  back from [rows.ts](../ui/src/history/rows.ts) as a key and its parameters
+  rather than as finished text.
 - **The service's own error messages are not translated.** They are shown as they
   arrive: somebody may have to search for one, and a paraphrase makes that
   harder. They still pass through the pipe, where a key with no entry falls back
@@ -861,15 +848,14 @@ Three things about the arrangement are worth knowing:
 can show has a German entry, no entry survives the string it belonged to, nothing
 is left blank, and every `{{ parameter }}` survives translation. It also checks
 the templates themselves — a string can be in every catalogue and still arrive in
-English if the `| translate` is missing, which is exactly what happened to the
-checkbox labels. All of it fails loudly, because the alternative is invisible: the
-fallback is English, and English is what the team reads.
+English if the `| translate` is missing. All of it fails loudly, because the
+alternative is invisible: the fallback is English, and to anybody reading in
+English a missing translation looks like nothing at all.
 
 **Timestamps are the platform's**, through its `c8yDate` pipe, which formats in
 the language and date format the person reading has chosen — `27/08/2026` for
 `en`, `8/27/26` for `en-US`, `27.08.2026` for `de`. Angular's own `date` pipe
-formats in the application's build-time locale, which is not the same thing and
-was what this used at first.
+formats in the application's build-time locale, which is not the same thing.
 
 ## Development
 
@@ -900,7 +886,7 @@ browser on the host still opens `localhost:4200`, which the sandbox pins to the
 host's loopback.
 
 The shell is configured in `angular.json` as `shell: administration`. Two things
-about that configuration are easy to get wrong and were:
+about that configuration are easy to get wrong:
 
 - **`buildTarget` is required** by the dev-server builder. Without it `ng serve`
   refuses to start, while `ng build` is perfectly happy — so a plugin can build

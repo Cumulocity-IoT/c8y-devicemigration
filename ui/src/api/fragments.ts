@@ -5,11 +5,10 @@
  * writes them and this plugin queries for them, so neither end can change one
  * alone. They are spelled out in Go as `importer.MarkerPrefix` and
  * `service.IssuedFragment`, and a Go test reads this file and fails if the two
- * ever disagree - the same way the Go engine's output is pinned against the bash
- * implementation's.
+ * ever disagree.
  *
- * Here rather than inline because the marker prefix was already written out by
- * hand in a template, which is exactly how a duplicate drifts unnoticed.
+ * Here rather than inline because a prefix written out by hand in a template is
+ * exactly how a duplicate drifts unnoticed.
  */
 
 /**

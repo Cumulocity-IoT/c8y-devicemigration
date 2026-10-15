@@ -139,9 +139,8 @@ func TestNoChildrenExportsOnlyTheRoot(t *testing.T) {
 	}
 }
 
-func TestChildIndexFilesMatchJqFormatting(t *testing.T) {
-	// These files are compared byte for byte against the bash export, so the
-	// two-space indent and the trailing newline are part of the contract.
+func TestChildIndexFilesAreIndentedWithATrailingNewline(t *testing.T) {
+	// The two-space indent and the trailing newline are part of the contract.
 	dir, _, err := run(t, "hierarchy.json", export.Options{RootID: "1", ChildTypes: export.DefaultChildTypes})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -158,8 +157,7 @@ func TestChildIndexFilesMatchJqFormatting(t *testing.T) {
 }
 
 func TestIdentityFilesKeepTypeBeforeExternalID(t *testing.T) {
-	// jq emits the keys in the order the map literal gives them, which is type
-	// first even though the c8y --select order is the reverse.
+	// Type first, as the artefact format has it.
 	dir, _, err := run(t, "hierarchy.json", export.Options{RootID: "1", ChildTypes: export.DefaultChildTypes})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -321,13 +319,8 @@ func TestObjectBodyIsPassedThroughByteForByte(t *testing.T) {
 	//
 	// Go's encoding/json renders float64(600) as "600", so a round trip through
 	// map[string]any would rewrite 600.0 and lose the distinction between an
-	// absent field and an explicit null. tests/fixtures/export-9object holds
-	// both, captured from a real tenant, so this is a real customer's data being
-	// silently changed - not a hypothetical.
-	//
-	// The differential test cannot catch this on its own: the fake pretty-prints
-	// with the same two-space indent Go would use, so re-encoding is invisible
-	// there. This asserts the property directly.
+	// absent field and an explicit null. Real managed objects hold both, so this
+	// would be a customer's data being silently changed - not a hypothetical.
 	const body = `{
   "id": "1",
   "name": "Precision",

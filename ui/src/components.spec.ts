@@ -7,8 +7,7 @@ import { dirname, join } from 'node:path';
  * Angular enforces that for *elements* - an unknown tag is a build error - but
  * not for *attributes*: `c8yIcon` on an `<i>` without CoreModule imported is
  * simply inert. The template compiles, the type check passes, the template check
- * passes, and the button renders an empty box. That is exactly how a help button
- * shipped with no icon in it.
+ * passes, and the button renders an empty box.
  *
  * So this walks every component and checks the pairing itself. It is a crude
  * check - text in a file, not a parse - and crude is the point: it costs nothing
@@ -40,7 +39,7 @@ function sourceFiles(directory: string): string[] {
  *
  * The decorator's array, not the file: an `import { CoreModule } from …` line
  * survives removing the module from the array, so a check over the whole file
- * passes on exactly the bug this is for. Found by breaking it on purpose.
+ * passes on exactly the bug this is for.
  */
 function declaredImports(source: string): string {
   const declared = /imports:\s*\[([\s\S]*?)\]/.exec(source);
@@ -66,8 +65,8 @@ function templateOf(path: string, source: string): string {
  * and nothing in the build says so: it is valid markup that simply inherits
  * different styling.
  *
- * The second convention of this kind to be missed quietly, after the help
- * button. Both are cheap to check and invisible until a browser is open.
+ * A convention of the same kind as the imports above: cheap to check, and
+ * invisible until a browser is open.
  */
 describe('selects carry the platform wrapper', () => {
   it('wraps every select in c8y-select-wrapper', () => {
