@@ -11,9 +11,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Pinned rather than apt-installed: Ubuntu ships shellcheck 0.9.0, whose
-      # reachability analysis floods the generated docopt parser with SC2317
-      # false positives. Pinning keeps CI and local runs in agreement.
+      # Pinned rather than apt-installed: Ubuntu ships shellcheck 0.9.0. Pinning
+      # keeps CI and local runs in agreement.
       - name: Install shellcheck
         run: |
           version=0.11.0
@@ -25,23 +24,6 @@ jobs:
       - name: shellcheck
         run: make lint
 
-      # The argument parsers are generated from each command's DOC string. A
-      # stale DOC is caught at runtime (exit 70), but a hand-edited parser with
-      # an untouched DOC is not, so compare against a freshly generated parser.
-      - name: Install docopt-sh
-        run: pipx install docopt-sh==2.0.3
-
-      - name: Parser freshness
-        run: make parser-freshness
-
-      # The command reference in docs/extension.md is generated from the same
-      # DOC strings. A hand-edited option list is exactly the kind of drift
-      # nobody notices until someone follows the docs and it does not work.
-      - name: Command reference freshness
-        run: make docs-freshness
-
-  # The Go port. Separate job so a Go failure is distinguishable at a glance
-  # from a bash one, and so the matrix below stays about shell versions.
   go:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -63,19 +45,15 @@ jobs:
       - name: Build
         run: make go-build
 
-      # Includes the differential test, which runs the bash implementation and
-      # the Go one against the same fixture and diffs the artefacts and stderr.
-      # jq is what the bash side needs; bash is already present on both runners.
-      - name: Install jq
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y jq
-          else
-            brew list jq >/dev/null 2>&1 || brew install jq
-          fi
-
       - name: Test
         run: make go-test
+
+      # The command reference in docs/cli.md is generated from the binary's
+      # help. A hand-edited option list is exactly the kind of drift nobody
+      # notices until someone follows the docs and it does not work.
+      - name: Command reference is current
+        if: runner.os == 'Linux'
+        run: make docs-freshness
 
       # Cross-compiles every platform a release covers and packs the archives.
       # Nothing is uploaded - this only answers whether `make dist` still works,
@@ -84,8 +62,8 @@ jobs:
         if: runner.os == 'Linux'
         run: make dist VERSION=0.0.0-ci
 
-  # The user interface plugin. First job in this repository to need Node, and the
-  # only one that installs most of a gigabyte of Angular to do its work.
+  # The user interface plugin. The only job that needs Node, and the only one
+  # that installs most of a gigabyte of Angular to do its work.
   ui:
     runs-on: ubuntu-latest
     steps:
@@ -147,9 +125,8 @@ jobs:
       # --platform pin in the Dockerfile just becomes a no-op.
       #
       # No version is passed: the default is a snapshot of the version being
-      # developed, which is what a package built from a branch is. It used to be
-      # pinned to 0.0.0-ci, which said nothing at all. The commit this came from
-      # is the run's own, and the artifact below is named after it.
+      # developed, which is what a package built from a branch is. The commit
+      # this came from is the run's own, and the artifact below is named after it.
       - name: Build the package
         run: make service-package
 
@@ -203,62 +180,3 @@ jobs:
           path: build/*.zip
           if-no-files-found: error
           retention-days: 30
-
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # ubuntu gives bash 5, macOS gives bash 3.2 - the oldest shell these
-        # commands must run on, and where arrays and local scoping can bite.
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Show shell versions
-        run: |
-          echo "PATH bash:  $(bash --version | head -1)"
-          echo "/bin/bash:  $(/bin/bash --version | head -1)"
-
-      # bats -j needs GNU parallel; without it the suite runs sequentially and
-      # takes minutes rather than seconds.
-      - name: Install GNU parallel
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y parallel
-          else
-            brew install parallel
-          fi
-
-      - name: Run tests
-        run: make test JOBS="$(getconf _NPROCESSORS_ONLN)"
-
-  # Runs the suite through /bin/bash explicitly rather than trusting the
-  # shebang, so bash 3.2 coverage cannot be lost if a newer bash appears
-  # earlier on PATH in the runner image.
-  test-bash32:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Assert /bin/bash really is 3.2
-        run: |
-          version=$(/bin/bash -c 'echo $BASH_VERSION')
-          echo "/bin/bash is $version"
-          case "$version" in
-            3.2*) echo "bash 3.2 coverage confirmed" ;;
-            *) echo "expected bash 3.2 at /bin/bash, got $version" >&2; exit 1 ;;
-          esac
-
-      # bats -j needs GNU parallel; without it the suite runs sequentially and
-      # takes minutes rather than seconds.
-      - name: Install GNU parallel
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y parallel
-          else
-            brew install parallel
-          fi
-
-      - name: Run tests on bash 3.2
-        run: make test-bash3 JOBS="$(getconf _NPROCESSORS_ONLN)"

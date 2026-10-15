@@ -303,8 +303,8 @@ func (s *Service) findMigrationOf(
 	if len(jobs) == 0 {
 		// Answered without touching another tenant. A device whose tenant has
 		// nothing to collect is the common case once a fleet has moved, and it
-		// used to pay an identity lookup and an object read per migration before
-		// being told so.
+		// should not cost an identity lookup and an object read per migration to
+		// be told so.
 		return nil, nil, nil
 	}
 

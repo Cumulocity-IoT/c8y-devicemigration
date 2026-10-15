@@ -38,8 +38,7 @@ ALLOWED_DOMAINS=(
 	# wanting to download toolchains through this.
 	proxy.golang.org
 	sum.golang.org
-	# make bootstrap git-clones the pinned bats repositories; release tarballs
-	# and the gh CLI live on the others.
+	# Release tarballs and the gh CLI.
 	github.com
 	api.github.com
 	codeload.github.com

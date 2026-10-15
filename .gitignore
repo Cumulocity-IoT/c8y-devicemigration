@@ -56,9 +56,6 @@ data/
 # they must be exempted from the rules above.
 !tests/fixtures/**
 
-# bats helpers cloned by `make bootstrap`
-tests/vendor/
-
 # The compiled Go binary. The Go template above only covers .exe/.so/.dylib, and
 # a bare executable named after the repository is neither.
 /bin/
@@ -80,15 +77,3 @@ ui/.angular/
 # working device passwords and is the only copy of them, so the one thing that
 # must not happen to it is being committed by a stray `git add -A`.
 credentials*.csv
-
-# Scratch from the verification procedures in docs/concepts: the registration
-# files those tests upload, and the throwaway CA and leaf they generate. The keys
-# are test keys and trust nothing real, which is not a reason to keep them in
-# anybody's history.
-/devices.csv
-/probe.csv
-/retry.csv
-/third.csv
-/marker.csv
-/noagent.csv
-/tmp/

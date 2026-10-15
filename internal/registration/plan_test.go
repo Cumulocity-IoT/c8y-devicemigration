@@ -187,9 +187,9 @@ func TestPlanCarriesSourceNameAndType(t *testing.T) {
 	}
 }
 
-// The registration file has no escaping: measured 2026-10-01, the platform
-// splits on every comma including inside a quoted field, and trims quotes from
-// the ends of one rather than unescaping them. So a device carrying either in
+// The registration file has no escaping: measured, the platform splits on every
+// comma including inside a quoted field, and trims quotes from the ends of one
+// rather than unescaping them. So a device carrying either in
 // its own values cannot be written down, and is skipped rather than registered
 // with its columns shifted - which the platform accepts silently whenever the
 // shift starts after the password column.

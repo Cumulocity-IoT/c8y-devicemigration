@@ -120,11 +120,11 @@ func TestTheMigrationRequestHasNoCredentialField(t *testing.T) {
 	}
 }
 
-// Expiry used to be a note on a listing that nothing acted on: an expired target
-// would have been handed to the platform and refused with a 401 saying nothing
-// about why. Now that an undo depends on the certificate still being alive, the
-// deadline decides whether that is possible, so it is enforced where the client
-// is built - and said in words a person can act on.
+// Expiry is enforced where the client is built, not merely shown on a listing:
+// an expired target handed to the platform would be refused with a 401 saying
+// nothing about why. An undo depends on the certificate still being alive, so
+// the deadline decides whether that is possible - and the refusal says so in
+// words a person can act on.
 func TestAnExpiredRemoteTargetIsRefusedWithItsDeadline(t *testing.T) {
 	store := newRemoteTargetStore()
 	rt, err := store.create("example.test", "t-remote", time.Now().Add(-certValidity-time.Hour))

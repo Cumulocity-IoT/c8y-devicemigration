@@ -172,8 +172,8 @@ func (r *Reverter) deletePlanned(ctx context.Context, plan *Plan) {
 		if !entry.Present {
 			continue
 		}
-		// No Cascade: the bash implementation does not pass it either, so
-		// Cumulocity's own propagation rules apply and nothing extra is taken.
+		// No Cascade, so Cumulocity's own propagation rules apply and nothing
+		// extra is taken.
 		//
 		// WithDeviceUser only where the object is owned by a device user,
 		// because a migration that provisioned credentials created one
@@ -181,14 +181,14 @@ func (r *Reverter) deletePlanned(ctx context.Context, plan *Plan) {
 		// leaving the user would strand a credential that still authenticates
 		// against the target.
 		//
-		// Only where it applies, and that "only" was learned the hard way: the
-		// flag is not ignored when there is no such user. A *device* owned by
+		// Only where it applies, because the flag is not ignored when there is
+		// no such user. A *device* owned by
 		// an ordinary user - which is every device an import creates without
 		// provisioning credentials - answers it with a **409 and stays where it
 		// is**. Setting it on every delete therefore breaks the ordinary revert
-		// while looking more thorough. Measured on a live tenant 2026-09-08:
-		// device owned by a device user 204, device owned by a normal user 409
-		// and still present, group 204.
+		// while looking more thorough. Measured on a live tenant: device owned
+		// by a device user 204, device owned by a normal user 409 and still
+		// present, group 204.
 		result := r.client.ManagedObjects.Delete(ctx, entry.TargetID, managedobjects.DeleteOptions{
 			WithDeviceUser: entry.HasDeviceUser,
 		})
@@ -253,7 +253,8 @@ func plural(n int, singular, many string) string {
 	return many
 }
 
-// displayName mirrors read_name in the bash commands.
+// displayName makes a name fit on one progress line: tabs and newlines become
+// spaces, and a name that is empty or all spaces is reported as <unnamed>.
 func displayName(name string) string {
 	name = strings.ReplaceAll(name, "\t", " ")
 	name = strings.ReplaceAll(name, "\n", " ")

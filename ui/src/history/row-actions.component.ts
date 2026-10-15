@@ -8,17 +8,17 @@ import type { GridRow } from './rows';
 /**
  * The actions column: one menu, on every row, whatever the row is.
  *
- * The platform's own row actions were used here first, and they change shape
- * with how many of them apply: two are rendered as icons in the row, three as
- * one icon plus a `⋮` menu holding the rest. That threshold is in the grid's
- * template and there is no input for it - so adding a third action made a row's
- * affordance depend on what had happened to the migration. A run nobody had
- * undone wore a menu; the reverted one under it wore two buttons; the same
- * action lived in a different place on adjacent rows.
+ * The platform's own row actions change shape with how many of them apply: two
+ * are rendered as icons in the row, three as one icon plus a `⋮` menu holding
+ * the rest. That threshold is in the grid's template and there is no input for
+ * it - so with them a row's affordance would depend on what had happened to the
+ * migration. A run nobody had undone would wear a menu, the reverted one under
+ * it two buttons, and the same action would live in a different place on
+ * adjacent rows.
  *
- * So this column replaces them, and renders the menu the grid renders for three
- * or more - the same markup, the same classes, the same placement - for every
- * row, with whatever that row offers inside it. Consistency is the whole point:
+ * So this column stands in for them, and renders the menu the grid renders for
+ * three or more - the same markup, the same classes, the same placement - for
+ * every row, with whatever that row offers inside it. Consistency is the whole point:
  * *Remove migration record* is in the same place on the first row and the last,
  * and finding an action never depends on counting what else is available.
  *

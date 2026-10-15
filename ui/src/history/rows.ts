@@ -17,9 +17,9 @@ export interface Row {
   /**
    * How far through the devices a job is - only while it is running.
    *
-   * A finished job has no progress, it has an outcome. The bar used to stay on
-   * the row afterwards, because the line it is read from stays in the log, which
-   * left a full bar and a dangling caption under a migration that was over.
+   * A finished job has no progress, it has an outcome. The line the bar is read
+   * from stays in the log, so reading it regardless would leave a full bar and a
+   * dangling caption under a migration that is over.
    */
   progress?: DeviceProgress;
 
@@ -37,8 +37,8 @@ export interface Row {
    * The undos of this migration, newest first.
    *
    * A migration can have more than one: a revert that failed part way through
-   * leaves the offer standing, so the next attempt is another job. They are rows
-   * of their own no longer - they are read in the row's expansion.
+   * leaves the offer standing, so the next attempt is another job. They are not
+   * rows of their own - they are read in the row's expansion.
    */
   undos: Undo[];
 
@@ -200,9 +200,9 @@ export function rows(
 /**
  * The undos of each migration, newest first, keyed by the run they undid.
  *
- * A revert names its migration by run id and nothing else, which is why the
- * list could not show the relationship before: the id was all there was to go
- * on, and matching ids by eye is not a feature.
+ * A revert names its migration by run id and nothing else, so the id is all
+ * there is to go on - and leaving the reader to match ids by eye is not a
+ * feature.
  */
 function revertsByRunId(reverts: Job[]): Map<string, Job[]> {
   const byRun = new Map<string, Job[]>();
@@ -223,8 +223,8 @@ function revertsByRunId(reverts: Job[]): Map<string, Job[]> {
  * The one status a row shows.
  *
  * One status, not a status and a qualifier: a migration that was undone is
- * *Reverted*, not "Succeeded - already undone". Two words joined by a dash were
- * two facts the reader had to combine, and the outcome of a migration that no
+ * *Reverted*, not "Succeeded - already undone". Two words joined by a dash would
+ * be two facts the reader has to combine, and the outcome of a migration that no
  * longer exists in the target tenant is not "succeeded".
  *
  * A succeeded undo wins over everything, because it is the end of the story. An
@@ -353,9 +353,9 @@ export function duration(job: Job, now: Date): Message | undefined {
  *
  * The bare span, for a running job as much as a finished one: the column is
  * called Duration and the status column already says whether the figure is
- * still climbing, so "took" and "running for" were both saying something twice
- * - and the longer of them, "running for 1 h 30 min", was the only value wide
- * enough to stop the column being narrow.
+ * still climbing, so "took" and "running for" would both say something twice
+ * - and the longer of them, "running for 1 h 30 min", would be the only value
+ * wide enough to stop the column being narrow.
  *
  * Still whole sentences rather than a number and a unit stuck together, because
  * German abbreviates the units differently and a translator has to be able to
@@ -572,8 +572,8 @@ export type RowActionKind =
  *
  * One list, decided in one place, because the presentation depends on the
  * length: the platform's grid shows two actions as icons and three as an icon
- * and a menu, so a row's affordance changed with what happened to it - a
- * migration nobody had undone wore a menu, and the one beside it wore two
+ * and a menu, so a row's affordance would change with what happened to it - a
+ * migration nobody had undone would wear a menu, and the one beside it two
  * buttons. This screen renders the same menu on every row instead (see
  * row-actions.component.ts), which only works if something decides the contents
  * per row, and that is this.
@@ -637,10 +637,10 @@ export const IDLE_REFRESH_MS = 30_000;
 /**
  * How often it asks while something is.
  *
- * A second, because a migration is the one thing on this screen worth watching
- * and at ten it did not look like anything was happening: the device counter and
- * the progress bar moved in jumps, which reads as a stuck job rather than a
- * working one.
+ * A second, because a migration is the one thing on this screen worth watching,
+ * and at a slower cadence it does not look like anything is happening: the
+ * device counter and the progress bar move in jumps, which reads as a stuck job
+ * rather than a working one.
  *
  * The cost is real and bounded. Each read is three calls to the service, each of
  * which costs it a round trip to the platform to verify the caller - but the
@@ -756,7 +756,7 @@ export interface GridRow {
    *
    * The same menu is rendered on every row, so the contents are the row's own
    * business rather than a set of `showIf`s the grid resolves per action - which
-   * is what made the affordance itself depend on how many of them applied.
+   * would make the affordance itself depend on how many of them applied.
    */
   actions: GridAction[];
   /** Runs one of them. The component holds the dialogues; the row holds this. */
@@ -797,9 +797,8 @@ export interface ScopeRow {
   /**
    * The fragment everything this run created carries, ready to render.
    *
-   * Built here rather than assembled in each template: two of them spelled the
-   * prefix out by hand, which is a duplicate of a name the service owns and a
-   * Go test now refuses.
+   * Built here rather than assembled in each template: spelling the prefix out
+   * by hand would duplicate a name the service owns, which a Go test refuses.
    */
   marker: string;
   relationships: string;
@@ -836,9 +835,9 @@ export interface UndoRow {
  * The fresh rows, reusing the objects of the ones that have not changed.
  *
  * The grid tracks which rows are expanded in a `Map` keyed by the **row object
- * itself**. Handing it a brand new array every few seconds therefore threw away
- * every expansion, which is why an expanded row collapsed on its own the moment
- * the list refreshed - a job the reader was in the middle of reading.
+ * itself**. Handing it a brand new array every few seconds would therefore throw
+ * away every expansion, collapsing an expanded row on its own the moment the
+ * list refreshes - a job the reader is in the middle of reading.
  *
  * So an unchanged row is handed back the object it was last time. Only a row
  * whose content really differs becomes a new object, and only that row loses its
@@ -887,9 +886,9 @@ export interface Scope {
    *
    * Read from the job record rather than from the service's memory, which is
    * the difference that makes this worth showing: `credentialsCollectable` goes
-   * false the moment somebody downloads the file, and until this was added a
-   * migration that had provisioned credentials became indistinguishable from
-   * one that never did.
+   * false the moment somebody downloads the file, and without this a migration
+   * that had provisioned credentials would become indistinguishable from one
+   * that never did.
    *
    * `selfService` is the other mechanism - the devices collect their own - and
    * it has no other trace in the interface at all. It cannot be *chosen* here,

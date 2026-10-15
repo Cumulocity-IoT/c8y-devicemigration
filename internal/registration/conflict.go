@@ -15,10 +15,10 @@ import (
 // Bulk registration creates nothing for an external id the target already knows.
 // It sets a new password on the device user that id belongs to and leaves the
 // object alone, which the platform reports as CREDENTIAL_UPDATED rather than as
-// a failure - see docs/platform-behaviour.md. For a migration that is the wrong
-// outcome twice over: a device the migration is not about stops working with the
-// credential it holds, and the credential that replaced it belongs to a run that
-// device has nothing to do with.
+// a failure. For a migration that is the wrong outcome twice over: a device the
+// migration is not about stops working with the credential it holds, and the
+// credential that replaced it belongs to a run that device has nothing to do
+// with.
 //
 // So every identity a registration is about to create is resolved against the
 // target first, and one match refuses the whole run. There is deliberately no

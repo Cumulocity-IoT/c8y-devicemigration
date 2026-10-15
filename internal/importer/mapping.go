@@ -9,9 +9,8 @@ import (
 
 // Mapping records which source object became which target object.
 //
-// It keeps insertion order, because the file is compared byte for byte against
-// the one commands/import writes and jq preserves the order entries were added
-// in. Go's map marshalling sorts keys instead, which happens to agree for
+// It keeps insertion order, so the file reads in the order objects were
+// created. Go's map marshalling sorts keys instead, which happens to agree for
 // numeric ids but would diverge the moment an entry arrived out of order - on a
 // resume, for instance.
 type Mapping struct {
@@ -71,7 +70,7 @@ func (m *Mapping) Retain(keep func(oldID, newID, name string) bool) int {
 //
 // Called after every created object, not once at the end: an import that dies
 // half way must still be revertable, and a mapping written only on success
-// would strand everything it had already created. That was a real bug once.
+// would strand everything it had already created.
 func (m *Mapping) Write() error {
 	var b strings.Builder
 	b.WriteString("{")

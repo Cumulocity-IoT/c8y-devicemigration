@@ -1,31 +1,11 @@
 # Development entry points. `make check` is what CI runs.
 
-TESTS_DIR := tests
-VENDOR    := $(TESTS_DIR)/vendor
-COMMANDS  := commands/export commands/import commands/revert commands/migrate
-
 # Pinned so local and CI agree. Older shellcheck (e.g. Ubuntu's 0.9.0) has a
-# cruder reachability analysis and floods the generated docopt parser with
-# SC2317; newer versions understand its indirect dispatch.
+# cruder reachability analysis and reports differently.
 SHELLCHECK_VERSION   := 0.11.0
 
-BATS_VERSION         := v1.11.1
-BATS_SUPPORT_VERSION := v0.3.0
-BATS_ASSERT_VERSION  := v2.1.0
-
-# Parallel jobs for the test suite. 1 keeps it sequential, which is what you
-# want when debugging a single failure; anything else needs GNU parallel.
-JOBS ?= 1
-# An empty JOBS would silently drop --jobs and run the whole suite sequentially,
-# which is a slow success rather than an honest failure. Refuse it.
-ifeq ($(strip $(JOBS)),)
-$(error JOBS is empty. Pass a number, for example JOBS=4)
-endif
-BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
-	$(if $(filter-out 1,$(JOBS)),--jobs $(JOBS))
-
-.PHONY: check test test-fast test-bash3 lint workflow-lint parser-freshness docs docs-freshness \
-	go-build go-test go-lint install install-completion bootstrap clean \
+.PHONY: check lint workflow-lint docs docs-freshness \
+	go-build go-test go-lint install install-completion clean \
 	service-build service-image service-package service-deploy dist \
 	ui-install ui-types ui-types-freshness ui-test ui-typecheck ui-templatecheck ui-build \
 	ui-package ui-deploy \
@@ -33,46 +13,15 @@ BATS := $(VENDOR)/bats-core/bin/bats --print-output-on-failure \
 
 # go-build is in here on purpose. Without it a stale bin/c8y-devicemigration can
 # survive a green `make check`, and the next person to run the binary tests code
-# that no longer exists - which happened once, with a bug that had already been
-# fixed in the source.
+# that no longer exists.
 #
-# ui-templatecheck is in here for the same reason, learned the same way.
-# ui-typecheck runs tsc, which does not look at Angular templates at all: a
-# component field renamed without updating its template passed a green `make
-# check` and failed only when somebody ran the plugin. Only the Angular compiler
-# reads the templates, so only it can catch that.
-check: version-check lint parser-freshness docs-freshness ui-types-freshness go-lint go-build \
-	go-test ui-typecheck ui-templatecheck ui-test test
-
-bootstrap: $(VENDOR)/bats-core $(VENDOR)/bats-support $(VENDOR)/bats-assert
-
-$(VENDOR)/bats-core:
-	git clone --depth 1 --branch $(BATS_VERSION) https://github.com/bats-core/bats-core.git $@
-
-$(VENDOR)/bats-support:
-	git clone --depth 1 --branch $(BATS_SUPPORT_VERSION) https://github.com/bats-core/bats-support.git $@
-
-$(VENDOR)/bats-assert:
-	git clone --depth 1 --branch $(BATS_ASSERT_VERSION) https://github.com/bats-core/bats-assert.git $@
-
-test: bootstrap
-	@echo "bash: $$(bash --version | head -1)"
-	@echo "parallel jobs: $(JOBS)"
-	$(BATS) $(TESTS_DIR)
-
-# The whole suite across every core. Needs GNU parallel; see the JOBS variable.
-test-fast:
-	@command -v parallel >/dev/null 2>&1 \
-		|| { echo "GNU parallel is required for a parallel run"; exit 1; }
-	$(MAKE) test JOBS=$$(getconf _NPROCESSORS_ONLN)
-
-# Runs the suite through /bin/bash explicitly. On macOS that is bash 3.2, the
-# oldest shell the commands must support; relying on the shebang is not enough
-# because /usr/bin/env may find a newer bash earlier on PATH.
-test-bash3: bootstrap
-	@echo "forcing $$(/bin/bash --version | head -1)"
-	@echo "parallel jobs: $(JOBS)"
-	/bin/bash $(BATS) $(TESTS_DIR)
+# ui-templatecheck is in here for a similar reason. ui-typecheck runs tsc, which
+# does not look at Angular templates at all: a component field renamed without
+# updating its template would pass a green `make check` and fail only when
+# somebody ran the plugin. Only the Angular compiler reads the templates, so only
+# it can catch that.
+check: version-check lint docs-freshness ui-types-freshness go-lint go-build \
+	go-test ui-typecheck ui-templatecheck ui-test
 
 # Workflows are code too, and nothing else here would notice a broken one until
 # it failed in CI - or, for the release workflow, until a tag was pushed.
@@ -91,48 +40,24 @@ lint:
 		if [ "$$have" != "$(SHELLCHECK_VERSION)" ]; then \
 			echo "note: shellcheck $$have, CI pins $(SHELLCHECK_VERSION); results may differ"; \
 		fi; \
-		shellcheck $(COMMANDS) $(TESTS_DIR)/fake/c8y $(TESTS_DIR)/helpers/load.bash \
-			tools/gen-command-docs.sh .devcontainer/init-firewall.sh \
+		shellcheck .devcontainer/init-firewall.sh tools/gen-command-docs.sh \
 			&& echo "shellcheck $$have: clean"; \
 	else \
 		echo "shellcheck not installed, skipping (CI enforces this)"; \
 	fi
 
-# The embedded docopt parser is generated from the DOC string. A stale DOC is
-# caught at runtime (exit 70), but a hand-edited parser with an untouched DOC is
-# not, so compare the committed parser against a freshly generated one.
+# The command reference in docs/cli.md is generated from the binary's own help,
+# so an option added or renamed in Go cannot leave the documentation behind.
 docs:
 	@tools/gen-command-docs.sh
 
 docs-freshness:
 	@tools/gen-command-docs.sh --check
 
-parser-freshness:
-	@if command -v docopt.sh >/dev/null 2>&1; then \
-		for f in $(COMMANDS); do \
-			sed -n '/docopt parser below/,/docopt parser above/p' $$f \
-				| sed '1d;$$d' | grep -v '^# shellcheck' > /tmp/committed.$$$$; \
-			docopt.sh --parser $$f | grep -v '^# shellcheck' > /tmp/fresh.$$$$; \
-			if ! diff -q /tmp/committed.$$$$ /tmp/fresh.$$$$ >/dev/null; then \
-				echo "$$f: committed parser is stale, run: docopt.sh $$f"; \
-				rm -f /tmp/committed.$$$$ /tmp/fresh.$$$$; exit 1; \
-			fi; \
-			rm -f /tmp/committed.$$$$ /tmp/fresh.$$$$; \
-			echo "$$f: parser up to date"; \
-		done; \
-	else \
-		echo "docopt.sh not installed, skipping (pipx install docopt-sh==2.0.3)"; \
-	fi
-
-# --- the Go port -------------------------------------------------------------
+# --- the command line tool ----------------------------------------------------
 #
-# A second implementation of the same commands on the go-c8y v2 library, living
-# beside the bash one rather than replacing it. What the two have to agree on is
-# recorded in docs/go-port/BEHAVIOUR-CONTRACT.md.
-#
-# go-test includes the differential test, which runs BOTH implementations against
-# the same fixture and diffs the artefacts and stderr. It needs bash and jq and
-# skips without them.
+# The commands on the go-c8y v2 library. What they do, down to the trailing
+# newline, is recorded in docs/behaviour-contract.md.
 #
 # The timeout is not decoration: the test fixture contains a cycle, so a broken
 # visited set makes the export recurse forever rather than fail.
@@ -148,11 +73,10 @@ GO_TIMEOUT := 300s
 #   anything else  a snapshot of the version being developed, so
 #                  0.2.0-SNAPSHOT
 #
-# Snapshots by default, because the alternative has already cost an afternoon:
-# the old default took the nearest tag, so a working tree with a fortnight of
-# unreleased work in it built an image labelled exactly like the released
-# version. Nothing about the running service then said whether it was current,
-# and the answer to "why is my change not there" was a deploy nobody had done.
+# Snapshots by default: taking the nearest tag instead would make a working tree
+# with a fortnight of unreleased work in it build an image labelled exactly like
+# the released version. Nothing about the running service would then say whether
+# it was current.
 #
 # One snapshot version rather than one per commit, deliberately: every upload
 # replaces the same version instead of leaving a list of them behind, which is
@@ -186,7 +110,7 @@ UI_VERSION := $(shell echo "$(VERSION)" | sed 's/[-+].*//')
 
 # What this build would call itself, without building anything. Worth having:
 # the version is derived from three things at once, and "which one am I looking
-# at" is a question that has already been answered wrongly.
+# at" is an easy question to answer wrongly.
 version:
 	@echo "$(VERSION)"
 
@@ -258,10 +182,9 @@ go-build:
 	@echo "built bin/c8y-devicemigration-service $(VERSION)"
 
 # -shuffle=on because a test that only passes in the order it was written is a
-# test that will fail one day for reasons nobody can reproduce. This repository
-# has already had two: a metrics gauge read while another test's worker was
-# unwinding, and a job lookup answered from memory instead of from the platform.
-# Go prints the seed it used, and `go test -shuffle=<seed>` replays it exactly.
+# test that will fail one day for reasons nobody can reproduce - a metrics gauge
+# read while another test's worker is unwinding, say, or a job lookup answered
+# from memory instead of from the platform. Go prints the seed it used, and `go test -shuffle=<seed>` replays it exactly.
 go-test:
 	go test ./... -timeout $(GO_TIMEOUT) -shuffle=on
 
@@ -299,12 +222,11 @@ install-completion: install
 # the alternative is an image that uploads fine and never starts.
 SERVICE_NAME := devicemigration
 
-# The manifest version has to be SemVer or the platform refuses the upload, so
-# this takes the newest v-prefixed tag and falls back to a snapshot rather than
-# to `git describe`, whose output for an untagged tree ("f8faeb2-dirty") is not
-# a version at all. It is VERSION unless the caller says otherwise, so the
-# manifest, the image tag, the archives and the plugin all say the same thing -
-# they used to be derived separately, and the two derivations disagreed.
+# The manifest version has to be SemVer or the platform refuses the upload, which
+# VERSION always is - unlike `git describe`, whose output for an untagged tree
+# ("f8faeb2-dirty") is not a version at all. It is VERSION unless the caller says
+# otherwise, so the manifest, the image tag, the archives and the plugin all say
+# the same thing.
 SERVICE_VERSION ?= $(VERSION)
 
 SERVICE_DIR := build
@@ -354,9 +276,6 @@ service-deploy: service-package
 # `make dist` cross-compiles the command line tool for every platform a release
 # covers and packs each one with its licence and its documentation. The release
 # workflow calls exactly this, so what CI publishes can be reproduced here.
-#
-# The extension is deliberately absent: it is installed from the repository by
-# `c8y extension install`, so there is nothing to build for it.
 DIST_DIR := dist
 
 # GOOS/GOARCH pairs. arm64 and amd64 for the two systems people run this from,
@@ -508,4 +427,4 @@ go-lint:
 	@echo "go vet: clean"
 
 clean:
-	rm -rf $(VENDOR) bin $(SERVICE_DIR) $(DIST_DIR) $(UI_DIR)/dist
+	rm -rf bin $(SERVICE_DIR) $(DIST_DIR) $(UI_DIR)/dist

@@ -106,12 +106,11 @@ func (s *remoteTargetStore) get(id string) (*remoteTarget, bool) {
 
 // expired reports whether the certificate has run out.
 //
-// Until a revert could use one of these, the expiry was a note on a listing and
-// nothing enforced it: an expired target would have been handed to the platform
-// and refused with a 401 that says nothing about why. Now that a migration can
-// be undone for as long as its certificate lives, the deadline is the thing that
-// decides whether that is still possible, so it is checked where the client is
-// built and said in words.
+// Enforced, not just shown on a listing: an expired target handed to the
+// platform would be refused with a 401 that says nothing about why. A migration
+// can be undone for as long as its certificate lives, so the deadline is the
+// thing that decides whether that is still possible - it is checked where the
+// client is built and said in words.
 func (rt *remoteTarget) expired(now time.Time) bool {
 	return !now.Before(rt.ExpiresAt)
 }

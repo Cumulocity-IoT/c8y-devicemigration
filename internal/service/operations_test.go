@@ -436,8 +436,8 @@ func TestAJobIsLookedUpByAskingThePlatformForIt(t *testing.T) {
 
 // A second service must work beside the first one's staging root, not inside
 // it: os.TempDir() reads the variable this points at, so nesting compounds -
-// and a test process that builds eighty services nested eighty deep until the
-// paths stopped working, which is how this was found.
+// and a test process that builds eighty services would nest eighty deep until
+// the paths stop working.
 func TestASecondServiceDoesNotNestItsStagingRoot(t *testing.T) {
 	staging := sandbox(t)
 	p := twoTenants(t)
@@ -471,9 +471,9 @@ func TestASecondServiceDoesNotNestItsStagingRoot(t *testing.T) {
 }
 
 // Reading the settings needs a permission the service user has to be granted,
-// and the manifest is the only place it can be. A deployed service that could
-// not read its own options logged a 403 on every start until this was added, so
-// the roles it needs are now checked against the calls it makes.
+// and the manifest is the only place it can be. A deployed service that cannot
+// read its own options logs a 403 on every start, so the roles it needs are
+// checked against the calls it makes.
 func TestTheManifestGrantsEveryPermissionTheServiceUses(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(testfixture.RepoRoot(), "docker", "cumulocity.json"))
 	if err != nil {

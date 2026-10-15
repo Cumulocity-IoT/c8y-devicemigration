@@ -28,8 +28,7 @@ const DeviceUserPrefix = "device_"
 // platform lines the two up when that user is finally created. So the import
 // stamps the name, and whatever creates the credential later - a device asking
 // for one, or a certificate auto-registering - lands on an object already
-// waiting for it. Verified 2026-09-08; see
-// docs/platform-behaviour.md.
+// waiting for it.
 //
 // Returns the body unchanged when there is no unambiguous device user to name,
 // which is the ordinary answer for a group and for a device the export carried no

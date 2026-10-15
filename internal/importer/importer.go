@@ -177,8 +177,7 @@ func (i *Importer) Run(ctx context.Context) error {
 
 	if i.opts.DataOnly {
 		// The mapping is pure input in this mode. It must never be rewritten:
-		// an earlier version of this truncated it to {} at startup and took the
-		// revert record with it.
+		// truncating it to {} at startup would take the revert record with it.
 		if err := i.LoadMapping(i.opts.MappingFile, i.opts.InputDirectory); err != nil {
 			return err
 		}
@@ -318,8 +317,7 @@ func (i *Importer) importDataOnly(ctx context.Context) error {
 
 // ObjectFiles lists the exported objects in the order they will be created.
 //
-// Glob order, which is what commands/import walks, and therefore the order the
-// mapping file records.
+// Glob order, and therefore the order the mapping file records.
 func ObjectFiles(inputDirectory string) ([]string, error) {
 	return filepath.Glob(filepath.Join(inputDirectory, "exported_device_*.json"))
 }
@@ -583,7 +581,8 @@ func plural(n int, singular, many string) string {
 	return many
 }
 
-// displayName mirrors read_name in the bash commands.
+// displayName makes a name fit on one progress line: tabs and newlines become
+// spaces, and a name that is empty or all spaces is reported as <unnamed>.
 func displayName(name string) string {
 	name = strings.ReplaceAll(name, "\t", " ")
 	name = strings.ReplaceAll(name, "\n", " ")

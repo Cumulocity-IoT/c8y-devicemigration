@@ -18,9 +18,8 @@ const ProgressLines = 200
 //
 // The engine generates the id itself and has no option to accept one, so the
 // only way to learn it is to read the line it announces. Both branches print the
-// same prefix - the importer's "Run id X, marking created objects with ..." and
-// migrate's "Run id X, created objects are not marked" - and the differential
-// test between the two implementations keeps that wording stable.
+// same prefix: the importer's "Run id X, marking created objects with ..." and
+// migrate's "Run id X, created objects are not marked".
 var runIDPattern = regexp.MustCompile(`^Run id (\S+),`)
 
 // progress is the io.Writer the engine writes to instead of a terminal.

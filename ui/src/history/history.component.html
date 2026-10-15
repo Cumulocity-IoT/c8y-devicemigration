@@ -41,8 +41,8 @@
     surface and the elevation, `.card-block` the padding inside it. `.card-block`
     alone is only padding, because it is written to sit in a card.
 
-    The icon leads rather than trails. On the right it read as decoration; on the
-    left it is what identifies the feature, which is what it is for.
+    The icon leads rather than trails. On the right it would read as decoration;
+    on the left it is what identifies the feature, which is what it is for.
 
     Each bullet is one translatable sentence carrying its own emphasis. A
     translator needs the whole sentence to put that emphasis in the right place -
@@ -90,9 +90,9 @@
     chooser are all its own.
 
     The actions are not its own, and that is deliberate: it renders two of them
-    as icons and three as an icon plus a menu, so a row's affordance changed with
-    what had happened to that migration. The last column is one menu on every
-    row instead - see row-actions.component.ts.
+    as icons and three as an icon plus a menu, so a row's affordance would change
+    with what had happened to that migration. The last column is one menu on
+    every row instead - see row-actions.component.ts.
   -->
   <c8y-data-grid
     [title]="'Migrations' | translate"
@@ -124,21 +124,21 @@
 
     <!--
       A migration and the undo that cancelled it are one story, so they are one
-      row. The undo used to be a row of its own somewhere else in the list,
-      naming its migration by run id and nothing else - which meant matching
-      ids by eye to learn what had been undone.
+      row. An undo names its migration by run id and nothing else, so as a row
+      of its own somewhere else in the list it would leave somebody matching ids
+      by eye to learn what had been undone.
 
-      Everything an undo's own row carried is here instead: its outcome, when it
-      ran, who ran it, how long it took, its run id and its log. Including when
-      it failed, which is the case that matters most and the reason the undo is
-      not merely folded into the migration's status.
+      Everything about the undo is here: its outcome, when it ran, who ran it,
+      how long it took, its run id and its log. Including when it failed, which
+      is the case that matters most and the reason the undo is not merely folded
+      into the migration's status.
     -->
     <ng-template c8yExpandableRow let-row>
       <!--
         Two definition lists on one grid, so every label sits on one axis and
-        every value on another. The previous layout put a tag, a date and a
-        username in a flex row: `.tag` carries `align-self: flex-start` and a
-        smaller font, so it rode up above text it was supposed to sit beside.
+        every value on another. A flex row holding a tag, a date and a username
+        would not do: `.tag` carries `align-self: flex-start` and a smaller font,
+        so it rides up above text it is supposed to sit beside.
       -->
       <div class="device-migration-detail">
         <dl>
@@ -159,8 +159,8 @@
           <!--
             Always shown, including when it says "None". The download action is
             offered only while the file is still collectable, so a migration
-            that provisioned credentials was otherwise indistinguishable from
-            one that never did as soon as somebody had collected them.
+            that provisioned credentials would otherwise be indistinguishable
+            from one that never did as soon as somebody had collected them.
           -->
           <dt>{{ 'Device credentials' | translate }}</dt>
           <dd>

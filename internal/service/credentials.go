@@ -15,8 +15,8 @@ import (
 //
 // The SDK's microservice.AuthFromRequest reads the Authorization header and
 // nothing else, so a session from the Cumulocity UI - or from the API
-// documentation application's "Try it out" - was refused before any rule of ours
-// was reached: there is no Authorization header on such a request at all. The
+// documentation application's "Try it out" - would be refused before any rule of
+// ours was reached: there is no Authorization header on such a request at all. The
 // credential is a JWT in the "authorization" cookie, and the platform pairs it
 // with an X-XSRF-TOKEN header.
 

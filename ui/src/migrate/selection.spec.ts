@@ -1,8 +1,8 @@
 import { chosenRoot } from './selection';
 
 describe('what the asset selector hands back', () => {
-  // The bug this pins: onSelected emits an envelope, and reading it as the
-  // selected object silently ignored every click.
+  // What this pins: onSelected emits an envelope, and reading it as the
+  // selected object would silently ignore every click.
   it('reads the selection out of the envelope, not the envelope', () => {
     expect(
       chosenRoot({

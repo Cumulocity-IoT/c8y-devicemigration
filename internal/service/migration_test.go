@@ -458,9 +458,8 @@ func runDirectly(t *testing.T) outcome {
 
 // A tenant holds far more than job records, and the platform ignores type and
 // fragmentType whenever a query is present - which ListAll always adds. Asking
-// by type therefore returns everything, a trap this repository has fallen into
-// twice. Migrating into the owner tenant is the cheapest way to put unrelated
-// managed objects next to the records.
+// by type therefore returns everything. Migrating into the owner tenant is the
+// cheapest way to put unrelated managed objects next to the records.
 func TestTheJobListingIgnoresEverythingElseInTheTenant(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -583,8 +582,7 @@ func TestNoChildrenMigratesOnlyTheRoot(t *testing.T) {
 // ListAll always adds one for paging - so a listing that asked by type would
 // page through every managed object in the tenant and filter them here. On a
 // tenant with a million devices that is the difference between one request and
-// thousands. This repository has been caught by that twice, which is why it is
-// asserted rather than assumed.
+// thousands, so it is asserted rather than assumed.
 func TestTheJobListingMakesThePlatformDoTheFiltering(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -611,11 +609,11 @@ func TestTheJobListingMakesThePlatformDoTheFiltering(t *testing.T) {
 }
 
 // What Enqueue returns is a snapshot, not the live job. Handing back the live
-// job made a freshly accepted migration report itself as already running,
-// because the response was serialised while the worker was starting on the same
-// struct - a flaky test found it, and the race detector did not, since the two
-// accesses rarely overlap. Asserting it after the worker has demonstrably moved
-// on makes it deterministic.
+// job would let a freshly accepted migration report itself as already running,
+// because the response would be serialised while the worker starts on the same
+// struct - and the race detector rarely notices, since the two accesses rarely
+// overlap. Asserting it after the worker has demonstrably moved on makes it
+// deterministic.
 func TestWhatEnqueueReturnsDoesNotChangeUnderTheCaller(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)

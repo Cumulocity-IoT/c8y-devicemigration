@@ -14,13 +14,10 @@ import { PopoverModule } from 'ngx-bootstrap/popover';
  *   - **It draws the question mark itself**, as a CSS mask on `::before`, in the
  *     info palette colour. There is no icon element, and an icon child would be
  *     hidden anyway - `.btn-help > [class^='dlt-c8y-icon-'] { display: none }`.
- *     The hand-rolled version this replaces put a `c8yIcon` in it, which is also
- *     how it came to render an empty box when the directive was not imported.
  *   - **It sizes and aligns itself inside a label.** `@c8y/style` carries
  *     `label .btn-help { height: 14px; width: 14px }` and
- *     `label:has(.btn-help) { display: flex; align-items: center }`, which is
- *     exactly the alignment that was being done by hand here and in the dialogue's
- *     own styles.
+ *     `label:has(.btn-help) { display: flex; align-items: center }`, so neither
+ *     this nor the dialogue's own styles align it by hand.
  *
  * Not the platform's `c8y-help` *component*, which is a different thing: it takes
  * a documentation URL and opens the help drawer from the action bar. What belongs

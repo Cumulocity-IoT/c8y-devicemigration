@@ -355,8 +355,7 @@ func TestARecordWithoutAKindIsAMigration(t *testing.T) {
 	}
 }
 
-// The same guarantee the migration differential gives, for the destructive half:
-// a revert through the API must delete exactly what the engine deletes when it
+// A revert through the API must delete exactly what the engine deletes when it
 // is driven directly. This is the test that would notice if the service ever
 // started shaping a revert differently - by mapping file instead of run id, say,
 // or with the wrong tenant.
@@ -474,15 +473,15 @@ func deletions(t *testing.T, target *testfixture.Server) string {
 
 // A job that reports itself finished has to be finished on the record too.
 //
-// This is the flake that found a real race: the API answers from the running
-// job while it is still in memory, and the worker used to publish SUCCEEDED
-// there before writing the record. A caller that polled until the job was done
-// and then acted on it - which is exactly what the UI does, and what these tests
-// do - could read the previous record: still RUNNING, no run id.
+// The API answers from the running job while it is still in memory. If the
+// worker published SUCCEEDED there before writing the record, a caller that
+// polled until the job was done and then acted on it - which is exactly what the
+// UI does, and what these tests do - could read the previous record: still
+// RUNNING, no run id. So the record is written before anything says the job is
+// over.
 //
 // The platform is slowed down so the window is wide enough to be certain rather
-// than lucky. Without the fix this fails; with it, the record is written before
-// anything says the job is over.
+// than lucky.
 func TestAFinishedJobIsFinishedOnTheRecordToo(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -512,8 +511,9 @@ func TestAFinishedJobIsFinishedOnTheRecordToo(t *testing.T) {
 	}
 }
 
-// The same thing, as somebody doing it: watch a migration finish, undo it. That
-// path was refused with "has no run id" often enough to fail the suite.
+// The same thing, as somebody doing it: watch a migration finish, undo it. The
+// undo must not be refused with "has no run id" because the record lags behind
+// what the API reported.
 func TestAMigrationCanBeRevertedTheMomentItReportsSuccess(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)

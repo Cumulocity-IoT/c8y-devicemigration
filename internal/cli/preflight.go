@@ -12,9 +12,8 @@ import (
 )
 
 // newPreflightCommand exposes the checks migrate runs before it creates
-// anything. The bash extension has no such command - this is the one deliberate
-// addition to the surface, because otherwise there is no way to find out whether
-// session decryption and credentials work without starting a real migration.
+// anything, because otherwise there is no way to find out whether session
+// decryption and credentials work without starting a real migration.
 func newPreflightCommand(stderr io.Writer) *cobra.Command {
 	var sourceSession, targetSession string
 
@@ -61,7 +60,6 @@ func runPreflight(ctx context.Context, stderr io.Writer, sourceValue, targetValu
 	// the preflight command alone
 }
 
-// preflight mirrors commands/migrate:283-353.
 func preflight(ctx context.Context, stderr io.Writer, sourceValue, targetValue, home string) (*Preflight, error) {
 	source, err := session.Load(sourceValue, home, "source")
 	if err != nil {

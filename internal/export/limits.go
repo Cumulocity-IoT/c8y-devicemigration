@@ -131,8 +131,7 @@ func (e *Exporter) collectPlannedIDs(ctx context.Context, id string, seen map[st
 	return seen, nil
 }
 
-// formatViolations renders the table. The column widths are the bash version's,
-// because the output is compared byte for byte.
+// formatViolations renders the table.
 func (e *Exporter) formatViolations(violations []violation) string {
 	var b strings.Builder
 

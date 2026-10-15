@@ -202,9 +202,9 @@ func TestAnExportWithNoObjectsIsNothingToCheck(t *testing.T) {
 // rewriteSelfHost points the exported self links at a different host, which is
 // what an anonymised export or a tenant with a custom domain looks like.
 //
-// A plain substitution of the host, deliberately: an earlier version matched on
-// `"self": "https://` and so did nothing at all against the compact JSON the
-// fixture server emits, which made the test that depends on it vacuous.
+// A plain substitution of the host, deliberately: matching on `"self": "https://`
+// would do nothing at all against the compact JSON the fixture server emits, and
+// make the test that depends on it vacuous.
 func rewriteSelfHost(t *testing.T, dir, from, to string) {
 	t.Helper()
 

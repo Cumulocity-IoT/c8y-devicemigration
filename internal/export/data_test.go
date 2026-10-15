@@ -288,9 +288,7 @@ func TestRelativeAndAbsoluteDatesAreBothAccepted(t *testing.T) {
 }
 
 func TestAnUnparsableDateIsRefusedRatherThanGuessed(t *testing.T) {
-	// The bash version handed these to c8y, which parsed them. The parsing is
-	// ours now, and quietly exporting the wrong window is worse than not
-	// starting.
+	// Quietly exporting the wrong window is worse than not starting.
 	for _, bad := range []string{"yesterday", "-30", "30d", "-30y", "soon"} {
 		if _, err := export.ParseDate(bad, time.Now()); err == nil {
 			t.Errorf("%q should be refused", bad)
@@ -326,8 +324,7 @@ func TestTheWindowIsActuallyApplied(t *testing.T) {
 // --- the record limits ------------------------------------------------------
 
 func TestAPerDeviceRecordLimitIsRefusedBeforeAnythingIsWritten(t *testing.T) {
-	// Driven by an inflated count rather than a million real records, which is
-	// what the bash harness does through FAKE_C8Y_TOTAL_*.
+	// Driven by an inflated count rather than a million real records.
 	server := testfixture.New(t, "hierarchy.json")
 	server.SetReportedTotal("alarms", 5000)
 

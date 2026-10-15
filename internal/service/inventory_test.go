@@ -133,8 +133,8 @@ func TestDrillingDownFollowsOnlyTheRelationshipsAsked(t *testing.T) {
 }
 
 // A search has to reach the platform as a query, not be filtered here: the
-// platform ignores type and fragmentType when a query is present, and this
-// repository has twice shipped a listing that quietly read a whole tenant.
+// platform ignores type and fragmentType when a query is present, so a listing
+// that combines them quietly reads a whole tenant.
 func TestASearchIsSentToThePlatform(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -445,7 +445,7 @@ func TestOnlyDevicesGroupsAndAssetsAreOffered(t *testing.T) {
 
 // The filter has to be part of the query the platform runs. Filtering here
 // instead would read the whole inventory and page through objects nobody asked
-// for - which is the mistake this repository keeps making.
+// for.
 func TestTheDeviceFilterIsSentToThePlatform(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -471,11 +471,10 @@ func TestTheDeviceFilterIsSentToThePlatform(t *testing.T) {
 	}
 }
 
-// onlyRoots used to be a lie. It filtered on c8y_IsChildAsset and
-// c8y_IsChildDevice, fragments the platform does not have - so the condition was
-// true of everything and the picker offered every child in the tenant as
-// somewhere to start. The platform decides this by looking at an object's
-// parents, and so does this now.
+// onlyRoots is decided by looking at an object's parents, as the platform does.
+// Filtering on c8y_IsChildAsset or c8y_IsChildDevice would not work: the
+// platform has no such fragments, so the condition would be true of everything
+// and the picker would offer every child in the tenant as somewhere to start.
 func TestOnlyRootsOffersOnlyWhatNothingElseHolds(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)
@@ -503,7 +502,7 @@ func TestOnlyRootsOffersOnlyWhatNothingElseHolds(t *testing.T) {
 
 // The parents have to be asked for. Without withParents the platform sends no
 // parent collections at all, every object looks parentless, and the filter above
-// silently passes everything - which is the same bug in a new place.
+// silently passes everything.
 func TestTheRootsFilterAsksThePlatformForParents(t *testing.T) {
 	p := twoTenants(t)
 	svc := p.start(t)

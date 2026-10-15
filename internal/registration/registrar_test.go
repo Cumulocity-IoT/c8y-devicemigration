@@ -38,7 +38,7 @@ func exportThenRegister(t *testing.T, opts registration.Options) (*testfixture.S
 
 	opts.InputDirectory = out
 	if opts.Tenant == "" {
-		opts.Tenant = "t1186848933"
+		opts.Tenant = "t1234567890"
 	}
 	var stderr bytes.Buffer
 	return server, registration.New(client, &stderr, opts), out
@@ -128,7 +128,7 @@ func TestCredentialsMatchWhatWasSent(t *testing.T) {
 		if want := "device_" + credential.ExternalID; credential.Username != want {
 			t.Errorf("username for %s is %q, want %q", credential.ExternalID, credential.Username, want)
 		}
-		if credential.Tenant != "t1186848933" {
+		if credential.Tenant != "t1234567890" {
 			t.Errorf("credential for %s names tenant %q", credential.ExternalID, credential.Tenant)
 		}
 	}
@@ -301,7 +301,7 @@ func TestRunReportsSkippedObjects(t *testing.T) {
 
 	var stderr bytes.Buffer
 	registrar := registration.New(client, &stderr, registration.Options{
-		InputDirectory: out, Tenant: "t1186848933",
+		InputDirectory: out, Tenant: "t1234567890",
 	})
 	if _, err := registrar.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -327,7 +327,7 @@ func TestEmptyExportIsRefused(t *testing.T) {
 	}
 	var stderr bytes.Buffer
 	registrar := registration.New(client, &stderr, registration.Options{
-		InputDirectory: t.TempDir(), Tenant: "t1186848933",
+		InputDirectory: t.TempDir(), Tenant: "t1234567890",
 	})
 	if _, err := registrar.Plan(); err == nil {
 		t.Fatal("an empty export directory was accepted")

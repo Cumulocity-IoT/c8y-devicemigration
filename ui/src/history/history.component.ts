@@ -87,17 +87,15 @@ import { TimestampCellComponent } from './timestamp-cell.component';
       .intro-text {
         max-width: 68ch;
       }
-      /* The emblem leads rather than trails, so it does not need pushing to the
-         far edge any more - and at the smaller size it sits beside the text
-         instead of towering over it.
+      /* The emblem leads rather than trails, so it needs no pushing to the far
+         edge - and at the smaller size it sits beside the text instead of
+         towering over it.
 
-         Drawn at full strength, in the delivered colours. It was muted and set
-         to 0.35 opacity while it sat on the right as a watermark, where fading
-         was the point. Leading a panel it identifies the feature, and both of
-         those washed it out: text-muted recolours the shape, because that layer
-         follows currentColor, and the opacity faded the green accent with it.
-         The shape now takes the card's own text colour, which is what the
-         navigator entry shows too. */
+         Drawn at full strength, in the delivered colours: leading a panel it
+         identifies the feature, so nothing here mutes or fades it. text-muted
+         would recolour the shape, because that layer follows currentColor, and
+         an opacity would fade the green accent with it. The shape takes the
+         card's own text colour, which is what the navigator entry shows too. */
       .device-migration-emblem {
         font-size: 56px;
         flex: 0 0 auto;
@@ -117,9 +115,8 @@ import { TimestampCellComponent } from './timestamp-cell.component';
       }
 
       /* The row's expansion. Everything in it sits on one of two axes: labels
-         in the first column, values in the second. The previous layout put a
-         tag, a date and a username side by side in a flex row and they lined up
-         on none of them. */
+         in the first column, values in the second. A tag, a date and a username
+         side by side in a flex row would line up on neither. */
       .device-migration-detail {
         padding: 16px 16px 16px 0;
         max-width: 60em;
@@ -223,15 +220,15 @@ export class HistoryComponent implements OnInit, OnDestroy {
       sortOrder: 'desc',
       cellRendererComponent: TimestampCellComponent,
       // A date and a time, and never more than that. The default track for
-      // short text is minmax(80px, 1.67fr), which gave a fixed-length value as
-      // much room as a tenant name that can run on.
+      // short text is minmax(80px, 1.67fr), which would give a fixed-length
+      // value as much room as a tenant name that can run on.
       gridTrackSize: 'minmax(120px, 0.8fr)'
     },
     {
       ...text('took', gettext('Duration')),
       // Numeric for the narrow ratio and the alignment: a column of figures
       // reads down the page when they line up. The widest value it can hold is
-      // now "1 h 30 min".
+      // "1 h 30 min".
       dataType: ColumnDataType.Numeric,
       gridTrackSize: 'minmax(80px, 0.5fr)'
     },
@@ -240,9 +237,9 @@ export class HistoryComponent implements OnInit, OnDestroy {
     {
       // Ours rather than the grid's own row actions, and the reason is in
       // row-actions.component.ts: the grid renders two actions as icons and
-      // three as an icon plus a menu, so which affordance a row wore depended on
-      // what had happened to that migration. This column is one menu, on every
-      // row, always in the same place.
+      // three as an icon plus a menu, so which affordance a row wore would
+      // depend on what had happened to that migration. This column is one menu,
+      // on every row, always in the same place.
       // Not called "actions": the grid's template switches on a column's name
       // and has a branch of its own for that one, which would render its row
       // actions - of which there are none - instead of this renderer.
@@ -253,8 +250,8 @@ export class HistoryComponent implements OnInit, OnDestroy {
       sortable: false,
       filterable: false,
       resizable: false,
-      // Stays on the right, where the grid's own actions were and where every
-      // other Cumulocity list keeps them.
+      // Stays on the right, where the grid's own actions would be and where
+      // every other Cumulocity list keeps them.
       positionFixed: true,
       gridTrackSize: 'max-content',
       cellRendererComponent: RowActionsComponent
@@ -312,7 +309,7 @@ export class HistoryComponent implements OnInit, OnDestroy {
       iconClasses: 'text-muted',
       run: row => this.explainExpiredRevert(row)
     },
-    // What it actually is: the engine's own log for this run. "Output" said
+    // What it actually is: the engine's own log for this run. "Output" would say
     // nothing about whose output or of what.
     log: {
       text: gettext('Migration log'),
@@ -356,8 +353,8 @@ export class HistoryComponent implements OnInit, OnDestroy {
    *
    * A drawer rather than a modal because it is the platform's component for
    * exactly this - a wide, scrolling workspace - and it comes at the right size,
-   * which a modal did not: that one carried a hand-written width, a breakpoint
-   * and a fixed body height, all arithmetic against the viewport.
+   * where a modal would need a hand-written width, a breakpoint and a fixed body
+   * height, all arithmetic against the viewport.
    *
    * `disableClickOutside` because there is half-filled work in it, and a stray
    * click on the page behind must not throw that away.
@@ -446,9 +443,10 @@ export class HistoryComponent implements OnInit, OnDestroy {
   /**
    * Asks before undoing, and says what undoing would mean.
    *
-   * The one destructive thing this screen does, and it used to happen on a
-   * single click of a menu item sitting beside "Migration log". The dialogue
-   * runs the undo itself, so a refusal stays on screen with the reason.
+   * Undoing deletes what the migration created in the target tenant, so it is
+   * confirmed here rather than done on a single click of a menu entry sitting
+   * beside "Migration log". The dialogue runs the undo itself, so a refusal
+   * stays on screen with the reason.
    */
   confirmRevert(row: GridRow): void {
     const dialog = this.modals.show(RevertConfirmComponent, {
@@ -548,9 +546,6 @@ export class HistoryComponent implements OnInit, OnDestroy {
     const grid: GridRow = {
       job: row.job,
       id: row.job.id ?? '',
-      // Status, and what qualifies it: how far a running job has got, and what
-      // cannot be believed about a finished one. In the column rather than
-      // beside it, so it sorts and searches with the status it belongs to.
       // One status, and only the status: the tag says Reverted rather than
       // Succeeded qualified by something. What cannot be believed about it, and
       // how far a running job has got, are the tooltip's job.

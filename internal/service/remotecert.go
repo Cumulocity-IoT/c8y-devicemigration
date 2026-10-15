@@ -14,15 +14,15 @@ import (
 // Reaching a target this instance is not subscribed to means authenticating to
 // it without a service user. The chosen mechanism is a client certificate: the
 // platform issues a device access token to whoever presents, over mTLS, a leaf
-// certificate whose issuer it trusts (see docs/platform-behaviour.md, the
-// verified section). So the service mints a throwaway certificate authority and
-// one leaf signed by it. The public CA is what the operator registers on the
-// target as trusted; the service keeps the leaf and its key and presents them.
+// certificate whose issuer it trusts. So the service mints a throwaway
+// certificate authority and one leaf signed by it. The public CA is what the
+// operator registers on the target as trusted; the service keeps the leaf and
+// its key and presents them.
 //
 // Everything here is generation only - no platform is involved, which is why it
-// is testable on its own. RSA 2048 deliberately, because that is the shape the
-// live-tenant verification used; nothing here introduces a variable that check
-// did not cover.
+// is testable on its own. RSA 2048 deliberately, because that is the shape
+// verified against a live tenant; nothing here introduces a variable that
+// verification does not cover.
 
 // certValidity bounds how long a minted certificate works. Long enough that an
 // operator can register the CA, come back and run a migration within the working

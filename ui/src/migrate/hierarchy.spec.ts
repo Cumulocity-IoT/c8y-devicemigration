@@ -6,7 +6,7 @@ import { hierarchyNote, pluralKind } from './hierarchy';
  *
  * What matters is that it keeps describing what would actually happen: a note
  * still reading "assets and devices" after somebody narrowed the hierarchy would
- * be worse than the controls it replaced.
+ * be worse than the controls it stands in for.
  */
 
 /** The sentence with its parameters filled in, as a reader would see it. */

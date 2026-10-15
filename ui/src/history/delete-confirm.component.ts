@@ -10,9 +10,9 @@ import { explain, type Failure, type GridRow } from './rows';
 /**
  * Asking before forgetting a run, and being exact about what "forget" means.
  *
- * Two destructive things now sit next to each other in the same row menu, and
- * they destroy different things: *Revert* deletes what the migration created in
- * the target tenant, and this deletes the record that says a migration ever
+ * Two destructive things sit next to each other in the same row menu, and they
+ * destroy different things: *Revert* deletes what the migration created in the
+ * target tenant, and this deletes the record that says a migration ever
  * happened. Confusing them would be easy and expensive in both directions, so
  * the first sentence here is the difference rather than a "this cannot be
  * undone" that would be true of either.

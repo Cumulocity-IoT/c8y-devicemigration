@@ -19,9 +19,8 @@ import (
 // fragment nothing carries, which does not fail: it reports zero, forever, and
 // reads as "no device has collected yet".
 //
-// Pinned the way this repository already pins the Go engine against the bash
-// implementation: by reading the other side's source rather than by trusting a
-// comment to be noticed.
+// Pinned by reading the other side's source rather than by trusting a comment
+// to be noticed.
 func TestTheUIAgreesAboutFragmentNames(t *testing.T) {
 	source := readUISource(t, "fragments.ts")
 
@@ -40,8 +39,8 @@ func TestTheUIAgreesAboutFragmentNames(t *testing.T) {
 	}
 }
 
-// The marker prefix used to be written out by hand in a template as well. If it
-// comes back, the constant above stops being the single place it is spelled.
+// No UI template may write the marker prefix out by hand: if one does, the
+// constant above stops being the single place it is spelled.
 func TestNoUITemplateSpellsTheMarkerOutByHand(t *testing.T) {
 	root := filepath.Join("..", "..", "ui", "src")
 

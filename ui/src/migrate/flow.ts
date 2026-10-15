@@ -516,7 +516,7 @@ export class MigrationFlow {
 
     // The service is the authority on this syntax, and it may refuse a value the
     // check above accepted. Its words belong on the field too, not in the alert
-    // at the top - which is where they used to appear, as "That cannot be done".
+    // at the top.
     if (this.failure && this.choices.dateFrom && isAboutTheDate(this.failure)) {
       // The service's own sentence, not one of ours: it goes through the
       // translation pipe like everything else and falls back to itself.

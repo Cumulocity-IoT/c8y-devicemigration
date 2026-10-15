@@ -30,18 +30,16 @@ const PasswordLength = 15
 
 // passwordSymbols is the punctuation a generated password may contain.
 //
-// A tenant's password strength policy can require a symbol - an alphanumeric
-// password was refused on a live tenant with 2026-09-08's stock policy - so
-// symbols are not optional. Which ones is decided entirely by where the password
+// A tenant's password strength policy can require a symbol - a live tenant's
+// stock policy refuses an alphanumeric password - so symbols are not optional. Which ones is decided entirely by where the password
 // then has to survive, and there are only two rules:
 //
 //   - **The registration and credentials files.** Both are comma separated, so a
-//     comma is out, and a double quote with it: measured 2026-10-01, the
-//     registration endpoint implements no RFC 4180 quoting at all - it splits on
+//     comma is out, and a double quote with it: measured, the registration
+//     endpoint implements no RFC 4180 quoting at all - it splits on
 //     every comma, quoted or not, and trims quotes from a field rather than
 //     unescaping them. CR and LF cannot appear in a line-oriented file either.
-//     The same rule now applies to every other field of that file; see
-//     file.go and docs/platform-behaviour.md.
+//     The same rule applies to every other field of that file; see file.go.
 //   - **Pasting the thing.** An operator ends up putting these into curl,
 //     mosquitto_pub and basic-auth URLs, and the advice that makes every one of
 //     them safe is "wrap it in single quotes". So a single quote is out, since it
@@ -66,7 +64,7 @@ const minimumSymbols = 2
 // two digits, two uppercase and two lowercase characters, which together with
 // minimumSymbols is what makes every password acceptable to a tenant on the
 // strictest strength setting. A whole registration would otherwise fail on a
-// policy nobody looked at first - which is exactly how this came to be tested.
+// policy nobody looked at first.
 //
 // WithCustomSymbols rather than WithSymbols: the generator's own symbol set is
 // "`!$@#%^&*()-_=+[]{}|;:,.<>/?~", and it contains a **comma**. Left at the

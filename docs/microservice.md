@@ -12,12 +12,6 @@ is `internal/migrate`, linked in, not a copy and not a subprocess. What the
 microservice adds is everything the CLI got from a person: credentials, the
 decision that two tenants really are two tenants, and somewhere to send progress.
 
-> **Status: complete.** Bootstrap, subscriptions, authorization, `/health`,
-> `GET /tenants`, `POST /preflight`, migrations and reverts as asynchronous jobs,
-> closing the records of jobs whose container stopped existing, metrics, runtime
-> log levels, and settings from tenant options. It has not yet run against a live
-> tenant.
-
 ## Deploying it
 
 ```sh
@@ -105,9 +99,11 @@ that header, the application is not sending it.
 
 The path is only useful if it agrees with what is served, and nothing at
 deployment time checks that, so a test compares the manifest's `openApiSpec`
-against the routes and against whether that route needs credentials. It is kept true by tests rather than by discipline: every
-route is compared against the document in both directions, every request and
-response field is compared against the Go struct's json tags, and each endpoint's
+against the routes and against whether that route needs credentials.
+
+The document itself is kept true by tests rather than by discipline: every route
+is compared against the document in both directions, every request and response
+field is compared against the Go struct's json tags, and each endpoint's
 documented `security` is checked against whether it really answers without
 credentials. Adding an endpoint or a field without documenting it fails
 `make check`.
@@ -124,7 +120,11 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /migrations` | every job this service has run, newest first |
 | `GET /migrations/{id}` | one job, including the tail of its output |
 | `POST /migrations/{id}/cancel` | asks a running job to stop |
+| `POST /migrations/{id}/credentials` | the device passwords a migration issued, as CSV, handed over once and only to whoever started it. See [Device credentials](#device-credentials) |
 | `DELETE /migrations/{id}` | forgets a migration, and the undos of it. The **record** only: nothing in either tenant is touched |
+| `POST /devices/self/migration` | a migrated device asking where to reconnect and who it now is. The one route open to device users from outside the owner tenant. See [Device self-service credentials](#device-self-service-credentials) |
+| `GET /tenants/{tenant}/trusted-certificates` | a tenant's trusted certificates, and which of them a cutover can move. See [Moving a trust anchor](#moving-a-trust-anchor-for-a-certificate-fleet) |
+| `POST /certificate-cutovers` | moves one trusted certificate from the source tenant to the target. Synchronous, with an outage between the two halves |
 | `POST /reverts` | undoes what a migration created; answers **202** with a job id |
 | `GET /reverts` | every revert, newest first |
 | `GET /reverts/{id}` | one revert |
@@ -138,6 +138,9 @@ credentials. Adding an endpoint or a field without documenting it fails
 | `GET /tenants/{tenant}/platform/inventory/managedObjects/{id}` | the platform's own read, in that tenant |
 | `GET /tenants/{tenant}/platform/inventory/managedObjects/{id}/{relationship}` | one of its reference collections |
 | `POST /estimates` | how much a migration would move, and whether the limits allow it |
+| `POST /remote-targets` | establishes a certificate connection to a target this service is not subscribed to, and answers with the CA to register there. See [Remote targets](#remote-targets) |
+| `GET /remote-targets` | the established connections, without their certificates, and when each expires |
+| `DELETE /remote-targets/{id}` | discards one, before its certificate lapses |
 
 ```sh
 c8y api GET /service/devicemigration/tenants
@@ -391,14 +394,14 @@ tenant, and the next call mints a new password.
 
 #### What an ask costs
 
-Answering a device means finding the migration that carried it, and that used to
-mean listing the owner tenant's job records and then — per candidate migration —
-resolving an external identity and reading an object in the target tenant. All of
-it with this service's own service users, so the work is charged to the platform
-rather than to the caller, and a device with **nothing** to do paid the whole
+Answering a device means finding the migration that carried it: listing the owner
+tenant's job records and then — per candidate migration — resolving an external
+identity and reading an object in the target tenant. All of it with this
+service's own service users, so the work is charged to the platform rather than
+to the caller, and unbounded, a device with **nothing** to do would pay the whole
 search before being told so.
 
-Three things bound that now, and none of them changes what the endpoint answers:
+Three things bound that, and none of them changes what the endpoint answers:
 
 - **The collectable migrations are derived once and held briefly.** Everything
   that decides whether a migration can answer for a device is terminal — it
@@ -477,9 +480,9 @@ and `autoRegistrationEnabled` defaults to whatever the source tenant had.
 
 That default is the point. Auto-registration decides which devices a CA may bring
 into a tenant — with it on, anything presenting a chain to that certificate is
-registered there, including devices no migration covered. This endpoint used to
-force it **on**, so a tenant that had deliberately trusted a CA *without*
-auto-registration had it switched on by a cutover, with nothing saying so.
+registered there, including devices no migration covered. Forcing it **on** would
+mean a tenant that had deliberately trusted a CA *without* auto-registration had
+it switched on by a cutover, with nothing saying so.
 
 Pass `autoRegistrationEnabled` to choose deliberately, in either direction. The UI
 shows a checkbox set to the source's own answer, so moving the certificate changes
@@ -520,14 +523,12 @@ devices a certificate serves: the platform records nothing linking a device to t
 certificate that authenticates it, so the `warning` says so rather than
 approximating a number.
 
-But it **does** move the devices, which took a correction to establish. This
-endpoint was written believing the tenant is resolved from the hostname a device
-dialled, which would have made the cutover an authorization change and left the
-fleet to be pointed elsewhere by an agent. Within one instance that is not how it
-works: a connection is routed by the certificate it presents, so a device still
-configured with the source host arrives in the target. Connected devices move when
-they reconnect, offline devices when they return, and no device-side change is
-involved at all.
+But it **does** move the devices. The tenant is not resolved from the hostname a
+device dialled, which would make the cutover an authorization change and leave
+the fleet to be pointed elsewhere by an agent. Within one instance a connection
+is routed by the certificate it presents, so a device still configured with the
+source host arrives in the target. Connected devices move when they reconnect,
+offline devices when they return, and no device-side change is involved at all.
 
 **This is the same-instance case, and it is the only one this endpoint can
 serve.** A fingerprint can be trusted in only one tenant *per platform instance*,
@@ -540,14 +541,16 @@ subscribed here. See [Remote targets](#remote-targets).
 
 Reading a truststore needs `ROLE_TENANT_MANAGEMENT_READ`, which this service
 already had. Writing one needs `ROLE_TENANT_MANAGEMENT_ADMIN`, which the manifest
-gained for this — so an upgrade asks each subscribed tenant's administrator to
-approve it.
+requests for this — so each subscribed tenant's administrator has to approve it.
 
-**The cutover leaves no record.** It creates no job, being two calls rather than a
-run, so nothing afterwards reports that it happened. The listing above is the
-answer instead: a certificate that has already moved is simply no longer in the
-source tenant. That is also why [the UI](ui.md) offers the move for as long as the
-migration stands rather than hiding it once used — it has nothing to hide it on.
+**This service keeps no record of a cutover.** It creates no job, being two calls
+rather than a run, so nothing in the list of migrations reports that it happened;
+the account of it that lasts is the platform's audit log in each tenant,
+described [above](#what-a-cutover-leaves-on-the-record). The
+`trusted-certificates` listing is the answer instead: a certificate that has
+already moved is simply no longer in the source tenant. That is also why
+[the UI](ui.md) offers the move for as long as the migration stands rather than
+hiding it once used — it has nothing to hide it on.
 
 ### Undoing a migration
 
@@ -619,7 +622,7 @@ the answer is **409** and says so.
 running, `GET /migrations/{id}` answers from the running job rather than from the
 record, because the record is only as fresh as the last progress write. The
 outcome is the other way round: the record is written first, and only then does
-the running job start reporting it. The other order was a real defect — a caller
+the running job start reporting it. The other order would be a defect — a caller
 that polled until a migration was `SUCCEEDED` and then asked to undo it could be
 refused with *"has no run id"*, because the record it was refused from still said
 `RUNNING`. Between the two writes a caller sees `RUNNING` for a few milliseconds
@@ -637,8 +640,6 @@ target tenant by run id before retrying.
 A target the instance is not subscribed to — a different parent, or a different
 platform — is reached with a client certificate instead of a service user, which
 is what lets a device authenticate to a tenant nobody handed it a password for.
-What such a token can and cannot do was measured rather than assumed —
-[docs/platform-behaviour.md](platform-behaviour.md#device-access-tokens-for-a-target-reached-by-certificate).
 The flow the service exposes:
 
 ```sh
@@ -682,15 +683,10 @@ make it safe:
   refuse identically and neither discovers it as a 401 from the platform halfway
   through.
 
-One thing this has **not** had is an end-to-end run against a live remote tenant;
-the certificate, token and import primitives it rests on were each verified live
-(see the concept), but the assembled service flow has only been exercised against
-the test fixture.
-
 ### Naming things, not just identifying them
 
 `GET /tenants` answers with each subscribed tenant's id, its company name and its
-host, because `t11106993` identifies a tenant and describes nothing. The two names
+host, because `t87654321` identifies a tenant and describes nothing. The two names
 come from two places, since the platform keeps them in two:
 
 | | |
@@ -718,7 +714,8 @@ c8y api GET  /service/devicemigration/tenants/t11111/inventory/1399229
 c8y api GET '/service/devicemigration/tenants/t11111/inventory/1399229/children?childTypes=asset,device'
 ```
 
-Two things about the listing are worth knowing, because both were wrong once.
+Two things about the listing are worth knowing, because both are easy to get
+wrong.
 
 **Only devices, groups and assets come back.** The condition is part of the query
 the platform runs — `has(c8y_IsDevice) or has(c8y_IsDeviceGroup) or
@@ -771,14 +768,14 @@ Four things about it are deliberate:
   segment — is a 404, and an unknown collection name is a 400.
 
 These are reads and nothing else. **They do grant something new**, though: an
-owner-tenant administrator holding `ROLE_DEVICE_MIGRATION_ADMIN` can now read
+owner-tenant administrator holding `ROLE_DEVICE_MIGRATION_ADMIN` can read
 any subscribed tenant's inventory through its service user. That is strictly less
 than what the role already permits — migrating that tenant's hierarchy wholesale
 — but it is a capability, and anyone deciding who gets the role should know it
 comes with this.
 
-An id that does not exist is a 404 here, which is the point: until these existed,
-a mistyped root was discovered when the migration ran, minutes later.
+An id that does not exist is a 404 here, which is the point: without these, a
+mistyped root would only be discovered when the migration ran, minutes later.
 
 `POST /estimates` answers how big a migration would be before anybody commits to
 it:
@@ -947,10 +944,15 @@ library is ever fixed — at which point the local decoder can go.
 - **One replica, one migration at a time.** The manifest pins `replicas: 1`. The
   engine keeps its state in files whose paths come from the caller, so two
   containers sharing a mapping file would corrupt it.
-- **A container restart ends a migration.** Microservices have no persistent
-  volumes, so the staging directory and the resume journal are ephemeral. The
-  job record keeps the run id, which is enough to revert or to resume from the
-  CLI, but the service does not resume by itself.
+- **A container restart ends a migration, and nothing can resume it.**
+  Microservices have no persistent volumes, so the staging directory and the
+  resume journal go with the container — and the command line's `--resume` needs
+  that journal too. The job record keeps the run id, which is enough to undo the
+  run, with `POST /reverts` or `c8y-devicemigration revert --runId` against the
+  target tenant (see [Undoing a migration](#undoing-a-migration)); the migration
+  is then started again. A remote-target run is the exception on the service
+  side: its certificate went with the container too, so only the command line
+  can undo it.
 
   On startup, every record still saying `RUNNING` or `QUEUED` is closed as
   `INTERRUPTED`, keeping its run id so the target tenant can be inspected and the

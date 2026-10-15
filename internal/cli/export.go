@@ -100,9 +100,8 @@ func newExportCommand(stderr io.Writer) *cobra.Command {
 }
 
 func runExport(ctx context.Context, stderr io.Writer, sessionValue, home string, opts export.Options) error {
-	// Nothing is printed about which session was chosen: commands/export prints
-	// nothing either, and the two outputs are compared byte for byte. Use
-	// preflight to see what a session resolves to.
+	// Nothing is printed about which session was chosen. Use preflight to see
+	// what a session resolves to.
 	s, _, err := session.Current(sessionValue, home)
 	if err != nil {
 		return err

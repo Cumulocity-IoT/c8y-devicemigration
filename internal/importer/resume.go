@@ -22,8 +22,8 @@ import (
 //
 // Expressed as a query, never as the fragmentType parameter: Cumulocity ignores
 // fragmentType whenever a query parameter is present, and paging the inventory
-// adds one. See docs/go-port/BEHAVIOUR-CONTRACT.md - getting this wrong once
-// produced a plan to delete 811 objects for a nine-object import.
+// adds one, so a fragmentType filter would be dropped and the query would select
+// the whole tenant. See docs/behaviour-contract.md.
 func MarkerQuery(fragment string) string {
 	return "$filter=has(" + fragment + ")"
 }

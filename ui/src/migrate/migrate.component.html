@@ -1,9 +1,9 @@
 <!--
   A bottom drawer, not a modal. It is the platform's own component for a
-  workspace like this one, and it is already the size it should be: the sizing
-  this dialogue used to do by hand - a width against the viewport, a breakpoint,
-  and a fixed body height so the panel did not resize while somebody read it -
-  is what the drawer is for.
+  workspace like this one, and it is already the size it should be: nothing here
+  works out a width against the viewport, a breakpoint, or a fixed body height to
+  stop the panel resizing while somebody reads it - that is what the drawer is
+  for.
 
   The three parts are the convention its own drawers use: a header that stays, a
   body that scrolls, and a footer holding the decision.
@@ -28,8 +28,7 @@
 
       <!--
         What has to be true before this can work, in one line. It lives here
-        rather than on the list page because this is where somebody acts on it,
-        and the two bullets it used to be said the same thing twice as long.
+        rather than on the list page because this is where somebody acts on it.
       -->
       <p class="m-b-24">
         <i c8yIcon="info-circle" class="text-info m-r-4"></i>
@@ -45,8 +44,8 @@
 
       <!--
         The two tenants, side by side and the same width: they are one question
-        asked twice, and a wider box for one of them read as the more important
-        half. The panes below them are where they differ.
+        asked twice, and a wider box for one of them would read as the more
+        important half. The panes below them are where they differ.
       -->
       <div class="device-migration-tenants m-b-24">
         <c8y-form-group class="m-b-0">
@@ -89,8 +88,8 @@
           <!--
             The remote case is an entry in this list rather than a checkbox
             beside it. It answers the same question - which tenant - so it
-            belongs among the answers; as a separate control it read as a mode
-            the whole dialogue was in.
+            belongs among the answers; as a separate control it would read as a
+            mode the whole dialogue is in.
           -->
           <c8y-select
             [items]="v.tenants.target"
@@ -258,8 +257,8 @@
               <!--
                 btn-dot in an input-group-btn, which is how the platform's own
                 search and filter fields put a button inside a field: a bordered
-                button of its own next to a disabled input is what made this look
-                like two controls that had come apart.
+                button of its own next to the input looks like two controls that
+                have come apart.
 
                 Only there when the field can be used. A live-looking button
                 beside a disabled field is a mixed message as well as a misaligned

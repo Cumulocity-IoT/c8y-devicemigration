@@ -10,9 +10,8 @@ import (
 
 // Identity is one external identity, in the field order the artefact uses.
 //
-// The order matters: these files are compared byte for byte against the ones
-// commands/export writes, and jq emits the keys in the order the map literal
-// gives them - type first, even though the c8y --select order is the reverse.
+// The order matters: the artefact format puts type first, and the JSON encoder
+// emits the keys in field order.
 type Identity struct {
 	Type       string `json:"type"`
 	ExternalID string `json:"externalId"`
@@ -31,7 +30,7 @@ type artefacts struct {
 func (a *artefacts) record(path string) { a.paths = append(a.paths, path) }
 
 // revert removes the artefacts in reverse order, then tidies the directories
-// they lived in. Mirrors commands/export:593.
+// they lived in.
 func (a *artefacts) revert() {
 	for i := len(a.paths) - 1; i >= 0; i-- {
 		_ = os.Remove(a.paths[i])
@@ -55,9 +54,8 @@ func (a *artefacts) revert() {
 	}
 }
 
-// writeJSONIndented writes a value the way jq pretty-prints it: two-space
-// indent and a trailing newline. Verified against the committed fixtures in
-// tests/fixtures/export-9object.
+// writeJSONIndented writes a value pretty-printed: two-space indent and a
+// trailing newline.
 func writeJSONIndented(path string, value any) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -87,7 +85,7 @@ func childIndexPath(dir, id string, childType ChildType) string {
 	return filepath.Join(dir, fmt.Sprintf("%s_child_%s.json", id, childType))
 }
 
-// displayName mirrors read_name in the bash commands: tabs and newlines become
+// displayName makes a name fit on one progress line: tabs and newlines become
 // spaces, and a name that is empty or all spaces is reported as <unnamed>.
 func displayName(name string) string {
 	name = strings.ReplaceAll(name, "\t", " ")

@@ -95,7 +95,8 @@ describe("the history list", () => {
   });
 
   // The line stays in the log after the job is over, so reading it from there
-  // left a finished migration wearing a full progress bar and a caption under it.
+  // would leave a finished migration wearing a full progress bar and a caption
+  // under it.
   it("shows no progress on a job that has finished", () => {
     for (const status of [
       "SUCCEEDED",
@@ -367,9 +368,9 @@ describe("how often the list reads itself again", () => {
     ).toBeGreaterThan(0);
   });
 
-  // The ratio used to be the assertion, which only described the numbers that
-  // happened to be there. What matters is that watching a job is quick enough to
-  // look alive, and that idling is cheap - so both numbers are pinned, and
+  // Both numbers rather than their ratio: a ratio only describes whatever
+  // numbers happen to be there. What matters is that watching a job is quick
+  // enough to look alive, and that idling is cheap - so both are pinned, and
   // changing either is then a deliberate act rather than a silent drift.
   it("watches a running job every second and idles at thirty", () => {
     expect(RUNNING_REFRESH_MS).toBe(1_000);
@@ -483,8 +484,7 @@ describe("what the list says about tenants and objects", () => {
     });
   });
 
-  // Records written before the name was recorded have only the id, and that is
-  // what they show.
+  // A record that carries no name has only the id, and that is what it shows.
   it("shows the id alone when no name was recorded", () => {
     const [row] = rows(
       [
@@ -573,8 +573,8 @@ describe("what the list says about tenants and objects", () => {
     });
 
     // The download action is offered only while the file is still collectable,
-    // so before this the record was the only place a completed provisioning
-    // survived - and nothing read it.
+    // so after that the record is the only place a completed provisioning
+    // survives - and this is what reads it.
     it("carries how the devices got credentials, from the record", () => {
       const provisioned = scopeOf(
         job({

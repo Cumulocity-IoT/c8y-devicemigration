@@ -1,10 +1,6 @@
-// Package testfixture serves tests/fixtures/hierarchy.json over HTTP.
-//
-// The bats suite drives the bash implementation through a fake c8y binary that
-// reads the same file. Serving it here means both implementations are exercised
-// against the same synthetic tenant - including its cycle, its two-parent node,
-// its unnamed object and its awkward names - which is what makes a differential
-// comparison meaningful rather than approximate.
+// Package testfixture serves tests/fixtures/hierarchy.json over HTTP: a
+// synthetic tenant with a cycle, a two-parent node, an unnamed object and
+// awkward names.
 package testfixture
 
 import (
@@ -66,18 +62,16 @@ type Server struct {
 	tenantName   string
 	tenantDomain string
 
-	// objectBodies overrides what GET /inventory/managedObjects/<id> returns.
-	// The differential test fills this from tests/fake/c8y so both
-	// implementations receive byte-identical responses; without that the two
-	// artefacts could only ever be compared modulo formatting.
+	// objectBodies overrides what GET /inventory/managedObjects/<id> returns,
+	// so a test can serve exact bytes.
 	objectBodies map[string][]byte
 
 	mu       sync.Mutex
 	requests []string
 
 	// queries keeps the query string too. A filter that never reaches the
-	// server is invisible when only paths are recorded, which is exactly how a
-	// revert once planned to delete a whole tenant.
+	// server is invisible when only paths are recorded, and a revert whose
+	// filter is lost plans to delete a whole tenant.
 	queries []string
 
 	// The target tenant this server also stands in for. Ids come from one
@@ -124,8 +118,7 @@ type Server struct {
 	refuseDelete map[string]bool
 
 	// totalOverride inflates what a count query reports, so a test can drive
-	// the export's limit checks without generating a million records. The bash
-	// harness does the same through FAKE_C8Y_TOTAL_*.
+	// the export's limit checks without generating a million records.
 	totalOverride    map[string]int
 	records          []CreatedRecord
 	uploadedBinaries []string
@@ -402,8 +395,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.createManagedObject(w, r)
 
 	// Device data. The fixture holds the records verbatim, so what the export
-	// writes is what the fixture says - which is what makes it comparable with
-	// the bash implementation reading the same file.
+	// writes is what the fixture says.
 	case r.Method == http.MethodGet && r.URL.Path == "/measurement/measurements":
 		s.listData(w, r, "measurements", "measurements")
 	case r.Method == http.MethodGet && r.URL.Path == "/event/events":
@@ -528,11 +520,11 @@ func (s *Server) deleteManagedObject(w http.ResponseWriter, id string, withDevic
 	// object where it is**; it is not the no-op it reads as. Every object an
 	// import creates without provisioning credentials is exactly that, so a
 	// reverter that sets the flag unconditionally breaks the ordinary revert
-	// while looking more thorough - which is what happened, and passed a test
-	// suite whose fake accepted any query parameter it was given.
+	// while looking more thorough - and would pass a test suite whose fake
+	// accepted any query parameter it was given.
 	//
-	// Measured on a live tenant 2026-09-08: device owned by a device user 204,
-	// device owned by an ordinary user 409 and still present, group 204.
+	// Measured on a live tenant: device owned by a device user 204, device
+	// owned by an ordinary user 409 and still present, group 204.
 	if withDeviceUser {
 		s.deletedWithDeviceUser = append(s.deletedWithDeviceUser, id)
 		owner := gjson.GetBytes(s.created[id], "owner").String()
@@ -579,10 +571,10 @@ func (s *Server) deleteManagedObject(w http.ResponseWriter, id string, withDevic
 // parameter is present. The two are mutually exclusive, and a caller that sets
 // both silently gets the query alone.
 //
-// Modelling that is what makes this fake worth having. An earlier version
-// honoured fragmentType regardless, so a revert that sent both - which is what
-// the library's paging does, since it adds its own query for the id keyset -
-// passed every test here and then planned to delete an entire tenant.
+// Modelling that is what makes this fake worth having. A fake that honoured
+// fragmentType regardless would let a revert that sent both - which is what the
+// library's paging does, since it adds its own query for the id keyset - pass
+// every test here and then plan to delete an entire tenant.
 func (s *Server) findManagedObjects(w http.ResponseWriter, params url.Values) {
 	query := params.Get("query")
 	fragmentType := params.Get("fragmentType")
@@ -1727,14 +1719,12 @@ func (s *Server) RotateRegistration(externalIDs ...string) {
 
 // bulkRegister stands in for POST /devicecontrol/bulkNewDeviceRequests.
 //
-// It reads whichever delimiter the file uses, because the real endpoint does.
-// This fixture used to refuse a tab-separated file, on a finding that was
-// retested on 2026-09-09 and turned out to be wrong - tabs and commas both
-// registered correctly, including go-c8y's own tab-separated output. Modelling
-// a restriction the platform does not have is worse than modelling nothing: it
-// fails changes that would have worked. What the delimiter is used for now is
-// RegistrationDelimiter, so a test can pin *our* choice without claiming the
-// endpoint enforces it.
+// It reads whichever delimiter the file uses, because the real endpoint does:
+// tabs and commas both register correctly, including go-c8y's own tab-separated
+// output. Modelling a restriction the platform does not have is worse than
+// modelling nothing: it fails changes that would work. RegistrationDelimiter
+// records which delimiter was used, so a test can pin *our* choice without
+// claiming the endpoint enforces it.
 //
 // A row for a refused id lands in failedCreationList and creates nothing; a row
 // for a rotated id lands in credentialUpdatedList and, as the platform does,
@@ -1903,8 +1893,7 @@ func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 
 // writeManagedObject emits a managed object shaped like a real one: the
 // fixture's own fields plus the server managed properties that an import is
-// expected to strip. The shape mirrors what tests/fake/c8y emits, so the two
-// implementations see the same bytes.
+// expected to strip.
 func (s *Server) writeManagedObject(w http.ResponseWriter, id string) {
 	// An object this run created lives in the target tenant, which is a
 	// different id space from the source fixture.

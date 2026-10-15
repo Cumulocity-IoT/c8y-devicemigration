@@ -41,8 +41,7 @@ func (o Origin) String() string {
 	}
 }
 
-// environmentNames mirrors the library's own lists, and the set that
-// commands/export clears when --session is given. Kept here rather than
+// environmentNames mirrors the library's own lists. Kept here rather than
 // imported so this package stays free of the API client.
 var (
 	envHost     = []string{"C8Y_BASEURL", "C8Y_URL", "C8Y_HOST"}
@@ -106,8 +105,7 @@ var ErrNoSession = errors.New("no session")
 //
 // This mirrors what the c8y binary does for the implicit case: the environment
 // wins. When --session is given the file wins instead, and the ambient
-// variables are ignored entirely, which is the behaviour commands/export gets by
-// clearing them.
+// variables are ignored entirely.
 func Current(value, home string) (*Session, Origin, error) {
 	if value != "" {
 		s, err := Load(value, home, "")

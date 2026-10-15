@@ -3,8 +3,7 @@
 // This exists because the go-c8y library has no session, config or encryption
 // support at all, and because asking the c8y binary is not an option: `c8y
 // sessions get --session X` does not report session X, it reports whichever
-// session is active and ignores --session. That was discovered the hard way, and
-// it is recorded as assumption 7 in tests/fake/c8y.
+// session is active and ignores --session.
 //
 // Reading the file directly is also strictly better: host and tenant are
 // plaintext even when the credentials are encrypted, so identifying a session
@@ -35,9 +34,9 @@ type Session struct {
 
 	// Certificate and CertificateKey authenticate with a client certificate
 	// instead of a password: PEM contents, not paths. Used only for a remote
-	// migration target the service reaches without a service user (see
-	// docs/platform-behaviour.md). Like the fields above, Read decodes into
-	// its own private struct, so no session file can set these either.
+	// migration target the service reaches without a service user. Like the
+	// fields above, Read decodes into its own private struct, so no session
+	// file can set these either.
 	Certificate    string
 	CertificateKey string
 
@@ -130,10 +129,10 @@ func (e *NotFoundError) Error() string {
 
 // Resolve turns a --session value into the one file it names.
 //
-// Mirrors commands/migrate:220. An existing path wins; otherwise the value is
-// matched against file names in the session home as a GLOB, not a substring:
-// c8y resolves 'foo.eu-latest.cumulocity.com-me.json' and '*eu-latest*', but a
-// bare 'foo' matches nothing at all.
+// An existing path wins; otherwise the value is matched against file names in
+// the session home as a GLOB, not a substring: c8y resolves
+// 'foo.eu-latest.cumulocity.com-me.json' and '*eu-latest*', but a bare 'foo'
+// matches nothing at all.
 //
 // side is "source" or "target", or "" for a single-session command, and only
 // shapes the error text.

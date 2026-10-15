@@ -25,7 +25,7 @@ import (
 //
 // They are reads and nothing else: no create, no update, no delete. What they do
 // grant is real, though - an owner-tenant administrator holding the migration
-// role can now read any subscribed tenant's inventory through its service user.
+// role can read any subscribed tenant's inventory through its service user.
 // That is strictly less than the role already permits, which is migrating that
 // tenant's hierarchy wholesale, but it is a capability and it is documented as
 // one.
@@ -90,8 +90,7 @@ func (s *Service) handleListInventory(w http.ResponseWriter, r *http.Request) {
 
 	// The condition goes inside the query. The platform ignores type and
 	// fragmentType whenever a query is present, and asking any other way
-	// silently returns the whole inventory - which this repository has been
-	// caught by twice.
+	// silently returns the whole inventory.
 	//
 	// Devices, assets and groups only. A tenant's inventory also holds
 	// dashboards, smart rules, binaries, retention rules and this service's own
@@ -155,8 +154,8 @@ func (s *Service) handleListInventory(w http.ResponseWriter, r *http.Request) {
 
 // handleGetInventoryObject reads one object, with what is underneath it.
 //
-// This is also how a caller finds out whether an id exists at all: until now a
-// wrong root id was discovered when the migration ran, minutes later.
+// This is also how a caller finds out whether an id exists at all, rather than
+// discovering a wrong root id when the migration runs, minutes later.
 func (s *Service) handleGetInventoryObject(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.Authorize(r.Context(), r); err != nil {
 		writeError(w, r, err)

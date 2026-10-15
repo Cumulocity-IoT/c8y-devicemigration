@@ -32,9 +32,8 @@ const (
 //
 // The target tenant assigns its own, and `source` in particular must go: it
 // names a device in the tenant the export came from, and sending it would
-// attach the record to the wrong device or to nothing at all. The bash
-// implementation gets the same effect from `c8y --device`, which overwrites
-// source client-side; there is no such flag here, so it is done explicitly.
+// attach the record to the wrong device or to nothing at all. retarget
+// replaces it with the new device.
 var (
 	measurementStrip = []string{"id", "self"}
 	eventStrip       = []string{"id", "self", "creationTime", "lastUpdated", "c8y_IsBinary", "source"}

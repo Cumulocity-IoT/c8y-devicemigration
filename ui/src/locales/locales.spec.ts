@@ -75,7 +75,7 @@ describe('the German catalogue', () => {
 
 // A string can be in every catalogue and still show up in English: the mistake
 // is forgetting the pipe, and the German user is the only one who would notice.
-// These two rules cover the ways it has actually happened here.
+// These two rules cover the ways it can happen here.
 describe('the templates', () => {
   // Inline templates count: they are templates, and the pipe can go missing in
   // one just as easily.

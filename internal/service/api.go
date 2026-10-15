@@ -50,7 +50,7 @@ func (s *Service) Routes() []Route {
 		{Method: http.MethodPost, Path: "/estimates", handler: s.handleEstimate},
 
 		// Establishing a certificate connection to a target this instance is not
-		// subscribed to. See remotetarget.go and docs/platform-behaviour.md.
+		// subscribed to. See remotetarget.go.
 		{Method: http.MethodPost, Path: "/remote-targets", handler: s.handleCreateRemoteTarget},
 		{Method: http.MethodGet, Path: "/remote-targets", handler: s.handleListRemoteTargets},
 		{Method: http.MethodDelete, Path: "/remote-targets/{id}",
@@ -101,7 +101,7 @@ func (s *Service) Routes() []Route {
 			handler: s.handleDeviceSelfMigration},
 
 		// Moving what a tenant trusts, for a certificate fleet. See
-		// trustanchor.go and docs/platform-behaviour.md.
+		// trustanchor.go.
 		{Method: http.MethodGet, Path: "/tenants/{tenant}/trusted-certificates",
 			handler: s.handleListTrustedCertificates},
 		{Method: http.MethodPost, Path: "/certificate-cutovers",
@@ -459,7 +459,7 @@ type TenantsResponse struct {
 
 // TenantDescription is a tenant as a person would recognise it.
 //
-// An id like t11106993 identifies a tenant and describes nothing; the name and
+// An id like t87654321 identifies a tenant and describes nothing; the name and
 // the domain are what somebody choosing between two of them actually reads. Both
 // come from the tenant's own /tenant/currentTenant, read with its service user -
 // so a tenant that cannot be reached still appears, with its id and nothing else,

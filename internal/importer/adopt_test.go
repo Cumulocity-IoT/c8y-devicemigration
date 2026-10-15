@@ -45,7 +45,7 @@ func registerThenImport(t *testing.T, opts importer.Options) (*testfixture.Serve
 	if _, err := registration.New(client, &registerErr, registration.Options{
 		InputDirectory: out,
 		Marker:         importer.MarkerPrefix + testRunID,
-		Tenant:         "t1186848933",
+		Tenant:         "t1234567890",
 	}).Run(context.Background()); err != nil {
 		t.Fatalf("registration failed: %v\n%s", err, registerErr.String())
 	}
@@ -223,7 +223,7 @@ func TestAdoptRefusesAnObjectThisRunDidNotRegister(t *testing.T) {
 	if _, err := registration.New(client, &registerErr, registration.Options{
 		InputDirectory: out,
 		Marker:         importer.MarkerPrefix + "20260101T000000Z_999999",
-		Tenant:         "t1186848933",
+		Tenant:         "t1234567890",
 	}).Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

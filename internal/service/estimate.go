@@ -11,11 +11,10 @@ import (
 
 // How big is this migration, before anybody commits to it.
 //
-// The engine has always known - it walks the hierarchy and counts every device's
-// records before writing anything, and refuses when a limit is breached. What it
-// did with the answer was render a table and throw the totals away. This returns
-// them, so a caller can say "9 objects and 1.2 million measurements, about 25
-// minutes" while somebody is still deciding.
+// The engine already knows - it walks the hierarchy and counts every device's
+// records before writing anything, and refuses when a limit is breached. This
+// returns those totals, so a caller can say "9 objects and 1.2 million
+// measurements, about 25 minutes" while somebody is still deciding.
 
 // EstimateRequest is a migration that has not been asked for yet. The fields are
 // the migration's own, so a caller estimates exactly what it will then start.

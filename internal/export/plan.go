@@ -16,9 +16,8 @@ import (
 //
 // checkLimits has always known: it walks the hierarchy, counts every device's
 // records and refuses when a limit is breached. But it is reached only from
-// Run, it renders a fixed-width table byte-compatible with the bash
-// implementation, and it discards the totals whenever nothing is breached - so
-// the numbers exist and nobody outside can have them.
+// Run, it renders a fixed-width table, and it discards the totals whenever
+// nothing is breached - so the numbers exist and nobody outside can have them.
 //
 // This exposes the same walk and the same counting as data, for a caller that
 // wants to say "9 objects, 1.2 million measurements" before anything is
@@ -282,9 +281,8 @@ func orderedIDs(rootID string, planned map[string]bool) []string {
 
 // plannedIdentities is every external identity an object carries.
 //
-// The same call exportIdentities makes, without the writing. It used to return
-// only a count, then only the types; the whole identity comes from the same
-// response and costs nothing extra.
+// The same call exportIdentities makes, without the writing. The whole identity
+// comes from the same response as a count would, so it costs nothing extra.
 func (e *Exporter) plannedIdentities(ctx context.Context, id string) ([]Identity, error) {
 	result := e.client.Identity.List(ctx, id)
 	if result.Err != nil {

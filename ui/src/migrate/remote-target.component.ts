@@ -13,9 +13,9 @@ import type { MigrationFlow } from './flow';
  * Its own modal rather than a panel inside the migration dialogue, and that is
  * the point: establishing the connection is a short errand with its own steps -
  * name the tenant, carry a certificate to it, come back - and it happens once,
- * for a target that is set up again rarely. Inline it occupied a third of the
- * dialogue permanently to serve the uncommon case, and switching it on read as a
- * mode the whole form was in rather than as an answer to "which tenant".
+ * for a target that is set up again rarely. Inline it would occupy a third of
+ * the dialogue permanently to serve the uncommon case, and switching it on would
+ * read as a mode the whole form is in rather than as an answer to "which tenant".
  *
  * The connection is a certificate: the service mints one, the operator registers
  * the public half on the target, and nobody's password is exposed. The private

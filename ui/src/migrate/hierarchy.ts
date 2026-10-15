@@ -7,7 +7,7 @@ import { gettext } from '../i18n';
  * default follows assets and devices, which is what almost every migration wants.
  * So the choice is folded away behind a sentence describing what would happen,
  * and the sentence has to stay true - a note that still said "assets and devices"
- * after somebody narrowed it would be worse than the checkboxes it replaced.
+ * after somebody narrowed it would be worse than the checkboxes it stands in for.
  *
  * Built here rather than in the component so the wording can be tested without a
  * browser, and so every sentence it can produce is a literal a catalogue

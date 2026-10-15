@@ -113,7 +113,7 @@ export class RootPickerComponent implements OnInit {
    * What the selector emits, as what a migration needs.
    *
    * The reading of it is in selection.ts, where it is tested: the emitted shape
-   * is an envelope rather than the selected object, and getting that wrong made
+   * is an envelope rather than the selected object, and getting that wrong makes
    * a working picker look broken.
    *
    * A cleared selection is passed on as nothing, so the dialogue forgets the

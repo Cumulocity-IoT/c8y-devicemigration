@@ -65,10 +65,9 @@ import { explain, type Failure, type GridRow } from './rows';
             <p class="m-0">{{ outcome.message }}</p>
           </div>
           <!--
-            A false here used to mean one thing - the target dropped the flag -
-            because this always asked for true. Now it can also be what was
-            asked for, and the two need different words: one is a failure of the
-            move, the other is the move working as chosen.
+            A false here means one of two things: the target dropped the flag,
+            or false is what was asked for. The two need different words: one is
+            a failure of the move, the other is the move working as chosen.
           -->
           @if (outcome.autoRegistrationEnabled !== autoRegistration()) {
             <div class="alert alert-danger">
@@ -134,9 +133,9 @@ import { explain, type Failure, type GridRow } from './rows';
             target: with it on, anything presenting a chain to this certificate
             is registered there. The box starts on the source tenant's own answer,
             so moving the certificate changes nothing by itself and turning it on
-            is a decision somebody takes - it used to be forced on, and a tenant
-            that had deliberately trusted a CA without it got it switched on with
-            nothing saying so.
+            is a decision somebody takes. Forcing it on would switch it on, with
+            nothing saying so, for a tenant that had deliberately trusted a CA
+            without it.
           -->
           @if (chosen()) {
             <div class="m-b-8">
