@@ -3,12 +3,15 @@ module github.com/Cumulocity-IoT/c8y-devicemigration
 go 1.25.1
 
 require (
+	github.com/prometheus/client_golang v1.23.2
 	github.com/reubenmiller/go-c8y/v2 v2.0.0-20260618215003-5174b8382110
 	github.com/spf13/cobra v1.10.2
-	github.com/tidwall/gjson v1.18.0
-	github.com/tidwall/sjson v1.2.5
+	github.com/tidwall/gjson v1.20.0
+	github.com/tidwall/sjson v1.2.6
 	golang.org/x/crypto v0.55.0
 	gopkg.in/yaml.v3 v3.0.1
+	resty.dev/v3 v3.0.0-beta.6.0.20260128173335-37296c9841e6
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -27,7 +30,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
@@ -48,6 +50,4 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
-	resty.dev/v3 v3.0.0-beta.6.0.20260128173335-37296c9841e6 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )
