@@ -26,41 +26,39 @@ import type { GridRow } from './rows';
       [title]="'Undo no longer possible' | translate"
       [labels]="{ ok: '', cancel: 'Close' | translate }"
     >
-      <div class="p-24">
-        <p>
+      <p>
+        {{
+          'This migration went to {{ target }}, a tenant this service is not subscribed to. It reached it with a certificate it generated for that one migration, and undoing it means presenting the same certificate again — a migration deletes only what its own identity created.'
+            | translate: { target: row.target }
+        }}
+      </p>
+      <p>
+        {{
+          'That certificate is gone. It is valid for six hours and is never written down, so it also does not survive a restart of the service. There is no way to mint another that the target tenant would recognise as the same identity.'
+            | translate
+        }}
+      </p>
+
+      <p class="text-medium m-b-4">{{ 'What still works' | translate }}</p>
+      <ul>
+        <li>
           {{
-            'This migration went to {{ target }}, a tenant this service is not subscribed to. It reached it with a certificate it generated for that one migration, and undoing it means presenting the same certificate again — a migration deletes only what its own identity created.'
-              | translate: { target: row.target }
+            'Undo it from the command line, with a session for the target tenant: c8y-devicemigration revert --runId {{ runId }} --session target.json'
+              | translate: { runId: row.scope.runId }
           }}
-        </p>
-        <p>
+        </li>
+        <li>
           {{
-            'That certificate is gone. It is valid for six hours and is never written down, so it also does not survive a restart of the service. There is no way to mint another that the target tenant would recognise as the same identity.'
+            'Or, in the target tenant itself, delete the objects carrying the run marker below.'
               | translate
           }}
-        </p>
+        </li>
+      </ul>
 
-        <p class="text-medium m-b-4">{{ 'What still works' | translate }}</p>
-        <ul>
-          <li>
-            {{
-              'Undo it from the command line, with a session for the target tenant: c8y-devicemigration revert --runId {{ runId }} --session target.json'
-                | translate: { runId: row.scope.runId }
-            }}
-          </li>
-          <li>
-            {{
-              'Or, in the target tenant itself, delete the objects carrying the run marker below.'
-                | translate
-            }}
-          </li>
-        </ul>
-
-        <p class="text-muted small m-b-0">
-          {{ 'Run marker' | translate }}:
-          <code>{{ row.scope.marker }}</code>
-        </p>
-      </div>
+      <p class="text-muted small m-b-0">
+        {{ 'Run marker' | translate }}:
+        <code>{{ row.scope.marker }}</code>
+      </p>
     </c8y-modal>
   `
 })

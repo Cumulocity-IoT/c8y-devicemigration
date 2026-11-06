@@ -21,22 +21,20 @@ import type { Job } from '../api/client';
       [title]="'Migration log' | translate"
       [labels]="{ ok: '', cancel: 'Close' | translate }"
     >
-      <div class="p-24">
-        @if (job.error) {
-          <!-- The service's own words, which is what somebody would search for. -->
-          <div class="alert alert-danger">{{ job.error }}</div>
-        }
+      @if (job.error) {
+        <!-- The service's own words, which is what somebody would search for. -->
+        <div class="alert alert-danger">{{ job.error }}</div>
+      }
 
-        <p class="text-muted small">
-          {{
-            'The last {{ lines }} lines the engine printed. The whole output is in the microservice log.'
-              | translate: { lines: job.progress?.length || 0 }
-          }}
-        </p>
-        <pre class="m-0" style="max-height: 60vh; overflow: auto">{{
-          job.progress?.join('\n')
-        }}</pre>
-      </div>
+      <p class="text-muted small">
+        {{
+          'The last {{ lines }} lines the engine printed. The whole output is in the microservice log.'
+            | translate: { lines: job.progress?.length || 0 }
+        }}
+      </p>
+      <pre class="m-0" style="max-height: 60vh; overflow: auto">{{
+        job.progress?.join('\n')
+      }}</pre>
     </c8y-modal>
   `
 })
