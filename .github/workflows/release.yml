@@ -97,7 +97,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
-          cache: true
+          # No dependency cache anywhere in a release. A tag run can restore
+          # the caches ci.yml saved on main, so anything that ran there could
+          # have written into them, and Go does not check a restored module
+          # or build cache against go.sum. Downloading and building from
+          # scratch costs a minute or two per release.
+          cache: false
 
       - name: Go checks
         run: make go-lint go-build go-test
@@ -112,7 +117,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
-          cache: true
+          # Uncached, for the reason given in verify.
+          cache: false
 
       - name: Cross-compile and archive
         run: make dist VERSION=${{ needs.version.outputs.version }}
@@ -169,8 +175,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          # Uncached, for the reason given in verify. Said explicitly because
+          # setup-node turns the npm cache on by itself once package.json
+          # names npm as its packageManager.
+          package-manager-cache: false
 
       - name: Install
         run: npm --prefix ui ci --no-audit --no-fund
