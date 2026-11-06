@@ -1,7 +1,7 @@
 # The sandbox image: this repository's whole toolchain, an autonomous agent,
 # and the firewall that contains it. See docs/devcontainer.md for the design.
 #
-# node:22-bookworm rather than a Go base: Node 22 matches CI's pin, the full
+# node:24-bookworm rather than a Go base: Node 24 matches CI's pin, the full
 # image already ships git, python3 and make with a uid-1000 `node` user, and
 # Debian's dnsmasq is built with the ipset support the firewall depends on.
 # Adding Go to a Node image is one tarball; the reverse is not.
@@ -9,7 +9,7 @@
 # The image build runs on the host with an open network - only the *running*
 # container is filtered - so pinned tarballs may come from hosts the runtime
 # allowlist never mentions (go.dev, github release downloads).
-FROM node:22-bookworm
+FROM node:24-bookworm
 
 # Provided by buildx: arm64 under Colima on Apple Silicon, amd64 elsewhere.
 ARG TARGETARCH
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Go, the exact version go.mod names. GOTOOLCHAIN=local in the container env
 # forbids auto-downloading a newer one through the firewall, so what is here is
 # what runs.
-ARG GO_VERSION=1.25.1
+ARG GO_VERSION=1.27.3
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
 	| tar -C /usr/local -xz
 ENV PATH=$PATH:/usr/local/go/bin:/home/node/go/bin

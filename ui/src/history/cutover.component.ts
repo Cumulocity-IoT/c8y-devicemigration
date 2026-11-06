@@ -44,143 +44,141 @@ import { explain, type Failure, type GridRow } from './rows';
       [close]="submit"
       [disabled]="!done() && (!chosen() || busy())"
     >
-      <div class="p-24">
-        @if (failure(); as problem) {
+      @if (failure(); as problem) {
+        <div class="alert alert-danger">
+          <strong>{{ problem.title | translate }}</strong>
+          <p class="m-0">{{ problem.detail | translate }}</p>
+        </div>
+      }
+
+      @if (done(); as outcome) {
+        <!--
+          Shown instead of the chooser once it has happened, because the
+          certificate has gone from the source and the list behind this is now
+          wrong. autoRegistrationEnabled is read back from the target rather
+          than assumed: a target that took the certificate and dropped that flag
+          would refuse every arriving device, silently.
+        -->
+        <div class="alert alert-success">
+          <strong>{{ 'The certificate has moved.' | translate }}</strong>
+          <p class="m-0">{{ outcome.message }}</p>
+        </div>
+        <!--
+          A false here means one of two things: the target dropped the flag,
+          or false is what was asked for. The two need different words: one is
+          a failure of the move, the other is the move working as chosen.
+        -->
+        @if (outcome.autoRegistrationEnabled !== autoRegistration()) {
           <div class="alert alert-danger">
-            <strong>{{ problem.title | translate }}</strong>
-            <p class="m-0">{{ problem.detail | translate }}</p>
-          </div>
-        }
-
-        @if (done(); as outcome) {
-          <!--
-            Shown instead of the chooser once it has happened, because the
-            certificate has gone from the source and the list behind this is now
-            wrong. autoRegistrationEnabled is read back from the target rather
-            than assumed: a target that took the certificate and dropped that flag
-            would refuse every arriving device, silently.
-          -->
-          <div class="alert alert-success">
-            <strong>{{ 'The certificate has moved.' | translate }}</strong>
-            <p class="m-0">{{ outcome.message }}</p>
-          </div>
-          <!--
-            A false here means one of two things: the target dropped the flag,
-            or false is what was asked for. The two need different words: one is
-            a failure of the move, the other is the move working as chosen.
-          -->
-          @if (outcome.autoRegistrationEnabled !== autoRegistration()) {
-            <div class="alert alert-danger">
-              {{
-                'The target reports auto-registration differently from what was asked for, so which devices this certificate admits is not what you chose. Check it in the target tenant before the devices reconnect.'
-                  | translate
-              }}
-            </div>
-          } @else if (!outcome.autoRegistrationEnabled) {
-            <div class="alert alert-warning">
-              {{
-                'Auto-registration is off for this certificate, as you chose. A device arriving with no device user of its own in the target will be refused.'
-                  | translate
-              }}
-            </div>
-          }
-        } @else {
-          <p>
             {{
-              'The devices of this migration authenticate with certificates, so they have nothing new to learn. They move when {{ target }} trusts the authority that issued them.'
-                | translate: { target: row.target }
+              'The target reports auto-registration differently from what was asked for, so which devices this certificate admits is not what you chose. Check it in the target tenant before the devices reconnect.'
+                | translate
             }}
-          </p>
-
-          @if (loading()) {
-            <p class="text-muted">{{ 'Reading the trusted certificates…' | translate }}</p>
-          } @else if (!certificates().length) {
-            <p class="text-muted">
-              {{ 'This tenant has no trusted certificates to move.' | translate }}
-            </p>
-          } @else {
-            <!--
-              Unmovable ones are listed with their reason rather than hidden. A
-              fleet enrolled against the tenant's own authority has to be
-              re-enrolled, and that is the answer somebody needs here - not an
-              empty list that looks like a bug.
-            -->
-            @for (certificate of certificates(); track certificate.fingerprint) {
-              <label class="c8y-radio d-block" [class.text-muted]="!certificate.movable">
-                <input
-                  type="radio"
-                  name="certificate"
-                  [disabled]="!certificate.movable"
-                  [checked]="chosen() === certificate.fingerprint"
-                  (change)="choose(certificate)"
-                />
-                <span></span>
-                <span>
-                  <strong>{{ certificate.name || certificate.fingerprint }}</strong>
-                  @if (certificate.subject) {
-                    <span class="text-muted"> · {{ certificate.subject }}</span>
-                  }
-                  @if (certificate.reason) {
-                    <span class="d-block text-muted small">{{ certificate.reason }}</span>
-                  }
-                </span>
-              </label>
-            }
-          }
-
-          <!--
-            Auto-registration decides which devices this CA may bring into the
-            target: with it on, anything presenting a chain to this certificate
-            is registered there. The box starts on the source tenant's own answer,
-            so moving the certificate changes nothing by itself and turning it on
-            is a decision somebody takes. Forcing it on would switch it on, with
-            nothing saying so, for a tenant that had deliberately trusted a CA
-            without it.
-          -->
-          @if (chosen()) {
-            <div class="m-b-8">
-              <label class="c8y-checkbox">
-                <input
-                  type="checkbox"
-                  [checked]="autoRegistration()"
-                  (change)="setAutoRegistration($any($event.target).checked)"
-                />
-                <span></span>
-                <span>{{ 'Register devices presenting this certificate automatically' | translate }}</span>
-              </label>
-              <p class="help-block m-0">
-                @if (autoRegistration() && !sourceAutoRegistration()) {
-                  {{
-                    'This is off in the source tenant. Turning it on lets any device with a certificate from this authority register itself in the target, including devices no migration covered.'
-                      | translate
-                  }}
-                } @else if (!autoRegistration()) {
-                  {{
-                    'A device arriving with no device user of its own in the target will be refused. Devices a migration already created one for are unaffected.'
-                      | translate
-                  }}
-                } @else {
-                  {{
-                    'This is how the source tenant has it. Any device with a certificate from this authority can register itself in the target.'
-                      | translate
-                  }}
-                }
-              </p>
-            </div>
-          }
-
-          @if (warning()) {
-            <div class="alert alert-warning m-b-8">{{ warning() }}</div>
-          }
-
-          <div class="alert alert-warning m-b-8">
+          </div>
+        } @else if (!outcome.autoRegistrationEnabled) {
+          <div class="alert alert-warning">
             {{
-              'The certificate is removed from the source tenant before it is added to the target. Until the second step finishes, no device chained to it can reach either tenant. If the target refuses it, this service puts it back in the source.'
+              'Auto-registration is off for this certificate, as you chose. A device arriving with no device user of its own in the target will be refused.'
                 | translate
             }}
           </div>
         }
-      </div>
+      } @else {
+        <p>
+          {{
+            'The devices of this migration authenticate with certificates, so they have nothing new to learn. They move when {{ target }} trusts the authority that issued them.'
+              | translate: { target: row.target }
+          }}
+        </p>
+
+        @if (loading()) {
+          <p class="text-muted">{{ 'Reading the trusted certificates…' | translate }}</p>
+        } @else if (!certificates().length) {
+          <p class="text-muted">
+            {{ 'This tenant has no trusted certificates to move.' | translate }}
+          </p>
+        } @else {
+          <!--
+            Unmovable ones are listed with their reason rather than hidden. A
+            fleet enrolled against the tenant's own authority has to be
+            re-enrolled, and that is the answer somebody needs here - not an
+            empty list that looks like a bug.
+          -->
+          @for (certificate of certificates(); track certificate.fingerprint) {
+            <label class="c8y-radio d-block" [class.text-muted]="!certificate.movable">
+              <input
+                type="radio"
+                name="certificate"
+                [disabled]="!certificate.movable"
+                [checked]="chosen() === certificate.fingerprint"
+                (change)="choose(certificate)"
+              />
+              <span></span>
+              <span>
+                <strong>{{ certificate.name || certificate.fingerprint }}</strong>
+                @if (certificate.subject) {
+                  <span class="text-muted"> · {{ certificate.subject }}</span>
+                }
+                @if (certificate.reason) {
+                  <span class="d-block text-muted small">{{ certificate.reason }}</span>
+                }
+              </span>
+            </label>
+          }
+        }
+
+        <!--
+          Auto-registration decides which devices this CA may bring into the
+          target: with it on, anything presenting a chain to this certificate
+          is registered there. The box starts on the source tenant's own answer,
+          so moving the certificate changes nothing by itself and turning it on
+          is a decision somebody takes. Forcing it on would switch it on, with
+          nothing saying so, for a tenant that had deliberately trusted a CA
+          without it.
+        -->
+        @if (chosen()) {
+          <div class="m-b-8">
+            <label class="c8y-checkbox">
+              <input
+                type="checkbox"
+                [checked]="autoRegistration()"
+                (change)="setAutoRegistration($any($event.target).checked)"
+              />
+              <span></span>
+              <span>{{ 'Register devices presenting this certificate automatically' | translate }}</span>
+            </label>
+            <p class="help-block m-0">
+              @if (autoRegistration() && !sourceAutoRegistration()) {
+                {{
+                  'This is off in the source tenant. Turning it on lets any device with a certificate from this authority register itself in the target, including devices no migration covered.'
+                    | translate
+                }}
+              } @else if (!autoRegistration()) {
+                {{
+                  'A device arriving with no device user of its own in the target will be refused. Devices a migration already created one for are unaffected.'
+                    | translate
+                }}
+              } @else {
+                {{
+                  'This is how the source tenant has it. Any device with a certificate from this authority can register itself in the target.'
+                    | translate
+                }}
+              }
+            </p>
+          </div>
+        }
+
+        @if (warning()) {
+          <div class="alert alert-warning m-b-8">{{ warning() }}</div>
+        }
+
+        <div class="alert alert-warning m-b-8">
+          {{
+            'The certificate is removed from the source tenant before it is added to the target. Until the second step finishes, no device chained to it can reach either tenant. If the target refuses it, this service puts it back in the source.'
+              | translate
+          }}
+        </div>
+      }
     </c8y-modal>
   `
 })

@@ -31,63 +31,61 @@ import { explain, type Failure, type GridRow } from './rows';
       [labels]="{ ok: 'Undo migration' | translate, cancel: 'Cancel' | translate }"
       [close]="submit"
     >
-      <div class="p-24">
-        @if (failure(); as problem) {
-          <div class="alert alert-danger">
-            <strong>{{ problem.title | translate }}</strong>
-            <p class="m-0">{{ problem.detail | translate }}</p>
-          </div>
-        }
+      @if (failure(); as problem) {
+        <div class="alert alert-danger">
+          <strong>{{ problem.title | translate }}</strong>
+          <p class="m-0">{{ problem.detail | translate }}</p>
+        </div>
+      }
 
-        <p>
-          {{
-            'This deletes from {{ target }} everything the migration created. The devices in {{ source }} are not touched.'
-              | translate: { target: row.target, source: row.source }
-          }}
-        </p>
+      <p>
+        {{
+          'This deletes from {{ target }} everything the migration created. The devices in {{ source }} are not touched.'
+            | translate: { target: row.target, source: row.source }
+        }}
+      </p>
 
-        <dl class="revert-summary">
-          <dt>{{ 'Root object' | translate }}</dt>
-          <dd>{{ row.what }}</dd>
+      <dl class="revert-summary">
+        <dt>{{ 'Root object' | translate }}</dt>
+        <dd>{{ row.what }}</dd>
 
-          <dt>{{ 'Target tenant' | translate }}</dt>
-          <dd>{{ row.target }}</dd>
+        <dt>{{ 'Target tenant' | translate }}</dt>
+        <dd>{{ row.target }}</dd>
 
-          <dt>{{ 'Migrated' | translate }}</dt>
-          <dd>{{ row.started }}</dd>
+        <dt>{{ 'Migrated' | translate }}</dt>
+        <dd>{{ row.started }}</dd>
 
-          <dt>{{ 'Relationships' | translate }}</dt>
-          <dd>{{ row.scope.relationships }}</dd>
+        <dt>{{ 'Relationships' | translate }}</dt>
+        <dd>{{ row.scope.relationships }}</dd>
 
-          <dt>{{ 'Device data' | translate }}</dt>
-          <dd>
-            {{ row.scope.dataTypes }}
-            @if (row.scope.window) {
-              <span class="text-muted">· {{ row.scope.window }}</span>
-            }
-          </dd>
+        <dt>{{ 'Device data' | translate }}</dt>
+        <dd>
+          {{ row.scope.dataTypes }}
+          @if (row.scope.window) {
+            <span class="text-muted">· {{ row.scope.window }}</span>
+          }
+        </dd>
 
-          <dt>{{ 'Run marker' | translate }}</dt>
-          <dd><code>{{ row.scope.marker }}</code></dd>
-        </dl>
+        <dt>{{ 'Run marker' | translate }}</dt>
+        <dd><code>{{ row.scope.marker }}</code></dd>
+      </dl>
 
-        <p class="text-muted small">
-          {{
-            'Everything carrying that marker is deleted. Nothing else is, and objects already gone are skipped.'
-              | translate
-          }}
-        </p>
+      <p class="text-muted small">
+        {{
+          'Everything carrying that marker is deleted. Nothing else is, and objects already gone are skipped.'
+            | translate
+        }}
+      </p>
 
-        <!--
-          No padding utility on these. The alert class draws its icon as an
-          absolutely positioned ::before in a 44px gutter, and the padding it
-          ships with is what keeps the text out of it - overriding that with p-8
-          would put the words underneath the warning triangle.
-        -->
-        @for (warning of row.revertWarnings; track warning) {
-          <div class="alert alert-warning m-b-8">{{ warning }}</div>
-        }
-      </div>
+      <!--
+        No padding utility on these. The alert class draws its icon as an
+        absolutely positioned ::before in a 44px gutter, and the padding it
+        ships with is what keeps the text out of it - overriding that with p-8
+        would put the words underneath the warning triangle.
+      -->
+      @for (warning of row.revertWarnings; track warning) {
+        <div class="alert alert-warning m-b-8">{{ warning }}</div>
+      }
     </c8y-modal>
   `,
   styles: [

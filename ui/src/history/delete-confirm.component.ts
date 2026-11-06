@@ -32,63 +32,61 @@ import { explain, type Failure, type GridRow } from './rows';
       [labels]="{ ok: confirmation | translate, cancel: 'Cancel' | translate }"
       [close]="submit"
     >
-      <div class="p-24">
-        @if (failure(); as problem) {
-          <div class="alert alert-danger">
-            <strong>{{ problem.title | translate }}</strong>
-            <p class="m-0">{{ problem.detail | translate }}</p>
-          </div>
+      @if (failure(); as problem) {
+        <div class="alert alert-danger">
+          <strong>{{ problem.title | translate }}</strong>
+          <p class="m-0">{{ problem.detail | translate }}</p>
+        </div>
+      }
+
+      <p>
+        {{
+          'This removes the record of what happened. It deletes nothing in either tenant: whatever was migrated stays exactly where it is.'
+            | translate
+        }}
+      </p>
+
+      <!--
+        Two branches rather than a ternary label, because an undo and a
+        migration are described by different things: "Root object: undo of
+        20260101T…" reads as a mistake, and the run id an undo would repeat in
+        a row of its own is the only thing identifying it anyway.
+      -->
+      <dl class="delete-summary">
+        @if (row.isRevert) {
+          <dt>{{ 'Undo of run' | translate }}</dt>
+          <dd><code>{{ row.runId }}</code></dd>
+        } @else {
+          <dt>{{ 'Root object' | translate }}</dt>
+          <dd>{{ row.what }}</dd>
         }
 
-        <p>
-          {{
-            'This removes the record of what happened. It deletes nothing in either tenant: whatever was migrated stays exactly where it is.'
-              | translate
-          }}
-        </p>
-
-        <!--
-          Two branches rather than a ternary label, because an undo and a
-          migration are described by different things: "Root object: undo of
-          20260101T…" reads as a mistake, and the run id an undo would repeat in
-          a row of its own is the only thing identifying it anyway.
-        -->
-        <dl class="delete-summary">
-          @if (row.isRevert) {
-            <dt>{{ 'Undo of run' | translate }}</dt>
-            <dd><code>{{ row.runId }}</code></dd>
-          } @else {
-            <dt>{{ 'Root object' | translate }}</dt>
-            <dd>{{ row.what }}</dd>
-          }
-
-          @if (row.target) {
-            <dt>{{ 'Target tenant' | translate }}</dt>
-            <dd>{{ row.target }}</dd>
-          }
-
-          <dt>{{ 'Start time' | translate }}</dt>
-          <dd>{{ row.started }}</dd>
-
-          @if (!row.isRevert && row.runId) {
-            <dt>{{ 'Run id' | translate }}</dt>
-            <dd><code>{{ row.runId }}</code></dd>
-          }
-        </dl>
-
-        @if (row.undosDeleted) {
-          <p class="text-muted small">{{ row.undosDeleted }}</p>
+        @if (row.target) {
+          <dt>{{ 'Target tenant' | translate }}</dt>
+          <dd>{{ row.target }}</dd>
         }
 
-        <!--
-          The alerts carry their own padding: the class draws its icon as an
-          absolutely positioned ::before in a 44px gutter, and a padding utility
-          on top of it puts the words underneath the triangle.
-        -->
-        @for (warning of row.deleteWarnings; track warning) {
-          <div class="alert alert-warning m-b-8">{{ warning }}</div>
+        <dt>{{ 'Start time' | translate }}</dt>
+        <dd>{{ row.started }}</dd>
+
+        @if (!row.isRevert && row.runId) {
+          <dt>{{ 'Run id' | translate }}</dt>
+          <dd><code>{{ row.runId }}</code></dd>
         }
-      </div>
+      </dl>
+
+      @if (row.undosDeleted) {
+        <p class="text-muted small">{{ row.undosDeleted }}</p>
+      }
+
+      <!--
+        The alerts carry their own padding: the class draws its icon as an
+        absolutely positioned ::before in a 44px gutter, and a padding utility
+        on top of it puts the words underneath the triangle.
+      -->
+      @for (warning of row.deleteWarnings; track warning) {
+        <div class="alert alert-warning m-b-8">{{ warning }}</div>
+      }
     </c8y-modal>
   `,
   styles: [

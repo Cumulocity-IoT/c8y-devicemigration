@@ -128,7 +128,10 @@ surface stays one line.
    driving the `claude` the image already carries. It comes only with a VS
    Code window; `devcontainer up` and `docker exec` sessions get the CLI and
    nothing else, which is where the long autonomous runs belong anyway (see
-   the SSH-agent gotcha below).
+   the SSH-agent gotcha below). `"waitFor": "postStartCommand"` keeps the
+   window from connecting until the firewall is up: connecting earlier raced
+   the firewall script's dnsmasq restart, the install failed without a
+   message, and the extension had to be installed by hand after each rebuild.
 3. The checks all run inside: `make check` — on Linux `make` *is* GNU make.
    Every tool the Makefile can use is baked into the image at CI's own pins
    (shellcheck 0.11.0, actionlint 1.7.12), deliberately: the Makefile skips
@@ -176,7 +179,7 @@ is small: CI builds the same zip on every push, and the host builds it in one
 command. Two things worth knowing if it is ever revisited: the base image pull
 needs `docker.io` **and** `production.cloudfront.docker.com` on the allowlist —
 Hub redirects blob downloads there — and podman needs
-`unqualified-search-registries` configured, or a bare `golang:1.25-alpine` does
+`unqualified-search-registries` configured, or a bare `golang:1.27-alpine` does
 not resolve at all.
 
 The daemonless alternative remains open and costs no privilege: build the

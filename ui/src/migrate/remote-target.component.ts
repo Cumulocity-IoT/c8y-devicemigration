@@ -33,74 +33,72 @@ import type { MigrationFlow } from './flow';
       [close]="submit"
       [disabled]="busy()"
     >
-      <div class="p-24">
-        @if (flow.failure; as problem) {
-          <div class="alert alert-danger">
-            <strong>{{ problem.title | translate }}</strong>
-            <p class="m-0">{{ problem.detail | translate }}</p>
-          </div>
-        }
+      @if (flow.failure; as problem) {
+        <div class="alert alert-danger">
+          <strong>{{ problem.title | translate }}</strong>
+          <p class="m-0">{{ problem.detail | translate }}</p>
+        </div>
+      }
 
-        <p class="text-muted">
+      <p class="text-muted">
+        {{
+          'For a tenant under a different parent tenant or on another system. The connection is a certificate rather than a password: this service mints one, you register the public half on that tenant, and the private half never leaves here.'
+            | translate
+        }}
+      </p>
+
+      @if (!flow.remoteTarget) {
+        <c8y-form-group>
+          <label for="remoteHost">{{ 'Target host' | translate }}</label>
+          <input
+            id="remoteHost"
+            class="form-control"
+            placeholder="t22222.eu-latest.cumulocity.com"
+            [ngModel]="host()"
+            (ngModelChange)="host.set($event)"
+          />
+        </c8y-form-group>
+        <c8y-form-group>
+          <label for="remoteTenant">{{ 'Target tenant id' | translate }}</label>
+          <input
+            id="remoteTenant"
+            class="form-control"
+            placeholder="t22222"
+            [ngModel]="tenant()"
+            (ngModelChange)="tenant.set($event)"
+          />
+        </c8y-form-group>
+      } @else {
+        <p class="text-medium m-b-2">
+          {{ 'Trust this certificate on the target tenant' | translate }}
+        </p>
+        <p class="text-muted small m-b-8">
           {{
-            'For a tenant under a different parent tenant or on another system. The connection is a certificate rather than a password: this service mints one, you register the public half on that tenant, and the private half never leaves here.'
+            'In the target tenant, open Device migration and paste the certificate below. A tenant without the migration service opens straight onto that screen.'
               | translate
           }}
         </p>
-
-        @if (!flow.remoteTarget) {
-          <c8y-form-group>
-            <label for="remoteHost">{{ 'Target host' | translate }}</label>
-            <input
-              id="remoteHost"
-              class="form-control"
-              placeholder="t22222.eu-latest.cumulocity.com"
-              [ngModel]="host()"
-              (ngModelChange)="host.set($event)"
-            />
-          </c8y-form-group>
-          <c8y-form-group>
-            <label for="remoteTenant">{{ 'Target tenant id' | translate }}</label>
-            <input
-              id="remoteTenant"
-              class="form-control"
-              placeholder="t22222"
-              [ngModel]="tenant()"
-              (ngModelChange)="tenant.set($event)"
-            />
-          </c8y-form-group>
-        } @else {
-          <p class="text-medium m-b-2">
-            {{ 'Trust this certificate on the target tenant' | translate }}
-          </p>
-          <p class="text-muted small m-b-8">
-            {{
-              'In the target tenant, open Device migration and paste the certificate below. A tenant without the migration service opens straight onto that screen.'
-                | translate
-            }}
-          </p>
-          <textarea
-            class="form-control m-b-8 device-migration-pem"
-            rows="5"
-            readonly
-            >{{ flow.remoteTarget.caCertificate }}</textarea
-          >
-          <div class="d-flex gap-8 a-i-center">
-            <button class="btn btn-default btn-sm" type="button" (click)="copy()">
-              {{ copied() ? ('Copied' | translate) : ('Copy certificate' | translate) }}
-            </button>
-            <button class="btn btn-default btn-sm" type="button" (click)="download()">
-              {{ 'Download certificate' | translate }}
-            </button>
-          </div>
-          <p class="text-muted small m-t-8 m-b-0">
-            {{
-              'Without the plugin on that tenant, add the downloaded file under Administration → Device management → Trusted certificates, with auto-registration enabled.'
-                | translate
-            }}
-          </p>
-        }
-      </div>
+        <textarea
+          class="form-control m-b-8 device-migration-pem"
+          rows="5"
+          readonly
+          >{{ flow.remoteTarget.caCertificate }}</textarea
+        >
+        <div class="d-flex gap-8 a-i-center">
+          <button class="btn btn-default btn-sm" type="button" (click)="copy()">
+            {{ copied() ? ('Copied' | translate) : ('Copy certificate' | translate) }}
+          </button>
+          <button class="btn btn-default btn-sm" type="button" (click)="download()">
+            {{ 'Download certificate' | translate }}
+          </button>
+        </div>
+        <p class="text-muted small m-t-8 m-b-0">
+          {{
+            'Without the plugin on that tenant, add the downloaded file under Administration → Device management → Trusted certificates, with auto-registration enabled.'
+              | translate
+          }}
+        </p>
+      }
     </c8y-modal>
   `,
   styles: [

@@ -202,14 +202,14 @@ new objects, so migrating the same hierarchy twice produces two copies.
 
 ## Plugin versions
 
-Plugin versions 0.5.0 and later are built with:
+Plugin versions are built with:
 
-| | |
-| --- | --- |
-| Angular | 21.x |
-| WebSDK | 1024.16.12 |
-| node | 20.19 or newer |
-| npm | 10.x |
+| | 0.5.0 to 1.0.0 | 1.1.0 and later |
+| --- | --- | --- |
+| Angular | 21.x | 21.x |
+| WebSDK | 1024.16.12 | 1024.23.0 |
+| node | 20.19 or newer | 20.19 to 24 |
+| npm | 10.x | 11.x |
 
 ## How to start
 

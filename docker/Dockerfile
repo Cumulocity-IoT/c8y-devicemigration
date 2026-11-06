@@ -5,7 +5,7 @@
 # through GOARCH below. Pinning this stage to linux/amd64 instead would put the
 # whole Go build under emulation on an Apple Silicon machine, which is minutes
 # rather than seconds for the same output.
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 
 # Set by buildx from --platform. The default covers a plain `docker build`, and
 # amd64 is the only architecture the platform runs.
