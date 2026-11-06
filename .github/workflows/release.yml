@@ -94,7 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
           cache: true
@@ -109,7 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
           cache: true
@@ -166,9 +166,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
@@ -258,17 +258,17 @@ jobs:
       # one: a glob over a shared directory can resolve to a subdirectory, and
       # `gh release create` ignores directory arguments without saying so, which
       # would publish a release missing some of its archives.
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: cli
           path: assets/cli
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: microservice
           path: assets/microservice
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ui
           path: assets/ui

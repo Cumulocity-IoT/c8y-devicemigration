@@ -1,7 +1,7 @@
 # The sandbox image: this repository's whole toolchain, an autonomous agent,
 # and the firewall that contains it. See docs/devcontainer.md for the design.
 #
-# node:22-bookworm rather than a Go base: Node 22 matches CI's pin, the full
+# node:24-bookworm rather than a Go base: Node 24 matches CI's pin, the full
 # image already ships git, python3 and make with a uid-1000 `node` user, and
 # Debian's dnsmasq is built with the ipset support the firewall depends on.
 # Adding Go to a Node image is one tarball; the reverse is not.
@@ -9,7 +9,7 @@
 # The image build runs on the host with an open network - only the *running*
 # container is filtered - so pinned tarballs may come from hosts the runtime
 # allowlist never mentions (go.dev, github release downloads).
-FROM node:22-bookworm
+FROM node:24-bookworm
 
 # Provided by buildx: arm64 under Colima on Apple Silicon, amd64 elsewhere.
 ARG TARGETARCH

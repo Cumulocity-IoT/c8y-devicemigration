@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           # The newest release, so the longest supported one. golang.org/x and
           # prometheus need 1.26 at least; go.mod pins the exact version.
@@ -74,10 +74,11 @@ jobs:
           # release build from a snapshot of one.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
-          # The 1024 Web SDK needs Angular 21, which needs Node 20.19+ or newer.
-          node-version: '22'
+          # The newest Node the 1024 Web SDK supports: its devkit declares node
+          # <=24. Angular 21 itself would take anything from 20.19.
+          node-version: '24'
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
