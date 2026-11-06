@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Go, the exact version go.mod names. GOTOOLCHAIN=local in the container env
 # forbids auto-downloading a newer one through the firewall, so what is here is
 # what runs.
-ARG GO_VERSION=1.25.1
+ARG GO_VERSION=1.27.3
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
 	| tar -C /usr/local -xz
 ENV PATH=$PATH:/usr/local/go/bin:/home/node/go/bin

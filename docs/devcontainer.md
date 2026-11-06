@@ -176,7 +176,7 @@ is small: CI builds the same zip on every push, and the host builds it in one
 command. Two things worth knowing if it is ever revisited: the base image pull
 needs `docker.io` **and** `production.cloudfront.docker.com` on the allowlist —
 Hub redirects blob downloads there — and podman needs
-`unqualified-search-registries` configured, or a bare `golang:1.25-alpine` does
+`unqualified-search-registries` configured, or a bare `golang:1.27-alpine` does
 not resolve at all.
 
 The daemonless alternative remains open and costs no privilege: build the

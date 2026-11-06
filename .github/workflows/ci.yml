@@ -35,8 +35,9 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          # go-c8y v2 requires 1.25; go.mod pins the language version.
-          go-version: '1.25'
+          # The newest release, so the longest supported one. golang.org/x and
+          # prometheus need 1.26 at least; go.mod pins the exact version.
+          go-version: '1.27'
           cache: true
 
       - name: gofmt and go vet
