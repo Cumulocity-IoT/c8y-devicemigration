@@ -128,7 +128,10 @@ surface stays one line.
    driving the `claude` the image already carries. It comes only with a VS
    Code window; `devcontainer up` and `docker exec` sessions get the CLI and
    nothing else, which is where the long autonomous runs belong anyway (see
-   the SSH-agent gotcha below).
+   the SSH-agent gotcha below). `"waitFor": "postStartCommand"` keeps the
+   window from connecting until the firewall is up: connecting earlier raced
+   the firewall script's dnsmasq restart, the install failed without a
+   message, and the extension had to be installed by hand after each rebuild.
 3. The checks all run inside: `make check` — on Linux `make` *is* GNU make.
    Every tool the Makefile can use is baked into the image at CI's own pins
    (shellcheck 0.11.0, actionlint 1.7.12), deliberately: the Makefile skips

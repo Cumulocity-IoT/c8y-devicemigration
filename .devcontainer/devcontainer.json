@@ -77,5 +77,13 @@
 
 	// iptables state dies with the container's network namespace, so every
 	// start re-applies it. The script is idempotent.
-	"postStartCommand": "sudo /usr/local/bin/init-firewall.sh"
+	"postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+
+	// VS Code connects, and installs the extensions above, only after both
+	// commands have finished. The default (updateContentCommand) let it connect
+	// while the firewall script was restarting dnsmasq: the marketplace lookup
+	// failed without a message, and every rebuild needed the extension
+	// installed by hand. The cost is a window that opens once the dependencies
+	// are primed rather than before.
+	"waitFor": "postStartCommand"
 }
